@@ -193,7 +193,7 @@ $builtinfunctions=native/@
   "Times"           ->"times",
   "Divide"          ->"divide",
 (* complex numbers *)
-  "Complex"->"complex",
+  "Complex"         ->"complex",
   "Re"              ->"re",
   "Im"              ->"im",
   "ReIm"            ->"re_im",

@@ -17,15 +17,6 @@
 
 #pragma once
 
-#include "types.h"
-#include "control.h"
-#include "clause.h"
-#include "arithmetic.h"
-#include "complex.h"
-#include "elementary.h"
-#include "numerical.h"
-#include "random.h"
-
 namespace wl
 {
 

@@ -18,15 +18,16 @@
 #pragma once
 
 #include "types.h"
-#include "control.h"
-#include "clause.h"
-#include "arithmetic.h"
-#include "complex.h"
-#include "elementary.h"
-#include "numerical.h"
-#include "random.h"
 
 namespace wl
 {
+
+constexpr auto const_null        = void_type();
+constexpr auto const_pi          = double(3.1415926535897932385e+0);
+constexpr auto const_e           = double(2.7182818284590452354e+0);
+constexpr auto const_degree      = double(1.7453292519943295769e-2);
+constexpr auto const_euler_gamma = double(5.7721566490153286061e-1);
+constexpr auto const_euler_gamma = double(5.7721566490153286061e-1);
+constexpr auto const_i           = std::complex<int64_t>(0, 1);
 
 }

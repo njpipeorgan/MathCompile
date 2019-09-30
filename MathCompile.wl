@@ -231,7 +231,7 @@ $builtinfunctions=native/@
   "Log2"            ->"log2",
   "Exp"             ->"exp",
   "Power"           ->"power",
-  "Sqrt"            ->"Sqrt",
+  "Sqrt"            ->"sqrt",
   "CubeRoot"        ->"cube_root",
   "Sin"             ->"sin",
   "Cos"             ->"cos",

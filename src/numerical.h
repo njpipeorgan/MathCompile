@@ -23,8 +23,6 @@
 namespace wl
 {
 
-#define WL_NO_STRING(type) static_assert(!is_string_v<type>, "invalid argument type")
-
 template<typename T>
 auto n(T&& x)
 {

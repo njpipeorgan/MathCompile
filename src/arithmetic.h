@@ -26,30 +26,73 @@
 namespace wl
 {
 
-#define WL_NO_STRING(type) static_assert(!is_string_v<type>, "invalid argument type")
+//=============================================================================
+// Scalar arithmetic functions
+//=============================================================================
 
-#define WL_DEFINE_ARITHMETIC_FUNCTION(name, expr)                       \
+#define WL_DEFINE_REAL_SCALAR_OPERATIONS(name, oper)  \
+template<typename X, typename Y>                      \
+auto _scalar_##name(const X& x, const Y& y)           \
+{ return common_type_t<X, Y>(x oper y); }
+
+WL_DEFINE_REAL_SCALAR_OPERATIONS(plus, +)
+WL_DEFINE_REAL_SCALAR_OPERATIONS(subtract, -)
+WL_DEFINE_REAL_SCALAR_OPERATIONS(times, *)
+
+template<typename X, typename Y>
+auto _scalar_divide(const X& x, const Y& y)
+{
+    using C = common_type_t<common_type_t<X, Y>, float>;
+    return C(C(x) / C(y));
+}
+
+#define WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(name, oper)                 \
+template<typename X, typename Y>                                        \
+auto _scalar_##name(const std::complex<X>& x, const Y& y)               \
+{  return std::complex<common_type_t<X, Y>>(                            \
+    x.real() oper y, x.imag()); }                                       \
+template<typename X, typename Y>                                        \
+auto _scalar_##name(const X& x, const std::complex<Y>& y)               \
+{ return std::complex<common_type_t<X, Y>>(                             \
+    y.real() oper x, y.imag()); }                                       \
+template<typename X, typename Y>                                        \
+auto _scalar_##name(const std::complex<X>& x, const std::complex<Y>& y) \
+{ return std::complex<common_type_t<X, Y>>(                             \
+    x.real() oper y.real(), x.imag() oper y.imag()); }
+
+WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(plus, +)
+WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(subtract, -)
+WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(times, *)
+WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(divide, /)
+
+//=============================================================================
+// Arithmetic functions
+//=============================================================================
+
+#define WL_DEFINE_ARITHMETIC_FUNCTION(name)                             \
 template<typename X, typename Y>                                        \
 auto name(const X& x, const Y& y)                                       \
 {                                                                       \
-    WL_NO_STRING(X);                                                    \
-    WL_NO_STRING(Y);                                                    \
+    static_assert(!is_string_v<X>, "badargtype");                       \
+    static_assert(!is_string_v<Y>, "badargtype");                       \
     if constexpr (is_array_v<X>)                                        \
     {                                                                   \
         if constexpr (is_array_v<Y>)                                    \
         {                                                               \
+            using ResultType = decltype(_scalar_##name(x[0], y[0]));    \
             if (x.dims() != y.dims())                                   \
                 throw std::logic_error("dimension mismatch");           \
-            ndarray<decltype(name(x[0], y[0])), X::Rank> z(x.dims());   \
+            ndarray<ResultType, X::Rank> z(x.dims());                   \
             for (size_t i = 0; i < x.size(); ++i)                       \
-                z[i] = name(x[i], y[i]);                                \
+                z[i] = _scalar_##name(x[i], y[i]);                      \
             return z;                                                   \
         }                                                               \
         else                                                            \
         {                                                               \
-            ndarray<decltype(name(x[0], y)), X::Rank> z(x.dims());      \
+            using ResultType = decltype(_scalar_##name(x[0], y));       \
+            ndarray<ResultType, X::Rank> z(x.dims());                   \
             for (size_t i = 0; i < x.size(); ++i)                       \
-                z[i] = name(x[i], y);                                   \
+                z[i] = _scalar_##name(x[i], y);                         \
             return z;                                                   \
         }                                                               \
     }                                                                   \
@@ -59,21 +102,43 @@ auto name(const X& x, const Y& y)                                       \
     }                                                                   \
     else                                                                \
     {                                                                   \
-        return expr;                                                    \
+        return _scalar_##name(x, y);                                    \
     }                                                                   \
 }
 
-WL_DEFINE_ARITHMETIC_FUNCTION(plus, x + y)
-WL_DEFINE_ARITHMETIC_FUNCTION(subtract, x - y)
-WL_DEFINE_ARITHMETIC_FUNCTION(times, x * y)
-WL_DEFINE_ARITHMETIC_FUNCTION(divide, n(x) / y)
+WL_DEFINE_ARITHMETIC_FUNCTION(plus)
+WL_DEFINE_ARITHMETIC_FUNCTION(subtract)
+WL_DEFINE_ARITHMETIC_FUNCTION(times)
+WL_DEFINE_ARITHMETIC_FUNCTION(divide)
 
-#define WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(name, expr)               \
+//=============================================================================
+// Mutable scalar arithmetic functions
+//=============================================================================
+
+#define WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(name, func)                 \
+template<typename X, typename Y>                                        \
+auto _scalar_##name(X& x, const Y& y)                                   \
+{                                                                       \
+    static_assert(is_convertible_v<common_type_t<X, Y>, X>, "badcast"); \
+    x = X(_scalar_##func(x, y));                                        \
+    return x;                                                           \
+}
+
+WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(add_to, plus)
+WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(subtract_from, subtract)
+WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(times_by, times)
+WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(divide_by, divide)
+
+//-----------------------------------------------------------------------------
+// Mutable scalar arithmetic functions
+//-----------------------------------------------------------------------------
+
+#define WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(name)                     \
 template<typename X, typename Y>                                        \
 auto name(X& x, const Y& y)                                             \
 {                                                                       \
-    WL_NO_STRING(X);                                                    \
-    WL_NO_STRING(Y);                                                    \
+    static_assert(!is_string_v<X>, "badargtype");                       \
+    static_assert(!is_string_v<Y>, "badargtype");                       \
     if constexpr (is_array_v<X>)                                        \
     {                                                                   \
         if constexpr (is_array_v<Y>)                                    \
@@ -81,28 +146,26 @@ auto name(X& x, const Y& y)                                             \
             if (x.dims() != y.dims())                                   \
                 throw std::logic_error("dimension mismatch");           \
             for (size_t i = 0; i < x.size(); ++i)                       \
-                name(x[i], y[i]);                                       \
+                _scalar_##name(x[i], y[i]);                             \
             return x;                                                   \
         }                                                               \
         else                                                            \
         {                                                               \
             for (size_t i = 0; i < x.size(); ++i)                       \
-                name(x[i], y);                                          \
+                _scalar_##name(x[i], y);                                \
             return x;                                                   \
         }                                                               \
     }                                                                   \
     else                                                                \
     {                                                                   \
         static_assert(!is_array_v<Y>, "");                              \
-        return expr;                                                    \
+        return _scalar_##name(x, y);                                    \
     }                                                                   \
 }
 
+WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
+WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
+WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by)
+WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
 
-WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to, x += y)
-WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from, x -= y)
-WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by, x *= y)
-WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by, x /= y)
-
-#undef WL_NO_STRING
 }

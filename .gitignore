@@ -1,2 +1,5 @@
 
 *.nb
+*.cpp
+*.out
+*.data

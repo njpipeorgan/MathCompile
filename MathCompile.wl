@@ -31,7 +31,7 @@ compile[code_]:=
   Module[{output,error},
     $variabletable=Association[];
     error=Catch[
-        output=maincodegen@semantics@allsyntax@parse[code];
+        output=maincodegen@macro@semantics@allsyntax@parse[code];
       ];
     Clear[$variabletable];
     If[error===Null,output,$Failed]
@@ -326,6 +326,15 @@ findinit[code_]:=
 semantics[code_]:=findinit@resolvesymbols@variablerename[code]
 
 
+macro[code_]:=code//.{
+    native["constant_array"][val_,list[dims__]]:>native["constant_array"][val,dims],
+    native["random_integer"][spec_,list[dims__]]:>native["random_integer"][spec,dims],
+    native["random_real"][spec_,list[dims__]]:>native["random_real"][spec,dims],
+    native["random_complex"][spec_,list[dims__]]:>native["random_complex"][spec,dims],
+    native["random_variate"][dist_,list[dims__]]:>native["random_variate"][dist,dims]
+  }
+
+
 codegen[args[indices_,vars_,types_],___]:=
   If[Length[indices]==0,{},
     Normal@SparseArray[indices->MapThread[#1<>" "<>#2&,{types/.nil->"auto",vars}],Max[indices],"auto"]]
@@ -382,6 +391,8 @@ codegen[branch[cond_,sequence[expr1___,ret1_],sequence[expr2___,ret2_]],"Return"
       "(std::forward<decltype("<>args<>")>("<>args<>")...)",";",
     "}","\n","}",";","}","()"}
   ]
+
+codegen[list[any___],___]:=codegen[native["list"][any]]
 
 codegen[head_[args___],___]:={codegen[head,"Return"],"(",Riffle[codegen[#,"Return"]&/@{args},", "],")"}
 

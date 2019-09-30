@@ -16,6 +16,29 @@ CompileToCode[
     ]
 ]
 ```
+The output is a C++ function: 
+```c++
+auto main_function(int64_t v16) {
+    auto v15 = [&] {
+        const auto v17 = wl::greater(v16, int64_t(0));
+        if (v17) {
+        } else {
+        }
+        return [&, v17](auto&&... v18) {
+            if (v17) {
+                return [&](auto v14, auto...) {
+                    return wl::plus(v14, int64_t(1));
+                }(std::forward<decltype(v18)>(v18)...);
+            } else {
+                return [&](auto v13, auto...) {
+                    return wl::plus(v13, int64_t(-1));
+                }(std::forward<decltype(v18)>(v18)...);
+            }
+        };
+    }();
+    return v15(v16);
+}
+```
 
 ## Supported constants and functions
 
@@ -53,7 +76,7 @@ Round
 Do
 ```
 
-## Type system
+## Supported types
 
 | *Wolfram Laguage*       | C++                       |
 | ----------------------- | ------------------------- |

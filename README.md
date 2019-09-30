@@ -70,6 +70,7 @@ DivideBy
 ```
 N
 Round
+Less
 ```
 **Functions with iterators**
 ```

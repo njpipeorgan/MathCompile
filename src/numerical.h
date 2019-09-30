@@ -23,19 +23,74 @@
 namespace wl
 {
 
-template<typename T>
-auto n(T&& x)
-{
-    using X = remove_cvref_t<T>;
-    WL_NO_STRING(X);
+//=============================================================================
+// Scalar numerical functions
+//=============================================================================
 
+template<typename X>
+auto _scalar_n(const X& x)
+{
     if constexpr (is_integral_v<X> || is_float_v<X>)
     {
         return double(x);
     }
     else if constexpr (is_complex_v<X>)
     {
-        return std::complex<double>(x);
+        return std::complex<double>(x.real(), x.imag());
+    }
+    else
+    {
+        static_assert(always_false_v<X>, "badargtype");
+    }
+}
+
+template<typename X>
+auto _scalar_round(const X& x)
+{
+    if constexpr (is_integral_v<X>)
+    {
+        return x;
+    }
+    else if constexpr (is_float_v<X>)
+    {
+        return int64_t(std::round(x));
+    }
+    else if constexpr (is_complex_v<X>)
+    {
+        return std::complex<int64_t>(
+            _scalar_round(x.real()), _scalar_round(x.imag()));
+    }
+    else
+    {
+        static_assert(always_false_v<X>, "badargtype");
+    }
+}
+
+template<typename X, typename Y>
+auto _scalar_less(const X& x, const Y& y)
+{
+    if constexpr (is_real_v<X> && is_real_v<Y>)
+    {
+        return x < y;
+    }
+    else
+    {
+        static_assert(always_false_v<X>, "badargtype");
+    }
+}
+
+
+//=============================================================================
+// Scalar numerical functions
+//=============================================================================
+
+template<typename T>
+auto n(T&& x)
+{
+    using X = remove_cvref_t<T>;
+    if constexpr (is_arithmetic_v<X>)
+    {
+        return _scalar_n(x);
     }
     else if constexpr (is_array_v<X>)
     {
@@ -47,9 +102,13 @@ auto n(T&& x)
         {
             ndarray<double, X::Rank> y(x.dims());
             std::transform(begin(x), end(x), begin(y), 
-                [](auto a) { return n(a); });
+                [](auto a) { return _scalar_n(a); });
             return y;
         }
+    }
+    else
+    {
+        static_assert(always_false_v<T>, "badargtype");
     }
 }
 
@@ -57,35 +116,36 @@ template<typename T>
 auto round(T&& x)
 {
     using X = remove_cvref_t<T>;
-    WL_NO_STRING(X);
+    static_assert(!is_string_v<X>, "badargtype");
 
-    if constexpr (is_integral_v<X>)
+    if constexpr (is_arithmetic_v<X>)
     {
-        return int64_t(x);
-    }
-    else if constexpr (is_float_v<X>)
-    {
-        return int64_t(std::round(x));
-    }
-    else if constexpr (is_complex_v<X>)
-    {
-        return std::complex<int64_t>(round(x.real()), round(x.imag()));
+        return _scalar_round(x);
     }
     else if constexpr (is_array_v<X>)
     {
-        if constexpr (std::is_same_v<typename X::value_type, int64_t>)
+        if constexpr (is_integral_v<typename X::value_type>)
         {
             return std::forward<decltype(x)>(x);
         }
         else
         {
-            ndarray<int64_t, X::Rank> y(x.dims());
-            std::transform(begin(x), end(x), begin(y), 
-                [](auto a) { return round(a); });
+            ndarray<double, X::Rank> y(x.dims());
+            std::transform(begin(x), end(x), begin(y),
+                [](auto a) { return _scalar_round(a); });
             return y;
         }
     }
+    else
+    {
+        static_assert(always_false_v<T>, "badargtype");
+    }
+}
 
+template<typename X, typename Y>
+auto less(const X& x, const Y& y)
+{
+    return _scalar_less(x, y);
 }
 
 #undef WL_NO_STRING

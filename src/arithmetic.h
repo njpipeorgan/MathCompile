@@ -73,15 +73,15 @@ WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(divide, /)
 template<typename X, typename Y>                                        \
 auto name(const X& x, const Y& y)                                       \
 {                                                                       \
-    static_assert(!is_string_v<X>, "badargtype");                       \
-    static_assert(!is_string_v<Y>, "badargtype");                       \
+    static_assert(!is_string_v<X> && !is_string_v<Y>, "badargtype");    \
+    static_assert(!is_bool_v<X> && !is_bool_v<Y>, "badargtype");        \
     if constexpr (is_array_v<X>)                                        \
     {                                                                   \
         if constexpr (is_array_v<Y>)                                    \
         {                                                               \
             using ResultType = decltype(_scalar_##name(x[0], y[0]));    \
             if (x.dims() != y.dims())                                   \
-                throw std::logic_error("dimension mismatch");           \
+                throw std::logic_error("baddims");                      \
             ndarray<ResultType, X::Rank> z(x.dims());                   \
             for (size_t i = 0; i < x.size(); ++i)                       \
                 z[i] = _scalar_##name(x[i], y[i]);                      \
@@ -129,22 +129,22 @@ WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(subtract_from, subtract)
 WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(times_by, times)
 WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(divide_by, divide)
 
-//-----------------------------------------------------------------------------
+//=============================================================================
 // Mutable scalar arithmetic functions
-//-----------------------------------------------------------------------------
+//=============================================================================
 
 #define WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(name)                     \
 template<typename X, typename Y>                                        \
 auto name(X& x, const Y& y)                                             \
 {                                                                       \
-    static_assert(!is_string_v<X>, "badargtype");                       \
-    static_assert(!is_string_v<Y>, "badargtype");                       \
+    static_assert(!is_string_v<X> && !is_string_v<Y>, "badargtype");    \
+    static_assert(!is_bool_v<X> && !is_bool_v<Y>, "badargtype");        \
     if constexpr (is_array_v<X>)                                        \
     {                                                                   \
         if constexpr (is_array_v<Y>)                                    \
         {                                                               \
             if (x.dims() != y.dims())                                   \
-                throw std::logic_error("dimension mismatch");           \
+                throw std::logic_error("baddims");                      \
             for (size_t i = 0; i < x.size(); ++i)                       \
                 _scalar_##name(x[i], y[i]);                             \
             return x;                                                   \

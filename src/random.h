@@ -20,4 +20,10 @@
 namespace wl
 {
 
+template<typename Dist, typename Dim0, typename... Dims>
+auto random_variate(const Dist& dist, Dim0&& dim0, const Dims&... dims)
+{
+
+}
+
 }

@@ -47,15 +47,40 @@ struct ndarray
     _dims_t dims_;
     std::vector<T> data_;
 
-    ndarray() :
-        dims_{{0}}, data_{}
+    ndarray() : dims_{{0}}, data_{}
     {
     }
 
-    ndarray(_dims_t dims) :
-        dims_{dims}, data_{}
+    ndarray(_dims_t dims) : dims_{dims}, data_{}
     {
         data_.resize(this->size());
+    }
+
+    template<typename DimsT>
+    ndarray(ndarray<DimsT, 1> dims) : data_{}
+    {
+        if constexpr (is_integral_v<DimsT>)
+        {
+            if (Rank != dims.size())
+            {
+                throw std::logic_error("baddims");
+            }
+            if constexpr (std::is_signed_v<DimsT>)
+            {
+                bool no_negatives = std::all_of(
+                    begin(dims), end(dims), [](auto x) { return x >= 0; });
+                if (!no_negatives)
+                {
+                    throw std::logic_error("baddims");
+                }
+            }
+            std::copy(begin(dims), end(dims), begin(dims_));
+            data_.resize(this->size());
+        }
+        else
+        {
+            static_assert(always_false_v<DimsT>, "badargtype");
+        }
     }
 
     size_t size() const

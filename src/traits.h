@@ -25,6 +25,9 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray;
 
+template<typename...>
+constexpr auto always_false_v = false;
+
 template<typename T> struct _type_to_index : std::integral_constant<int, -1> {};
 template<> struct _type_to_index<double> : std::integral_constant<int, 1> {};
 template<> struct _type_to_index<float> : std::integral_constant<int, 2> {};
@@ -68,11 +71,17 @@ template<typename T>
 constexpr auto is_string_v = std::is_same_v<T, std::string>;
 
 template<typename T>
+constexpr auto is_bool_v = std::is_same_v<T, bool>;
+
+template<typename T>
 struct is_complex : std::false_type {};
 template<typename T>
 struct is_complex<std::complex<T>> : std::true_type {};
 template<typename T>
 constexpr auto is_complex_v = is_complex<T>::value;
+
+template<typename T>
+constexpr auto is_real_v = is_integral_v<T> || is_float_v<T>;
 
 template<typename T>
 constexpr auto is_arithmetic_v = is_integral_v<T> || is_float_v<T> || is_complex_v<T>;
@@ -98,8 +107,15 @@ template<typename T, typename U>
 constexpr auto is_convertible_v = is_convertible<T, U>::value;
 
 
-#define WL_NO_STRING(type) static_assert(!is_string_v<type>, "badargtype")
-#define WL_NO_COMPLEX(type) static_assert(!is_complex_v<type>, "badargtype")
-#define WL_NO_ARRAY(type) static_assert(!is_array_v<type>, "badargtype")
+template<typename... Ts>
+struct all_is_integral;
+
+template<>
+struct all_is_integral<> : std::true_type {};
+
+template<typename T1, typename... Ts>
+struct all_is_integral<T1, Ts...> : 
+    std::integral_constant<bool, 
+    is_integral_v<T1> && all_is_integral<Ts...>::value> {};
 
 }

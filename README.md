@@ -111,5 +111,11 @@ ConstantArray
 | `"UnsignedInteger16"`   | `uint16_t`                |
 | `"UnsignedInteger32"`   | `uint32_t`                |
 | `"UnsignedInteger64"`   | `uint64_t`                |
+| `"Real"`                | `double`                  |
+| `"Real32"`              | `float`                   |
+| `"Real64"`              | `double`                  |
+| `"Complex"`             | `std::complex<double>`    |
+| `"Complex64"`           | `std::complex<float>`     |
+| `"Complex128"`          | `std::complex<double>`    |
 | `"String"`              | `std::string`             |
 | `"Array"[type_, rank_]` | `wl::ndarray<type, rank>` |

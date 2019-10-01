@@ -18,7 +18,6 @@
 #pragma once
 
 #include "types.h"
-#include "traits.h"
 #include "iterator.h"
 
 namespace wl

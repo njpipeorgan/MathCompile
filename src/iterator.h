@@ -17,11 +17,7 @@
 
 #pragma once
 
-#include <cmath>
-#include <type_traits>
-
 #include "types.h"
-#include "traits.h"
 
 namespace wl
 {

@@ -17,13 +17,9 @@
 
 #pragma once
 
-#include <omp.h>
-
-#include <iostream>
 #include <random>
 
 #include "types.h"
-#include "traits.h"
 #include "arithmetic.h"
 
 namespace wl

@@ -18,7 +18,6 @@
 #pragma once
 
 #include "types.h"
-#include "traits.h"
 
 namespace wl
 {

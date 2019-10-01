@@ -48,16 +48,16 @@ auto _scalar_divide(const X& x, const Y& y)
 
 #define WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(name, oper)                 \
 template<typename X, typename Y>                                        \
-auto _scalar_##name(const std::complex<X>& x, const Y& y)               \
-{  return std::complex<common_type_t<X, Y>>(                            \
+auto _scalar_##name(const complex<X>& x, const Y& y)                    \
+{  return complex<common_type_t<X, Y>>(                                 \
     x.real() oper y, x.imag()); }                                       \
 template<typename X, typename Y>                                        \
-auto _scalar_##name(const X& x, const std::complex<Y>& y)               \
-{ return std::complex<common_type_t<X, Y>>(                             \
+auto _scalar_##name(const X& x, const complex<Y>& y)                    \
+{ return complex<common_type_t<X, Y>>(                                  \
     y.real() oper x, y.imag()); }                                       \
 template<typename X, typename Y>                                        \
-auto _scalar_##name(const std::complex<X>& x, const std::complex<Y>& y) \
-{ return std::complex<common_type_t<X, Y>>(                             \
+auto _scalar_##name(const complex<X>& x, const complex<Y>& y)           \
+{ return complex<common_type_t<X, Y>>(                                  \
     x.real() oper y.real(), x.imag() oper y.imag()); }
 
 WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(plus, +)
@@ -82,7 +82,7 @@ auto name(const X& x, const Y& y)                                       \
             using ResultType = decltype(_scalar_##name(x[0], y[0]));    \
             if (x.dims() != y.dims())                                   \
                 throw std::logic_error("baddims");                      \
-            ndarray<ResultType, X::Rank> z(x.dims());                   \
+            ndarray<ResultType, X::rank> z(x.dims());                   \
             for (size_t i = 0; i < x.size(); ++i)                       \
                 z[i] = _scalar_##name(x[i], y[i]);                      \
             return z;                                                   \
@@ -90,7 +90,7 @@ auto name(const X& x, const Y& y)                                       \
         else                                                            \
         {                                                               \
             using ResultType = decltype(_scalar_##name(x[0], y));       \
-            ndarray<ResultType, X::Rank> z(x.dims());                   \
+            ndarray<ResultType, X::rank> z(x.dims());                   \
             for (size_t i = 0; i < x.size(); ++i)                       \
                 z[i] = _scalar_##name(x[i], y);                         \
             return z;                                                   \

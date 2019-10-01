@@ -30,23 +30,21 @@ namespace wl
 template<typename X>
 auto _scalar_n(const X& x)
 {
+    static_assert(is_arithmetic_v<X>, "badargtype");
     if constexpr (is_integral_v<X> || is_float_v<X>)
     {
         return double(x);
     }
-    else if constexpr (is_complex_v<X>)
+    else // complex
     {
-        return std::complex<double>(x.real(), x.imag());
-    }
-    else
-    {
-        static_assert(always_false_v<X>, "badargtype");
+        return complex<double>(x.real(), x.imag());
     }
 }
 
 template<typename X>
 auto _scalar_round(const X& x)
 {
+    static_assert(is_arithmetic_v<X>, "badargtype");
     if constexpr (is_integral_v<X>)
     {
         return x;
@@ -55,28 +53,18 @@ auto _scalar_round(const X& x)
     {
         return int64_t(std::round(x));
     }
-    else if constexpr (is_complex_v<X>)
+    else // complex
     {
-        return std::complex<int64_t>(
+        return complex<int64_t>(
             _scalar_round(x.real()), _scalar_round(x.imag()));
-    }
-    else
-    {
-        static_assert(always_false_v<X>, "badargtype");
     }
 }
 
 template<typename X, typename Y>
 auto _scalar_less(const X& x, const Y& y)
 {
-    if constexpr (is_real_v<X> && is_real_v<Y>)
-    {
-        return x < y;
-    }
-    else
-    {
-        static_assert(always_false_v<X>, "badargtype");
-    }
+    static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
+    return x < y;
 }
 
 
@@ -100,8 +88,8 @@ auto n(T&& x)
         }
         else
         {
-            ndarray<double, X::Rank> y(x.dims());
-            std::transform(begin(x), end(x), begin(y), 
+            ndarray<double, X::rank> y(x.dims());
+            std::transform(x.begin(), x.end(), y.begin(),
                 [](auto a) { return _scalar_n(a); });
             return y;
         }
@@ -130,8 +118,8 @@ auto round(T&& x)
         }
         else
         {
-            ndarray<double, X::Rank> y(x.dims());
-            std::transform(begin(x), end(x), begin(y),
+            ndarray<double, X::rank> y(x.dims());
+            std::transform(x.begin(), x.end(), y.begin(),
                 [](auto a) { return _scalar_round(a); });
             return y;
         }
@@ -148,5 +136,4 @@ auto less(const X& x, const Y& y)
     return _scalar_less(x, y);
 }
 
-#undef WL_NO_STRING
 }

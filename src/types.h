@@ -35,60 +35,66 @@ struct void_type
 {
 };
 
+struct varg_tag
+{
+};
+
 template<typename T, size_t R>
 struct ndarray
 {
     static_assert(R > 0, "");
 
     using value_type = T;
+    static constexpr auto rank = R;
     using _dims_t = std::array<size_t, R>;
-    static constexpr auto Rank = R;
 
     _dims_t dims_;
     std::vector<T> data_;
 
-    ndarray() : dims_{{0}}, data_{}
+    ndarray() : dims_{{0u}}, data_{}
     {
-    }
-
-    ndarray(_dims_t dims) : dims_{dims}, data_{}
-    {
-        data_.resize(this->size());
     }
 
     template<typename DimsT>
-    ndarray(ndarray<DimsT, 1> dims) : data_{}
+    ndarray(std::array<DimsT, rank> dims, const T& val = T{}) :
+        dims_{}, data_(_input_dims_size(dims), val)
     {
-        if constexpr (is_integral_v<DimsT>)
+        std::copy(dims.begin(), dims.end(), dims_.begin());
+    }
+
+    template<typename DimsT>
+    ndarray(ndarray<DimsT, 1> dims, const T& val = T{}) : 
+        dims_{}, data_(_input_dims_size(dims), val)
+    {
+        std::copy(dims.begin(), dims.end(), dims_.begin());
+    }
+
+    template<typename Dims>
+    static size_t _input_dims_size(const Dims& dims)
+    {
+        static_assert(is_integral_v<typename Dims::value_type>, "badargtype");
+        if (dims.size() != rank)
         {
-            if (Rank != dims.size())
+            throw std::logic_error("baddims");
+        }
+        size_t size = 1u;
+        for (const auto& d : dims)
+        {
+            if constexpr (std::is_signed_v<typename Dims::value_type>)
             {
-                throw std::logic_error("baddims");
-            }
-            if constexpr (std::is_signed_v<DimsT>)
-            {
-                bool no_negatives = std::all_of(
-                    begin(dims), end(dims), [](auto x) { return x >= 0; });
-                if (!no_negatives)
+                if (d < 0)
                 {
                     throw std::logic_error("baddims");
                 }
             }
-            std::copy(begin(dims), end(dims), begin(dims_));
-            data_.resize(this->size());
+            size *= d;
         }
-        else
-        {
-            static_assert(always_false_v<DimsT>, "badargtype");
-        }
+        return size;
     }
 
     size_t size() const
     {
-        size_t s = 1;
-        for (size_t d : dims_)
-            s *= d;
-        return s;
+        return data_.size();
     }
 
     const _dims_t& dims() const

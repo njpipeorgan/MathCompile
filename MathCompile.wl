@@ -45,6 +45,7 @@ newvar:=SymbolName@Unique["v"]
 parse[Hold[head_[args___]]]:=parse[Hold[head]]@@(parse/@Hold/@Hold[args])
 
 parse[Hold[s_Symbol]]:=id[SymbolName[s]];
+parse[Hold[I]]:=id["I"];
 
 parse[Hold[i_Integer]]:=literal[i];
 parse[Hold[i_Real]]:=literal[i];
@@ -185,15 +186,25 @@ $builtinconstants=native/@
 
 $builtinfunctions=native/@
 <|
+(* scope *)
+    (*"Module"*)
 (* control flow *)
   "If"              ->"native_if",
+    (*"Do"*)
+    (*"Table"*)
+    (*"Sum"*)
+    (*"Product"*)
 (* arithmetic *)
   "Plus"            ->"plus",
   "Subtract"        ->"subtract",
   "Times"           ->"times",
   "Divide"          ->"divide",
+    (*"AddTo"*)
+    (*"SubtractFrom"*)
+    (*"TimesBy"*)
+    (*"DivideBy"*)
 (* complex numbers *)
-  "Complex"         ->"complex",
+  "Complex"         ->"make_complex",
   "Re"              ->"re",
   "Im"              ->"im",
   "ReIm"            ->"re_im",
@@ -253,13 +264,14 @@ $builtinfunctions=native/@
   "ArcSech"         ->"arcsech",
   "ArcCoth"         ->"arccoth",
 (* random number *)
-  "RandomInteger"   ->"random_integer",
-  "RandomReal"      ->"random_real",
-  "RandomComplex"   ->"random_complex",
-  "RandomVariate"   ->"random_variate",
+    (*"RandomInteger"*)
+    (*"RandomReal"*)
+    (*"RandomComplex"*)
+    (*"RandomVariate"*)
   "RandomChoice"    ->"random_choice",
-  "random_sample"   ->"random_sample",
+  "SandomSample"    ->"random_sample",
 (* array operation *)
+    (*"ConstantArray"*)
   "Total"           ->"total",
   "Mean"            ->"mean"
 |>;
@@ -284,15 +296,9 @@ variablerename[code_]:=
   ]
 
 resolvesymbols[code_]:=code//.{
-    id[func_][args___]:>Lookup[$builtinfunctions,func,
-        (Message[semantics::undef,func];Throw[semantics])
-      ][args]
+    id[func_][args___]:>Lookup[$builtinfunctions,func,id[func]][args]
   }/.{
-    id[any_]:>Lookup[$builtinconstants,any,
-        Lookup[$builtinfunctions,any,
-          (Message[semantics::undef,any];Throw[semantics])
-        ]
-      ]
+    id[any_]:>Lookup[$builtinconstants,any,Lookup[$builtinfunctions,any,id[any]]]
   }
 
 lexicalorder[a_,b_]:=
@@ -326,12 +332,18 @@ findinit[code_]:=
 semantics[code_]:=findinit@resolvesymbols@variablerename[code]
 
 
+listtoseq[expr_]:=Replace[expr,list[any___]:>Sequence[any]]
+
 macro[code_]:=code//.{
-    native["constant_array"][val_,list[dims__]]:>native["constant_array"][val,dims],
-    native["random_integer"][spec_,list[dims__]]:>native["random_integer"][spec,dims],
-    native["random_real"][spec_,list[dims__]]:>native["random_real"][spec,dims],
-    native["random_complex"][spec_,list[dims__]]:>native["random_complex"][spec,dims],
-    native["random_variate"][dist_,list[dims__]]:>native["random_variate"][dist,dims]
+    id["ConstantArray"][val_,dims_]:>native["constant_array"][val,vargtag,listtoseq[dims]],
+    id["RandomInteger"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomInteger"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomReal"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomReal"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomComplex"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomComplex"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
+    id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag]
   }
 
 
@@ -354,6 +366,9 @@ codegen[literal[r_Real],___]:="double("<>ToString@CForm[r]<>")"
 
 codegen[native[name_],___]:="wl::"<>name
 
+codegen[vargtag,___]:="wl::varg_tag{}"
+codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"
+
 codegen[clause[type_][func_,{iters___}],___]:=codegen[native["clause_"<>ToLowerCase[type]][func,iters]]
 codegen[iter[expr___],___]:=codegen[native["iterator"][expr]]
 codegen[variter[expr___],___]:=codegen[native["var_iterator"][expr]]
@@ -369,6 +384,7 @@ codegen[typed[type_String],___]:=type<>"()"
 codegen[typed["array"[type_,rank_]],___]:="wl::ndarray<"<>type<>", "<>ToString[rank]<>">()"
 
 codegen[var[name_],___]:=name
+codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
 
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]
 codegen[sequence[expr___],"Scope"]:={"{",({codegen[#],";"}&/@{expr}),"}"}

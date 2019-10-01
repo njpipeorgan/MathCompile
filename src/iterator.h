@@ -91,28 +91,6 @@ struct unit_iterator
     }
 };
 
-//template<typename List>
-//struct list_iterator
-//{
-//    const List& list_;
-//
-//    list_iterator(const List& list) : list_{list}
-//    {
-//    }
-//
-//
-//    size_t length() const
-//    {
-//        return list_.dims()[0];
-//    }
-//
-//    const auto& operator[](size_t i) const
-//    {
-//        return list_.part(i);
-//    }
-//
-//};
-
 template<typename Begin, typename End>
 auto iterator(Begin begin, End end)
 {

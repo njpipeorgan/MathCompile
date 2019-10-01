@@ -25,6 +25,9 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray;
 
+template<typename T>
+using complex = std::complex<T>;
+
 template<typename...>
 constexpr auto always_false_v = false;
 
@@ -76,7 +79,7 @@ constexpr auto is_bool_v = std::is_same_v<T, bool>;
 template<typename T>
 struct is_complex : std::false_type {};
 template<typename T>
-struct is_complex<std::complex<T>> : std::true_type {};
+struct is_complex<complex<T>> : std::true_type {};
 template<typename T>
 constexpr auto is_complex_v = is_complex<T>::value;
 

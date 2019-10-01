@@ -72,9 +72,27 @@ N
 Round
 Less
 ```
+**Complex numbers**
+```
+Complex
+Re
+Im
+Abs
+Arg
+```
+**Random numbers**
+```
+RandomInteger
+RandomReal
+RandomComplex
+```
 **Functions with iterators**
 ```
 Do
+```
+**Array functions**
+```
+ConstantArray
 ```
 
 ## Supported types

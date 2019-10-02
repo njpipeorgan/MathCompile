@@ -99,12 +99,12 @@ syntax[clause][code_]:=code//.{
   }
 
 syntax[mutable][code_]:=code//.{
-    id["AddTo"][id[var_],expr_]:>mutable["AddTo"][id[var],expr],
-    id["SubtractFrom"][id[var_],expr_]:>mutable["SubtractFrom"][id[var],expr],
-    id["TimesBy"][id[var_],expr_]:>mutable["TimesBy"][id[var],expr],
-    id["DivideBy"][id[var_],expr_]:>mutable["DivideBy"][id[var],expr],
-    id["AppendTo"][id[var_],expr_]:>mutable["AppendTo"][id[var],expr],
-    id["PrependTo"][id[var_],expr_]:>mutable["PrependTo"][id[var],expr]
+    id["AddTo"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["add_to"][target,expr],
+    id["SubtractFrom"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["subtract_from"][target,expr],
+    id["TimesBy"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["times_by"][target,expr],
+    id["DivideBy"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["divide_by"][target,expr],
+    id["AppendTo"][id[var_],expr_]:>native["append_to"][id[var],expr],
+    id["PrependTo"][id[var_],expr_]:>native["prepend_to"][id[var],expr]
   }/.{
     any:id[type:("AddTo"|"SubtractFrom"|"TimesBy"|"DivideBy"|"AppendTo"|"PrependTo")][___]:>
       (Message[syntax::bad,tostring[any],type];Throw["syntax"])
@@ -272,6 +272,7 @@ $builtinfunctions=native/@
   "SandomSample"    ->"random_sample",
 (* array operation *)
     (*"ConstantArray"*)
+  "Part"            ->"part",
   "Total"           ->"total",
   "Mean"            ->"mean"
 |>;
@@ -347,6 +348,8 @@ macro[code_]:=code//.{
   }
 
 
+(*nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]*)
+
 codegen[args[indices_,vars_,types_],___]:=
   If[Length[indices]==0,{},
     Normal@SparseArray[indices->MapThread[#1<>" "<>#2&,{types/.nil->"auto",vars}],Max[indices],"auto"]]
@@ -372,13 +375,6 @@ codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"
 codegen[clause[type_][func_,{iters___}],___]:=codegen[native["clause_"<>ToLowerCase[type]][func,iters]]
 codegen[iter[expr___],___]:=codegen[native["iterator"][expr]]
 codegen[variter[expr___],___]:=codegen[native["var_iterator"][expr]]
-
-codegen[mutable["AddTo"][any___],___]:=codegen[native["add_to"][any]]
-codegen[mutable["SubtractFrom"][any___],___]:=codegen[native["subtract_from"][any]]
-codegen[mutable["TimesBy"][any___],___]:=codegen[native["times_by"][any]]
-codegen[mutable["DivideBy"][any___],___]:=codegen[native["divide_by"][any]]
-codegen[mutable["AppendTo"][any___],___]:=codegen[native["append_to"][any]]
-codegen[mutable["PrependTo"][any___],___]:=codegen[native["prepend_to"][any]]
 
 codegen[typed[type_String],___]:=type<>"()"
 codegen[typed["array"[type_,rank_]],___]:="wl::ndarray<"<>type<>", "<>ToString[rank]<>">()"

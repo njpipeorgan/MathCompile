@@ -2,6 +2,8 @@
 
 MathCompile is a package that translates *Wolfram Language* functions into C++ code. It is written mostly in *Wolfram Language* and utilize a C++ library for type deductiona and implementation of the supported functions. 
 
+**Note**: The project is in the progress of adding necessary components to the C++ library. 
+
 ## In a nutshell
 
 Load the package:

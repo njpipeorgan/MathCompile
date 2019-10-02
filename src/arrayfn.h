@@ -18,6 +18,7 @@
 #pragma once
 
 #include "types.h"
+#include "ndarray.h"
 
 namespace wl
 {

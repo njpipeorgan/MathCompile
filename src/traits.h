@@ -17,6 +17,12 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
+#include <algorithm>
+#include <complex>
+
 #include <type_traits>
 
 namespace wl

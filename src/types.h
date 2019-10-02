@@ -17,17 +17,7 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-
-#include <algorithm>
-#include <array>
-#include <complex>
-#include <numeric>
-#include <vector>
-
 #include "traits.h"
-#include "ndarray.h"
 
 namespace wl
 {

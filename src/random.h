@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <random>
 
 #include "types.h"
@@ -164,14 +165,14 @@ auto _random_variate_impl(const Dist& dist, const Dims&... dims)
     else if constexpr (R2 == 0u)
     {
         size_t dimN = dist.size();
-        ndarray<T, 1u> x(std::array<int64_t, 1u>{dimN});
+        ndarray<T, 1u> x(std::array<int64_t, 1u>{int64_t(dimN)});
         dist(x.begin());
         return x;
     }
     else
     {
         size_t dimN = dist.size();
-        ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)..., dimN});
+        ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)..., int64_t(dimN)});
 
         auto x_iter = x.begin();
         auto x_end = x.end();

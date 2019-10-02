@@ -17,6 +17,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <complex>
+#include <numeric>
+#include <vector>
+
 #include "types.h"
 #include "arrayview.h"
 
@@ -103,17 +109,13 @@ struct ndarray
     auto cbegin() const { return data_.cbegin(); }
     auto cend() const { return data_.cend(); }
 
-    template<typename Integral>
-    auto part(Integral i) const
-    {
-        static_assert(is_integral_v<Integral>, "");
-        std::array<size_t, R - 1> new_dims;
-        std::copy(begin(dims_) + 1, end(dims_), begin(new_dims));
-        ndarray<T, R - 1> new_array(new_dims);
-        std::copy_n(begin(*this), new_array.size(), begin(new_array));
-        return new_array;
-    }
 
 };
+
+template<typename T>
+auto make_indexer(const ndarray<T, 1u>& a, size_t dim)
+{
+    return list_indexer(a.begin(), a.end(), dim);
+}
 
 }

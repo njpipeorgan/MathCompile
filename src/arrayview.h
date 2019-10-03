@@ -20,6 +20,7 @@
 #include "types.h"
 #include "traits.h"
 #include "const.h"
+#include "view_derive.h"
 
 namespace wl
 {
@@ -111,6 +112,8 @@ struct scalar_indexer
     }
 
     size_t size() = delete;
+
+    size_t stride() = delete;
 };
 
 struct all_indexer
@@ -130,6 +133,11 @@ struct all_indexer
     size_t size() const
     {
         return this->size_;
+    }
+
+    size_t stride() const
+    {
+        return 1u;
     }
 };
 
@@ -151,6 +159,11 @@ struct unit_indexer
     size_t size() const
     {
         return this->size_;
+    }
+
+    size_t stride() const
+    {
+        return 1u;
     }
 
     auto begin() const
@@ -185,6 +198,11 @@ struct step_indexer
         return this->size_;
     }
 
+    size_t stride() const
+    {
+        return step_;
+    }
+
     auto begin() const
     {
         return indexer_iter<false>(begin_, step_);
@@ -209,10 +227,12 @@ struct list_indexer
             [&](const auto& idx) { return convert_index(idx, level_dim); });
     }
 
-    size_t offset() const
+    size_t offset()
     {
         return 0u;
     }
+
+    size_t stride() = delete;
 
     size_t size() const
     {
@@ -361,8 +381,7 @@ struct simple_view
 
     using value_type = T;
     using array_ref_type = std::conditional_t<Const,
-        const ndarray<T, ArrayRank>&,
-        ndarray<T, ArrayRank>&>;
+        const ndarray<T, ArrayRank>&, ndarray<T, ArrayRank>&>;
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _dims_t = std::array<size_t, ViewRank>;
 
@@ -375,7 +394,7 @@ struct simple_view
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         size_t offset = 0u;
         this->_initialize<0u>(offset, base.dims_ptr(), specs...);
-        data_ = base.data() + offset;
+        this->data_ = base.data() + offset;
     }
 
     template<size_t Level, typename Spec1, typename... Specs>
@@ -393,11 +412,9 @@ struct simple_view
         }
         else
         {
+            static_assert(!std::is_same_v<Spec1, scalar_indexer>, "internal");
             constexpr size_t ViewLevel = Level - (ArrayRank - ViewRank);
-            static_assert(std::is_same_v<Spec1, all_indexer> ||
-                ((ViewLevel == 0) && std::is_same_v<Spec1, unit_indexer>),
-                "internal");
-            dims_[ViewLevel] = spec1.size();
+            this->dims_[ViewLevel] = spec1.size();
             if constexpr (Level < ArrayRank - 1u)
                 _initialize<Level + 1>(offset, dims, specs...);
         }
@@ -418,5 +435,117 @@ struct simple_view
         return static_cast<const T*>(this->data_);
     }
 };
+
+template<typename T, bool Const>
+struct regular_view_iterator
+{
+    using _my_type = regular_view_iterator;
+    using value_type = T;
+    using pointer_type = std::conditional_t<Const, const T*, T*>;
+
+    pointer_type pointer_;
+    const size_t stride_;
+
+    regular_view_iterator(pointer_type pointer, size_t stride) : 
+        pointer_{pointer}, stride_{stride}
+    {
+    }
+
+    auto operator*() const
+    {
+        return *this->pointer_;
+    }
+
+    auto operator++()
+    {
+        this->pointer_ += this->stride_;
+        return *this;
+    }
+
+    auto operator==(const _my_type& other)
+    {
+        return this->pointer_ == other.pointer_;
+    }
+};
+
+template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, bool Const>
+struct regular_view
+{
+    static constexpr auto is_const = Const;
+    static constexpr auto array_rank = ArrayRank;
+    static constexpr auto view_rank = ViewRank;
+    static constexpr auto stride_rank = StrideRank;
+    static constexpr auto rank = ViewRank;
+
+    using value_type = T;
+    using array_ref_type = std::conditional_t<Const,
+        const ndarray<T, ArrayRank>&, ndarray<T, ArrayRank>&>;
+    using pointer_type = std::conditional_t<Const, const T*, T*>;
+    using _dims_t = std::array<size_t, ViewRank>;
+
+    pointer_type const data_;
+    size_t stride_;
+    _dims_t dims_;
+
+    template<typename... Specs>
+    regular_view(array_ref_type base, const Specs&... specs)
+    {
+        static_assert(sizeof...(Specs) == ArrayRank, "internal");
+        this->stride_ = 1u;
+        size_t offset = 0u;
+        this->_initialize<0u>(offset, base.dims_ptr(), specs...);
+        this->data_ = base.data() + offset;
+    }
+
+    template<size_t Level, typename Spec1, typename... Specs>
+    auto _initialize(size_t& offset, const size_t* dims,
+        const Spec1& spec1, const Specs&... specs)
+    {
+        if constexpr (Level > 0)
+            offset *= dims[Level];
+        offset += spec1.offset();
+
+        if constexpr (Level < ArrayRank - ViewRank - StrideRank)
+        {
+            static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
+            this->_initialize<Level + 1>(offset, dims, specs...);
+        }
+        else if constexpr (Level < ArrayRank - StrideRank)
+        {
+            static_assert(!std::is_same_v<Spec1, scalar_indexer>, "internal");
+            constexpr size_t ViewLevel = Level - 
+                (ArrayRank - ViewRank - StrideRank);
+            this->dims_[ViewLevel] = spec1.size();
+            if constexpr (std::is_same_v<Spec1, step_indexer>)
+                this->stride_ *= spec1.stride();
+            if constexpr (Level < ArrayRank - 1u)
+                _initialize<Level + 1>(offset, dims, specs...);
+        }
+        else
+        {
+            static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
+            this->stride_ *= dims[Level];
+        }
+    }
+
+    const size_t* dims_ptr() const
+    {
+        return this->dims_;
+    }
+
+    auto begin() const
+    {
+        return regular_view_iterator<T, Const>(this->data_, this->stride_);
+    }
+
+    auto cbegin() const
+    {
+        return regular_view_iterator<T, true>(this->data_, this->stride_);
+    }
+
+};
+
+template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typename IndexersTuple, bool Const>
+struct general_view;
 
 }

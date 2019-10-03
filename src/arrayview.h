@@ -72,13 +72,64 @@ struct indexer_iter<true>
     }
 };
 
+template<typename IndexType>
+size_t convert_index(const IndexType& idx, const size_t& dim)
+{
+    static_assert(is_integral_v<IndexType>, "badidxtype");
+    if constexpr (std::is_unsigned_v<IndexType>)
+    {
+        if (1u <= idx && idx <= dim)
+            return size_t(idx - 1u);
+        else
+            throw std::logic_error("badindex");
+    }
+    else
+    {
+        ptrdiff_t pos_idx = idx >= 0 ?
+            idx : idx + ptrdiff_t(dim) + 1;
+        if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
+            return size_t(pos_idx - 1u);
+        else
+            throw std::logic_error("badindex");
+    }
+    return 0u;
+};
+
+struct scalar_indexer
+{
+    size_t index_;
+
+    template<typename IndexType>
+    scalar_indexer(IndexType index, size_t dim) :
+        index_{convert_index(index, dim)}
+    {
+    }
+
+    size_t offset() const
+    {
+        return this->index_;
+    }
+
+    size_t size() = delete;
+};
+
 struct all_indexer
 {
     size_t size_;
 
-    explicit all_indexer(size_t size) :
-        size_{size}
+    explicit all_indexer(size_t dim) :
+        size_{dim}
     {
+    }
+
+    size_t offset() const
+    {
+        return 0u;
+    }
+
+    size_t size() const
+    {
+        return this->size_;
     }
 };
 
@@ -90,6 +141,16 @@ struct unit_indexer
     unit_indexer(size_t begin, size_t size) :
         begin_{begin}, size_{size}
     {
+    }
+
+    size_t offset() const
+    {
+        return this->begin_;
+    }
+
+    size_t size() const
+    {
+        return this->size_;
     }
 
     auto begin() const
@@ -114,6 +175,16 @@ struct step_indexer
     {
     }
 
+    size_t offset() const
+    {
+        return this->begin_;
+    }
+
+    size_t size() const
+    {
+        return this->size_;
+    }
+
     auto begin() const
     {
         return indexer_iter<false>(begin_, step_);
@@ -122,27 +193,6 @@ struct step_indexer
     auto end() const
     {
         return indexer_iter<false>(begin_ + step_ * size_, step_);
-    }
-};
-
-template<typename IndexType>
-size_t convert_index(const IndexType& idx, const size_t& dim)
-{
-    if constexpr (std::is_unsigned_v<IndexType>)
-    {
-        if (1u <= idx && idx <= dim)
-            return size_t(idx - 1u);
-        else
-            throw std::logic_error("badindex");
-    }
-    else
-    {
-        ptrdiff_t pos_idx = idx >= 0 ?
-            idx : idx + ptrdiff_t(dim) + 1;
-        if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
-            return size_t(pos_idx - 1u);
-        else
-            throw std::logic_error("badindex");
     }
 };
 
@@ -157,6 +207,16 @@ struct list_indexer
         indices_.resize(idx_end - idx_begin);
         std::transform(idx_begin, idx_end, indices_.begin(),
             [&](const auto& idx) { return convert_index(idx, level_dim); });
+    }
+
+    size_t offset() const
+    {
+        return 0u;
+    }
+
+    size_t size() const
+    {
+        return indices_.size();
     }
 };
 
@@ -284,7 +344,10 @@ auto make_indexer(const IndexType& index, size_t dim)
     if constexpr (std::is_same_v<IndexType, all_type>)
         return all_indexer(dim);
     else
-        return convert_index(index, dim);
+    {
+        static_assert(is_integral_v<IndexType>, "badidxtype");
+        return scalar_indexer(index, dim);
+    }
 }
 
 
@@ -297,57 +360,46 @@ struct simple_view
     static constexpr auto rank = ViewRank;
 
     using value_type = T;
-    using array_ref_type = std::conditional_t<
-        is_const,
+    using array_ref_type = std::conditional_t<Const,
         const ndarray<T, ArrayRank>&,
         ndarray<T, ArrayRank>&>;
-    using pointer_type = std::conditional_t<is_const, const T*, T*>;
-    using _dims_t = std::array<size_t, view_rank>;
+    using pointer_type = std::conditional_t<Const, const T*, T*>;
+    using _dims_t = std::array<size_t, ViewRank>;
 
     pointer_type data_;
-    const size_t* dims_;
+    _dims_t dims_;
 
     template<typename... Specs>
-    simple_view(array_ref_type base, const Specs&... specs) :
-        data_{base.data() + _get_offset(0u, base.dims_ptr(), specs...)},
-        dims_{base.dims_ptr() + ArrayRank - ViewRank}
+    simple_view(array_ref_type base, const Specs&... specs)
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
+        size_t offset = 0u;
+        this->_initialize<0u>(offset, base.dims_ptr(), specs...);
+        data_ = base.data() + offset;
     }
 
-    template<typename Spec1, typename... Specs>
-    auto _get_offset(const size_t offset, const size_t* dims,
+    template<size_t Level, typename Spec1, typename... Specs>
+    void _initialize(size_t& offset, const size_t* dims,
         const Spec1& spec1, const Specs&... specs)
     {
-        static_assert(std::is_same_v<Spec1, size_t> ||
-            std::is_same_v<Spec1, all_indexer>, "internal");
-        if constexpr (sizeof...(Specs) > 0u)
+        if constexpr (Level > 0)
+            offset *= dims[Level];
+        offset += spec1.offset();
+
+        if constexpr (Level < ArrayRank - ViewRank)
         {
-            if constexpr (std::is_same_v<Spec1, size_t>)
-            {
-                static_assert(sizeof...(Specs) >= ViewRank, "internal");
-                return _get_offset(
-                    offset * (*dims) + spec1, dims + 1u, specs...);
-            }
-            else
-            {
-                static_assert(sizeof...(Specs) < ViewRank, "internal");
-                return _get_offset(offset * (*dims), dims + 1u, specs...);
-            }
+            static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
+            this->_initialize<Level + 1>(offset, dims, specs...);
         }
         else
         {
-            if constexpr (std::is_same_v<Spec1, size_t>)
-            {
-                static_assert(sizeof...(Specs) >= ViewRank, "internal");
-                return offset * (*dims) + spec1;
-            }
-            else
-            {
-                static_assert(sizeof...(Specs) < ViewRank, "internal");
-                return offset * (*dims);
-            }
-
+            constexpr size_t ViewLevel = Level - (ArrayRank - ViewRank);
+            static_assert(std::is_same_v<Spec1, all_indexer> ||
+                ((ViewLevel == 0) && std::is_same_v<Spec1, unit_indexer>),
+                "internal");
+            dims_[ViewLevel] = spec1.size();
+            if constexpr (Level < ArrayRank - 1u)
+                _initialize<Level + 1>(offset, dims, specs...);
         }
     }
 
@@ -366,6 +418,5 @@ struct simple_view
         return static_cast<const T*>(this->data_);
     }
 };
-
 
 }

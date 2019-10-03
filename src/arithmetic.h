@@ -104,6 +104,7 @@ auto name(const X& x, const Y& y)                                       \
     {                                                                   \
         return _scalar_##name(x, y);                                    \
     }                                                                   \
+    return X{};                                                         \
 }
 
 WL_DEFINE_ARITHMETIC_FUNCTION(plus)

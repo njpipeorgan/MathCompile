@@ -29,6 +29,18 @@
 namespace wl
 {
 
+template<size_t Rank>
+auto _dimension_equal(const size_t* dim1, const size_t* dim2)
+{
+    if constexpr (Rank == 0u)
+        return true;
+    else if constexpr (Rank == 1u)
+        return *dim1 == *dim2;
+    else
+        return (*dim1 == *dim2) && 
+        _dimension_equal<Rank - 1>(dim1 + 1u, dim2 + 1u);
+}
+
 template<typename T, size_t R>
 struct ndarray
 {
@@ -87,9 +99,25 @@ struct ndarray
         return data_.size();
     }
 
-    const _dims_t& dims() const
+    template<size_t Level>
+    size_t dimension() const
     {
-        return this->dims_;
+        return this->dims_[Level];
+    }
+
+    const size_t* dims_ptr() const
+    {
+        return this->dims_.data();
+    }
+
+    const T* data() const
+    {
+        return this->data_.data();
+    }
+
+    T* data()
+    {
+        return this->data_.data();
     }
 
     T& operator[](size_t i)
@@ -111,11 +139,5 @@ struct ndarray
 
 
 };
-
-template<typename T>
-auto make_indexer(const ndarray<T, 1u>& a, size_t dim)
-{
-    return list_indexer(a.begin(), a.end(), dim);
-}
 
 }

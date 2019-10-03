@@ -125,6 +125,27 @@ struct step_indexer
     }
 };
 
+template<typename IndexType>
+size_t convert_index(const IndexType& idx, const size_t& dim)
+{
+    if constexpr (std::is_unsigned_v<IndexType>)
+    {
+        if (1u <= idx && idx <= dim)
+            return size_t(idx - 1u);
+        else
+            throw std::logic_error("badindex");
+    }
+    else
+    {
+        ptrdiff_t pos_idx = idx >= 0 ?
+            idx : idx + ptrdiff_t(dim) + 1;
+        if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
+            return size_t(pos_idx - 1u);
+        else
+            throw std::logic_error("badindex");
+    }
+};
+
 struct list_indexer
 {
     std::vector<size_t> indices_;
@@ -134,26 +155,8 @@ struct list_indexer
     {
         using IndexType = remove_cvref_t<decltype(*idx_begin)>;
         indices_.resize(idx_end - idx_begin);
-        auto convert_index = [&](IndexType idx) -> size_t
-        {
-            if constexpr (std::is_unsigned_v<IndexType>)
-            {
-                if (1u <= idx && idx <= level_dim)
-                    return size_t(idx - 1u);
-                else
-                    throw std::logic_error("badindex");
-            }
-            else
-            {
-                ptrdiff_t pos_idx = idx >= 0 ? 
-                    idx : idx + ptrdiff_t(level_dim) + 1;
-                if (1 <= pos_idx && pos_idx <= ptrdiff_t(level_dim))
-                    return size_t(pos_idx - 1u);
-                else
-                    throw std::logic_error("badindex");
-            }
-        };
-        std::transform(idx_begin, idx_end, indices_.begin(), convert_index);
+        std::transform(idx_begin, idx_end, indices_.begin(),
+            [&](const auto& idx) { return convert_index(idx, level_dim); });
     }
 };
 
@@ -267,9 +270,102 @@ auto make_indexer(const span<Begin, End, Step>& s, size_t dim)
     return s.to_indexer(dim);
 }
 
-auto make_indexer(all_type, size_t dim)
+template<typename IndexType, size_t Rank>
+auto make_indexer(const ndarray<IndexType, Rank>& list, size_t dim)
 {
-    return all_indexer(dim);
+    static_assert(Rank == 1u, "badargtype");
+    static_assert(is_integral_v<IndexType>, "badidxtype");
+    return list_indexer(list.begin(), list.end(), dim);
 }
+
+template<typename IndexType>
+auto make_indexer(const IndexType& index, size_t dim)
+{
+    if constexpr (std::is_same_v<IndexType, all_type>)
+        return all_indexer(dim);
+    else
+        return convert_index(index, dim);
+}
+
+
+template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
+struct simple_view
+{
+    static constexpr auto is_const = Const;
+    static constexpr auto array_rank = ArrayRank;
+    static constexpr auto view_rank = ViewRank;
+    static constexpr auto rank = ViewRank;
+
+    using value_type = T;
+    using array_ref_type = std::conditional_t<
+        is_const,
+        const ndarray<T, ArrayRank>&,
+        ndarray<T, ArrayRank>&>;
+    using pointer_type = std::conditional_t<is_const, const T*, T*>;
+    using _dims_t = std::array<size_t, view_rank>;
+
+    pointer_type data_;
+    const size_t* dims_;
+
+    template<typename... Specs>
+    simple_view(array_ref_type base, const Specs&... specs) :
+        data_{base.data() + _get_offset(0u, base.dims_ptr(), specs...)},
+        dims_{base.dims_ptr() + ArrayRank - ViewRank}
+    {
+        static_assert(sizeof...(Specs) == ArrayRank, "internal");
+    }
+
+    template<typename Spec1, typename... Specs>
+    auto _get_offset(const size_t offset, const size_t* dims,
+        const Spec1& spec1, const Specs&... specs)
+    {
+        static_assert(std::is_same_v<Spec1, size_t> ||
+            std::is_same_v<Spec1, all_indexer>, "internal");
+        if constexpr (sizeof...(Specs) > 0u)
+        {
+            if constexpr (std::is_same_v<Spec1, size_t>)
+            {
+                static_assert(sizeof...(Specs) >= ViewRank, "internal");
+                return _get_offset(
+                    offset * (*dims) + spec1, dims + 1u, specs...);
+            }
+            else
+            {
+                static_assert(sizeof...(Specs) < ViewRank, "internal");
+                return _get_offset(offset * (*dims), dims + 1u, specs...);
+            }
+        }
+        else
+        {
+            if constexpr (std::is_same_v<Spec1, size_t>)
+            {
+                static_assert(sizeof...(Specs) >= ViewRank, "internal");
+                return offset * (*dims) + spec1;
+            }
+            else
+            {
+                static_assert(sizeof...(Specs) < ViewRank, "internal");
+                return offset * (*dims);
+            }
+
+        }
+    }
+
+    const size_t* dims_ptr() const
+    {
+        return this->dims_;
+    }
+
+    auto begin() const
+    {
+        return this->data_;
+    }
+
+    auto cbegin() const
+    {
+        return static_cast<const T*>(this->data_);
+    }
+};
+
 
 }

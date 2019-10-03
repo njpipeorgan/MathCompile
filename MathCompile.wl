@@ -165,7 +165,7 @@ syntax[sequence][code_]:=code//.{
   }
 
 syntax[assign][code_]:=code//.{
-    id["Set"][id[var_],expr_]:>assign[id[var],expr]
+    id["Set"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>assign[target,expr],
   }/.{
     any:id["Set"][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
   }

@@ -483,7 +483,7 @@ struct regular_view
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _dims_t = std::array<size_t, ViewRank>;
 
-    pointer_type const data_;
+    pointer_type data_;
     size_t stride_;
     _dims_t dims_;
 
@@ -525,6 +525,8 @@ struct regular_view
         {
             static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
             this->stride_ *= dims[Level];
+            if constexpr (Level < ArrayRank - 1u)
+                _initialize<Level + 1>(offset, dims, specs...);
         }
     }
 
@@ -546,6 +548,6 @@ struct regular_view
 };
 
 template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typename IndexersTuple, bool Const>
-struct general_view;
+struct general_view {};
 
 }

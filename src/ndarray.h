@@ -37,6 +37,7 @@ struct ndarray
     using value_type = T;
     static constexpr auto rank = R;
     using _dims_t = std::array<size_t, R>;
+    static constexpr auto category = view_category::Array;
 
     _dims_t dims_;
     std::vector<T> data_;
@@ -60,8 +61,8 @@ struct ndarray
     }
 
     template<typename FwdIter>
-    ndarray(std::array<size_t, rank> dims, FwdIter iter) :
-        dims_{dims}, data_(iter, iter + _input_dims_size(dims))
+    ndarray(std::array<size_t, rank> dims, FwdIter begin, FwdIter end) :
+        dims_{dims}, data_(begin, end)
     {
     }
 
@@ -114,21 +115,27 @@ struct ndarray
         return this->data_.data();
     }
 
+    auto identifier() const
+    {
+        return this->data();
+    }
+
     T& operator[](size_t i)
     {
         return data_[i];
     }
 
-    T operator[](size_t i) const
+    const T& operator[](size_t i) const
     {
         return data_[i];
     }
 
-
     auto begin() { return data_.begin(); }
     auto end() { return data_.end(); }
+
     auto begin() const { return data_.begin(); }
     auto end() const { return data_.end(); }
+
     auto cbegin() const { return data_.cbegin(); }
     auto cend() const { return data_.cend(); }
 
@@ -151,6 +158,50 @@ struct ndarray
         return pos;
     }
 
+    template<typename Function>
+    void for_each(Function f)
+    {
+        auto ptr = this->data();
+        for (size_t i = 0u; i < this->size(); ++i, ++ptr)
+            f(*ptr);
+    }
+
+    template<typename Function>
+    void for_each(Function f) const
+    {
+        auto ptr = this->data();
+        for (size_t i = 0u; i < this->size(); ++i, ++ptr)
+            f(*ptr);
+    }
+
+    template<typename FwdIter>
+    void copy_to(FwdIter iter) const
+    {
+        auto ptr = this->data();
+        for (size_t i = 0u; i < this->size(); ++i, ++ptr, ++iter)
+            *iter = *ptr;
+    }
+
+    template<typename FwdIter>
+    void copy_from(FwdIter iter) &
+    {
+        auto ptr = this->data();
+        for (size_t i = 0u; i < this->size(); ++i, ++ptr, ++iter)
+            *ptr = *iter;
+    }
+
+    template<typename FwdIter>
+    void copy_from(FwdIter iter) && = delete;
+
+    auto to_array() const & -> decltype(auto)
+    {
+        return *this;
+    }
+
+    auto to_array() && -> decltype(auto)
+    {
+        return std::move(*this);
+    }
 };
 
 }

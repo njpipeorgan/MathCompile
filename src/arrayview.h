@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <exception>
 #include <optional>
 #include <tuple>
 
@@ -392,24 +393,14 @@ auto make_indexer(const IndexType& index, size_t dim)
 }
 
 template<size_t Rank>
-std::optional<size_t> _size_if_equal_dim(const size_t* dim1, const size_t* dim2)
+bool _check_dims(const size_t* dims1, const size_t* dims2)
 {
     static_assert(Rank >= 1u, "internal");
     if constexpr (Rank == 1u)
-    {
-        if (*dim1 == *dim2)
-            return *dim1;
-        else
-            return {};
-    }
+        return *dims1 == *dims2;
     else
-    {
-        auto size = _size_if_equal_dim<Rank - 1>(dim1 + 1, dim2 + 1);
-        if (size && *dim1 == *dim2)
-            return size * (*dim1);
-        else
-            return {};
-    }
+        return (*dims1 == *dims2) &&
+        _check_dims<Rank - 1u>(dims1 + 1, dims2 + 1);
 }
 
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
@@ -427,13 +418,14 @@ struct simple_view
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _dims_t = std::array<size_t, ViewRank>;
 
-    pointer_type const identifier_;
+    const T* const identifier_;
     pointer_type data_;
     _dims_t dims_;
+    size_t size_;
 
     template<typename... Specs>
     simple_view(array_ref_type base, const Specs&... specs) :
-        identifier_{base.data()}
+        identifier_{base.data()}, size_{1u}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         size_t offset = 0u;
@@ -459,6 +451,7 @@ struct simple_view
             static_assert(!std::is_same_v<Spec1, scalar_indexer>, "internal");
             constexpr size_t ViewLevel = Level - (ArrayRank - ViewRank);
             this->dims_[ViewLevel] = spec1.size();
+            this->size_ *= this->dims_[ViewLevel];
             if constexpr (Level < ArrayRank - 1u)
                 _initialize<Level + 1u>(offset, dims, specs...);
         }
@@ -469,29 +462,48 @@ struct simple_view
         return this->dims_.data();
     }
 
+    auto identifier() const
+    {
+        return this->identifier_;
+    }
+
     auto begin() const
     {
         return this->data_;
     }
 
+    auto data() const
+    {
+        return this->data_;
+    }
+
+    auto size() const
+    {
+        return this->size_;
+    }
+
     template<typename Function>
-    void for_each(Function f, size_t size) const
+    void for_each(Function f) const
     {
-        std::for_each_n(this->begin(), size, f);
+        auto ptr = this->data_;
+        for (size_t i = 0u; i < this->size_; ++i, ++ptr)
+            f(*ptr);
     }
 
     template<typename FwdIter>
-    void copy_to(FwdIter iter, size_t size) const
+    void copy_to(FwdIter iter) const
     {
-        this->for_each(
-            [iter](const auto& val) mutable { *(iter++) = val; }, size);
+        auto ptr = this->data_;
+        for (size_t i = 0u; i < this->size_; ++i, ++ptr, ++iter)
+            *iter = *ptr;
     }
 
     template<typename FwdIter>
-    void copy_from(FwdIter iter, size_t size) const
+    void copy_from(FwdIter iter) const
     {
-        this->for_each(
-            [iter](auto& val) mutable { val = *(iter++); }, size);
+        auto ptr = this->data_;
+        for (size_t i = 0u; i < this->size_; ++i, ++ptr, ++iter)
+            *ptr = *iter;
     }
 
     auto to_array() const
@@ -510,7 +522,7 @@ struct regular_view_iterator
     pointer_type pointer_;
     size_t stride_;
 
-    regular_view_iterator(pointer_type pointer, size_t stride) : 
+    regular_view_iterator(pointer_type pointer, size_t stride) :
         pointer_{pointer}, stride_{stride}
     {
     }
@@ -558,14 +570,15 @@ struct regular_view
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _dims_t = std::array<size_t, ViewRank>;
 
-    pointer_type const identifier_;
+    const T* const identifier_;
     pointer_type data_;
     ptrdiff_t stride_;
     _dims_t dims_;
+    size_t size_;
 
     template<typename... Specs>
-    regular_view(array_ref_type base, const Specs&... specs) : 
-        identifier_{base.data()}
+    regular_view(array_ref_type base, const Specs&... specs) :
+        identifier_{base.data()}, size_{1u}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         this->stride_ = 1;
@@ -590,9 +603,10 @@ struct regular_view
         else if constexpr (Level < ArrayRank - StrideRank)
         {
             static_assert(!std::is_same_v<Spec1, scalar_indexer>, "internal");
-            constexpr size_t ViewLevel = Level - 
+            constexpr size_t ViewLevel = Level -
                 (ArrayRank - ViewRank - StrideRank);
             this->dims_[ViewLevel] = spec1.size();
+            this->size_ *= this->dims_[ViewLevel];
             if constexpr (std::is_same_v<Spec1, step_indexer>)
                 this->stride_ *= spec1.stride();
             if constexpr (Level < ArrayRank - 1u)
@@ -612,29 +626,53 @@ struct regular_view
         return this->dims_.data();
     }
 
+    auto identifier() const
+    {
+        return this->identifier_;
+    }
+
     auto begin() const
     {
         return regular_view_iterator<T, Const>(this->data_, this->stride_);
     }
 
+    auto data() const
+    {
+        return this->data_;
+    }
+
+    auto size() const
+    {
+        return this->size_;
+    }
+
+    auto stride() const
+    {
+        return this->stride_;
+    }
+
     template<typename Function>
-    void for_each(Function f, size_t size) const
+    void for_each(Function f) const
     {
-        std::for_each_n(this->begin(), size, f);
+        auto ptr = this->data_;
+        for (size_t i = 0u; i < this->size_; ++i, ptr += this->stride_)
+            f(*ptr);
     }
 
     template<typename FwdIter>
-    void copy_to(FwdIter iter, size_t size) const
+    void copy_to(FwdIter iter) const
     {
-        this->for_each(
-            [iter](const auto& val) mutable { *(iter++) = val; }, size);
+        auto ptr = this->data_;
+        for (size_t i = 0u; i < this->size_; ++i, ptr += this->stride_, ++iter)
+            *iter = *ptr;
     }
 
     template<typename FwdIter>
-    void copy_from(FwdIter iter, size_t size) const
+    void copy_from(FwdIter iter) const
     {
-        this->for_each(
-            [iter](auto& val) mutable { val = *(iter++); }, size);
+        auto ptr = this->data_;
+        for (size_t i = 0u; i < this->size_; ++i, ptr += this->stride_, ++iter)
+            *ptr = *iter;
     }
 
     auto to_array() const
@@ -663,20 +701,21 @@ struct general_view
     using _strides_t = std::array<ptrdiff_t, ViewRank>;
     using _indexers_tuple = IndexersTuple;
 
-    static constexpr auto _has_last_stride = (StrideRank != 0) || 
+    static constexpr auto _has_last_stride = (StrideRank != 0) ||
         std::is_same_v<
-        std::tuple_element_t<ViewRank - 1u, IndexersTuple>, 
+        std::tuple_element_t<ViewRank - 1u, IndexersTuple>,
         step_indexer>;
 
-    pointer_type const identifer_;
+    const T* const identifier_;
     pointer_type data_;
-    _dims_t dims_;
     _strides_t strides_;
     _indexers_tuple indexers_;
+    _dims_t dims_;
+    size_t size_;
 
     template<typename... Specs>
     general_view(array_ref_type base, const Specs&... specs) :
-        identifier_{base.data()}
+        identifier_{base.data()}, size_{1u}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         size_t offset = 0u;
@@ -708,6 +747,7 @@ struct general_view
             else
                 this->strides_[ViewLevel] = 1;
             this->dims_[ViewLevel] = spec1.size();
+            this->size_ *= this->dims_[ViewLevel];
             std::get<ViewLevel>(this->indexers_) = spec1;
             if constexpr (Level < ArrayRank - 1u)
                 _initialize<Level + 1u, ViewLevel + 1u>(
@@ -720,8 +760,17 @@ struct general_view
         return this->dims_.data();
     }
 
+    auto identifier() const
+    {
+        return this->identifier_;
+    }
+
     auto begin() const = delete;
-    
+
+    auto data() const = delete;
+
+    auto size() const = delete;
+
     template<size_t ViewLevel, typename Function>
     void _for_each_impl(size_t index, Function& f) const
     {
@@ -734,10 +783,10 @@ struct general_view
         {
             if constexpr (std::is_same_v<Indexer, list_indexer>)
                 for (const auto& i : indexer.indices())
-                    _copy_from_impl<ViewLevel + 1u>(index + i, iter);
+                    _for_each_impl<ViewLevel + 1u>(index + i, f);
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    _copy_from_impl<ViewLevel + 1u>(index + i, iter);
+                    _for_each_impl<ViewLevel + 1u>(index + i, f);
         }
         else if constexpr (_has_last_stride)
         {
@@ -761,23 +810,23 @@ struct general_view
     }
 
     template<typename Function>
-    void for_each(Function f, size_t = 0u) const
+    void for_each(Function f) const
     {
         this->_for_each_impl(0u, f);
     }
 
     template<typename FwdIter>
-    void copy_to(FwdIter iter, size_t = 0u) const
+    void copy_to(FwdIter iter) const
     {
         this->for_each(
-            [iter](const auto& val) mutable { *(iter++) = val; });
+            [iter](const auto& val) mutable { *iter = val; ++iter; });
     }
 
     template<typename FwdIter>
-    void copy_from(FwdIter iter, size_t = 0u) const
+    void copy_from(FwdIter iter) const
     {
         this->for_each(
-            [iter](auto& val) mutable { val = *(iter++); });
+            [iter](auto& val) mutable { val = *iter; ++iter; });
     }
 
     auto to_array() const
@@ -811,82 +860,75 @@ struct scalar_view_iterator
 
     T val_;
 
-    scalar_view_iterator(const T& val) : val_{val}
+    constexpr scalar_view_iterator(const T& val) : val_{val}
     {
     }
 
-    auto operator++() const
+    constexpr auto operator++() const
     {
         return *this;
     }
-    
+
     auto operator==(const _my_type&) = delete;
 
-    const T& operator*() const
+    constexpr const T& operator*() const
     {
         return val_;
     }
 };
 
-template<typename ViewDst, typename ViewSrc>
-auto _view_view_assign(const ViewDst& dst, const ViewSrc& src)
+template<typename T>
+constexpr auto make_scalar_view_iterator(const T& val)
 {
-    static_assert(!ViewDst::is_const, "modifyconst");
-    static_assert(is_array_view_v<ViewDst> && is_array_view_v<ViewSrc>,
-        "internal");
-    static_assert(ViewDst::rank == ViewSrc::rank, "badrank");
-
-    auto size = _size_if_equal_dim<ViewDst::rank>(
-        dst.dims_ptr(), src.dims_ptr());
-    if (!size.has_value())
-        throw std::logic_error("baddims");
-    if constexpr (ViewSrc::category != view_category::General)
-        dst.copy_from(src.begin(), size.value());
-    else if constexpr (ViewDst::category != view_category::General)
-        src.copy_to(dst.begin(), size.value());
-    else // both are general view
-    {
-        std::vector<typename ViewDst::value_type> buffer(size.value());
-        src.copy_to(buffer.begin(), size.value());
-        dst.copy_from(buffer.begin(), size.value());
-    }
-    return src;
+    return scalar_view_iterator<T>(val);
 }
 
-template<typename View, typename T, size_t R>
-auto view_assign(const View& dst, const ndarray<T, R>& src)
+template<typename View>
+auto _data_coverage(const View& view)
 {
-    static_assert(!View::is_const, "modifyconst");
-    static_assert(View::rank == R, "badrank");
-    auto size = _size_if_equal_dim<R>(dst.dims_ptr(), src.dims_ptr());
-    if (!size.has_value())
-        throw std::logic_error("baddims");
-    dst.copy_from(src.begin(), size.value());
-    return src;
+    if constexpr (View::category == view_category::Simple)
+        return std::make_pair(view.data(), view.data() + view.size() - 1u);
+    else
+    {
+        static_assert(View::category == view_category::Regular, "internal");
+        return std::make_pair(view.data(),
+            view.data() + (view.size() - 1u) * view.stride() +
+            (view.stride() > 0 ? 1 : -1));
+    }
 }
 
 template<typename Dst, typename Src>
-auto view_assign(Dst&& dst, const Src& src)
+auto has_aliasing(const Dst& dst, const Src& src)
 {
-    if constexpr (is_array_view_v<remove_cvref_t<Dst>>)
+    if (dst.identifier() != src.identifier())
+        return false;
+    if constexpr (
+        Dst::category == view_category::Array   ||
+        Dst::category == view_category::General ||
+        Src::category == view_category::Array   ||
+        Src::category == view_category::General)
     {
-        static_assert(!remove_cvref_t<Dst>::is_const, "modifyconst");
-        if constexpr (is_array_view_v<Src>)
-            return _view_view_assign(dst, src);
-        else
-        {
-            auto size = _size_if_equal_dim<Dst::rank>(
-                dst.dims_ptr(), dst.dims_ptr());
-            auto iter = scalar_view_iterator(src);
-            dst.copy_from(iter, size.value());
-            return src;
-        }
+        return true;
     }
     else
     {
-        std::forward<decltype(dst)>(dst) = src;
+        auto[src_min, src_max] = _data_coverage(src);
+        auto[dst_min, dst_max] = _data_coverage(dst);
+        return (src_max >= dst_min) && (src_min <= dst_max);
     }
 }
 
+template<typename Dst, typename Src>
+auto indirect_view_copy(Dst&& dst, const Src& src)
+{
+    using SrcValueType = typename Src::value_type;
+    using DstValueType = typename remove_cvref_t<Dst>::value_type;
+    using T = std::conditional_t<sizeof(SrcValueType) < sizeof(DstValueType),
+        SrcValueType, DstValueType>;
+
+    std::vector<T> buffer(src.size());
+    src.copy_to(buffer.begin());
+    std::forward<decltype(dst)>(dst).copy_from(buffer.begin());
+}
 
 }

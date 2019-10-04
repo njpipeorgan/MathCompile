@@ -17,13 +17,59 @@
 
 #pragma once
 
+#include <exception>
 #include <type_traits>
 
 #include "types.h"
 #include "ndarray.h"
+#include "arrayview.h"
 
 namespace wl
 {
+
+template<typename Dst, typename Src>
+auto set(Dst&& dst, Src&& src)
+{
+    using DstType = remove_cvref_t<Dst>;
+    using SrcType = remove_cvref_t<Src>;
+    constexpr auto dst_rank = array_rank_v<DstType>;
+    constexpr auto src_rank = array_rank_v<SrcType>;
+
+    if constexpr (src_rank == 0u)
+    {
+        if constexpr (dst_rank == 0u)
+        { // scalar -> scalar
+            std::forward<decltype(dst)>(dst) =
+                std::forward<decltype(src)>(src);
+        }
+        else
+        { // scalar -> ndarray / array_view
+            std::forward<decltype(dst)>(dst).copy_from(
+                make_scalar_view_iterator(src));
+        }
+    }
+    else
+    {
+        static_assert(dst_rank == src_rank, "badrank");
+        if (!_check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
+            throw std::logic_error("baddims");
+
+        if (!std::is_same_v<typename SrcType::value_type,
+            typename DstType::value_type> || !has_aliasing(src, dst))
+        {
+            if constexpr (SrcType::category != view_category::General)
+                std::forward<decltype(dst)>(dst).copy_from(src.begin());
+            else if (DstType::category != view_category::General)
+                src.copy_to(dst.begin());
+            else // general_view -> general_view
+                indirect_view_copy(std::forward<decltype(dst)>(dst), src);
+        }
+        else // has aliasing
+        {
+            indirect_view_copy(std::forward<decltype(dst)>(dst), src);
+        }
+    }
+}
 
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
@@ -39,7 +85,8 @@ template<size_t>
 using make_all_type = all_type;
 
 template<typename T, size_t R, typename... Indexers>
-decltype(auto) _part_impl3(ndarray<T, R>& a, const Indexers&... indexers)
+auto _part_impl3(ndarray<T, R>& a, 
+    const Indexers&... indexers) -> decltype(auto)
 {
     static_assert(sizeof...(Indexers) == R, "badargc");
     using return_type = typename view_detail::view_type<Indexers...>::
@@ -51,26 +98,27 @@ decltype(auto) _part_impl3(ndarray<T, R>& a, const Indexers&... indexers)
 }
 
 template<typename T, size_t R, size_t... Is, typename... Specs>
-decltype(auto) _part_impl2(ndarray<T, R>& a, std::index_sequence<Is...>,
-    const Specs&... specs)
+auto _part_impl2(ndarray<T, R>& a, std::index_sequence<Is...>,
+    const Specs&... specs) -> decltype(auto)
 {
     static_assert(sizeof...(Specs) == R, "badargc");
     return _part_impl3(a, make_indexer(specs, a.dims_[Is])...);
 }
 
 template<typename T, size_t R, size_t... Is, typename... Specs>
-decltype(auto) _part_impl1(ndarray<T, R>& a, std::index_sequence<Is...>,
-    const Specs&... specs)
+auto _part_impl1(ndarray<T, R>& a, std::index_sequence<Is...>,
+    const Specs&... specs) -> decltype(auto)
 {
-    return _part_impl2(a, 
+    return _part_impl2(a,
         std::make_index_sequence<R>{}, specs..., make_all_type<Is>{}...);
 }
 
 template<typename T, size_t R, typename... Specs>
-decltype(auto) part(ndarray<T, R>& a, const Specs&... specs)
+auto part(ndarray<T, R>& a,
+    const Specs&... specs) -> decltype(auto)
 {
     static_assert(sizeof...(Specs) <= R, "badargc");
-    return _part_impl1(a, 
+    return _part_impl1(a,
         std::make_index_sequence<R - sizeof...(Specs)>{}, specs...);
 }
 

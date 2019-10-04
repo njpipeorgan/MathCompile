@@ -36,38 +36,14 @@ struct step_indexer;   // S
 
 struct list_indexer;   // L
 
-template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
-struct simple_view;
-
-template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, bool Const>
-struct regular_view;
-
-template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typename IndexersTuple, bool Const>
-struct general_view;
-
 enum class view_category
 {
     Scalar, 
+    Array, 
     Simple, 
     Regular, 
     General
 };
-
-template<typename T>
-struct is_array_view : std::false_type {};
-
-template<typename T, size_t A, size_t V, bool C>
-struct is_array_view<simple_view<T, A, V, C>> : std::true_type {};
-
-template<typename T, size_t A, size_t V, size_t S, bool C>
-struct is_array_view<regular_view<T, A, V, S, C>> : std::true_type {};
-
-template<typename T, size_t A, size_t V, size_t S, typename IT, bool C>
-struct is_array_view<general_view<T, A, V, S, IT, C>> : std::true_type {};
-
-template<typename T>
-constexpr auto is_array_view_v = is_array_view<T>::value;
-
 
 namespace view_detail
 {

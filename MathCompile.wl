@@ -169,8 +169,7 @@ syntax[sequence][code_]:=code//.{
   }
 
 syntax[assign][code_]:=code//.{
-    id["Set"][id[var_],expr_]:>assign[id[var],expr],
-    id["Set"][target:id["Part"][id[var_],specs___],expr_]:>native["view_assign"][target,expr]
+    id["Set"][id[var_],expr_]:>assign[id[var],expr]
   }/.{
     any:id["Set"][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
   }
@@ -277,6 +276,7 @@ $builtinfunctions=native/@
   "SandomSample"    ->"random_sample",
 (* array operation *)
     (*"ConstantArray"*)
+  "Set"             ->"set",
   "Part"            ->"part",
   "Span"            ->"make_span",
   "Total"           ->"total",
@@ -367,7 +367,7 @@ codegen[scope[_,expr_],any___]:=codegen[expr,any]
 
 codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = wl::view_guard(",codegen[expr,"Return"]<>")"}
 
-codegen[assign[var_,expr_],___]:={codegen[var]," = ",codegen[expr,"Return"]}
+codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 
 codegen[literal[s_String],___]:="std::string("<>s<>")"
 codegen[literal[i_Integer],___]:="int64_t("<>ToString@CForm[i]<>")"

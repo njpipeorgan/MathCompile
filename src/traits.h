@@ -31,6 +31,15 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray;
 
+template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
+struct simple_view;
+
+template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, bool Const>
+struct regular_view;
+
+template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typename IndexersTuple, bool Const>
+struct general_view;
+
 template<typename T>
 using complex = std::complex<T>;
 
@@ -95,12 +104,52 @@ constexpr auto is_real_v = is_integral_v<T> || is_float_v<T>;
 template<typename T>
 constexpr auto is_arithmetic_v = is_integral_v<T> || is_float_v<T> || is_complex_v<T>;
 
+
 template<typename T>
 struct is_array : std::false_type {};
+
 template<typename T, size_t R>
 struct is_array<ndarray<T, R>> : std::true_type {};
+
 template<typename T>
 constexpr auto is_array_v = is_array<T>::value;
+
+template<typename T>
+struct is_array_view : std::false_type {};
+
+template<typename T, size_t A, size_t V, bool C>
+struct is_array_view<simple_view<T, A, V, C>> : std::true_type {};
+
+template<typename T, size_t A, size_t V, size_t S, bool C>
+struct is_array_view<regular_view<T, A, V, S, C>> : std::true_type {};
+
+template<typename T, size_t A, size_t V, size_t S, typename IT, bool C>
+struct is_array_view<general_view<T, A, V, S, IT, C>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_array_view_v = is_array_view<T>::value;
+
+template<typename T>
+struct array_rank : std::integral_constant<size_t, 0u> {};
+
+template<typename T, size_t R>
+struct array_rank<ndarray<T, R>> : 
+    std::integral_constant<size_t, R> {};
+
+template<typename T, size_t A, size_t V, bool C>
+struct array_rank<simple_view<T, A, V, C>> : 
+    std::integral_constant<size_t, V> {};
+
+template<typename T, size_t A, size_t V, size_t S, bool C>
+struct array_rank<regular_view<T, A, V, S, C>> : 
+    std::integral_constant<size_t, V> {};
+
+template<typename T, size_t A, size_t V, size_t S, typename IT, bool C>
+struct array_rank<general_view<T, A, V, S, IT, C>> : 
+    std::integral_constant<size_t, V> {};
+
+template<typename T>
+constexpr auto array_rank_v = array_rank<T>::value;
 
 
 template<typename T, typename U>

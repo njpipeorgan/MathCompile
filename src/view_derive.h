@@ -47,8 +47,27 @@ struct general_view;
 
 enum class view_category
 {
-    Scalar, Simple, Regular, General
+    Scalar, 
+    Simple, 
+    Regular, 
+    General
 };
+
+template<typename T>
+struct is_array_view : std::false_type {};
+
+template<typename T, size_t A, size_t V, bool C>
+struct is_array_view<simple_view<T, A, V, C>> : std::true_type {};
+
+template<typename T, size_t A, size_t V, size_t S, bool C>
+struct is_array_view<regular_view<T, A, V, S, C>> : std::true_type {};
+
+template<typename T, size_t A, size_t V, size_t S, typename IT, bool C>
+struct is_array_view<general_view<T, A, V, S, IT, C>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_array_view_v = is_array_view<T>::value;
+
 
 namespace view_detail
 {

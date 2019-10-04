@@ -29,18 +29,6 @@
 namespace wl
 {
 
-template<size_t Rank>
-auto _dimension_equal(const size_t* dim1, const size_t* dim2)
-{
-    if constexpr (Rank == 0u)
-        return true;
-    else if constexpr (Rank == 1u)
-        return *dim1 == *dim2;
-    else
-        return (*dim1 == *dim2) && 
-        _dimension_equal<Rank - 1>(dim1 + 1u, dim2 + 1u);
-}
-
 template<typename T, size_t R>
 struct ndarray
 {
@@ -69,6 +57,12 @@ struct ndarray
         dims_{}, data_(_input_dims_size(dims), val)
     {
         std::copy(dims.begin(), dims.end(), dims_.begin());
+    }
+
+    template<typename FwdIter>
+    ndarray(std::array<size_t, rank> dims, FwdIter iter) :
+        dims_{dims}, data_(iter, iter + _input_dims_size(dims))
+    {
     }
 
     template<typename Dims>
@@ -130,6 +124,7 @@ struct ndarray
         return data_[i];
     }
 
+
     auto begin() { return data_.begin(); }
     auto end() { return data_.end(); }
     auto begin() const { return data_.begin(); }
@@ -137,6 +132,24 @@ struct ndarray
     auto cbegin() const { return data_.cbegin(); }
     auto cend() const { return data_.cend(); }
 
+    template<size_t Level, typename... Is>
+    void linear_pos_impl(size_t& pos, 
+        const size_t& i1, const Is&... is) const
+    {
+        pos += i1;
+        if constexpr (Level < R - 1)
+            pos *= this->dims_[Level + 1u];
+        if constexpr (Level < R - 1)
+            linear_pos_impl<Level + 1u>(pos, is...);
+    }
+
+    template<typename... Is>
+    size_t linear_pos(const Is&... is) const
+    {
+        size_t pos = 0u;
+        linear_pos_impl<0u>(pos, is...);
+        return pos;
+    }
 
 };
 

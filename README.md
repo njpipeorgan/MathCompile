@@ -47,6 +47,7 @@ auto main_function(int64_t v16) {
 **Constants**
 ```
 Null
+All
 Pi
 E
 Degree
@@ -95,6 +96,8 @@ Do
 **Array functions**
 ```
 ConstantArray
+Part
+Span
 ```
 
 ## Supported types

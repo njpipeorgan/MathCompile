@@ -99,10 +99,14 @@ syntax[clause][code_]:=code//.{
   }
 
 syntax[mutable][code_]:=code//.{
-    id["AddTo"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["add_to"][target,expr],
-    id["SubtractFrom"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["subtract_from"][target,expr],
-    id["TimesBy"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["times_by"][target,expr],
-    id["DivideBy"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>native["divide_by"][target,expr],
+    id["AddTo"][id[var_],expr_]:>native["add_to"][id[var],expr],
+    id["SubtractFrom"][id[var_],expr_]:>native["subtract_from"][id[var],expr],
+    id["TimesBy"][id[var_],expr_]:>native["times_by"][id[var],expr],
+    id["DivideBy"][id[var_],expr_]:>native["divide_by"][id[var],expr],
+    id["AddTo"][target:id["Part"][id[var_],specs___],expr_]:>native["view_add_to"][target,expr],
+    id["SubtractFrom"][target:id["Part"][id[var_],specs___],expr_]:>native["view_subtract_from"][target,expr],
+    id["TimesBy"][target:id["Part"][id[var_],specs___],expr_]:>native["view_times_by"][target,expr],
+    id["DivideBy"][target:id["Part"][id[var_],specs___],expr_]:>native["view_divide_by"][target,expr],
     id["AppendTo"][id[var_],expr_]:>native["append_to"][id[var],expr],
     id["PrependTo"][id[var_],expr_]:>native["prepend_to"][id[var],expr]
   }/.{
@@ -165,7 +169,8 @@ syntax[sequence][code_]:=code//.{
   }
 
 syntax[assign][code_]:=code//.{
-    id["Set"][target:(id[var_]|id["Part"][id[var_],specs___]),expr_]:>assign[target,expr],
+    id["Set"][id[var_],expr_]:>assign[id[var],expr],
+    id["Set"][target:id["Part"][id[var_],specs___],expr_]:>native["view_assign"][target,expr]
   }/.{
     any:id["Set"][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
   }
@@ -273,6 +278,7 @@ $builtinfunctions=native/@
 (* array operation *)
     (*"ConstantArray"*)
   "Part"            ->"part",
+  "Span"            ->"make_span",
   "Total"           ->"total",
   "Mean"            ->"mean"
 |>;
@@ -359,7 +365,7 @@ codegen[function[indices_,vars_,types_,expr_],___]:=
 
 codegen[scope[_,expr_],any___]:=codegen[expr,any]
 
-codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[expr,"Return"]}
+codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = wl::view_guard(",codegen[expr,"Return"]<>")"}
 
 codegen[assign[var_,expr_],___]:={codegen[var]," = ",codegen[expr,"Return"]}
 

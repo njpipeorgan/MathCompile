@@ -39,16 +39,19 @@ template<size_t>
 using make_all_type = all_type;
 
 template<typename T, size_t R, typename... Indexers>
-auto _part_impl3(ndarray<T, R>& a, const Indexers&... indexers)
+decltype(auto) _part_impl3(ndarray<T, R>& a, const Indexers&... indexers)
 {
     static_assert(sizeof...(Indexers) == R, "badargc");
     using return_type = typename view_detail::view_type<Indexers...>::
         template return_type<T, false, Indexers...>;
-    return return_type(a, indexers...);
+    if constexpr (is_array_view_v<return_type>)
+        return return_type(a, indexers...);
+    else
+        return a.data()[a.linear_pos(indexers.offset()...)];
 }
 
 template<typename T, size_t R, size_t... Is, typename... Specs>
-auto _part_impl2(ndarray<T, R>& a, std::index_sequence<Is...>, 
+decltype(auto) _part_impl2(ndarray<T, R>& a, std::index_sequence<Is...>,
     const Specs&... specs)
 {
     static_assert(sizeof...(Specs) == R, "badargc");
@@ -56,7 +59,7 @@ auto _part_impl2(ndarray<T, R>& a, std::index_sequence<Is...>,
 }
 
 template<typename T, size_t R, size_t... Is, typename... Specs>
-auto _part_impl1(ndarray<T, R>& a, std::index_sequence<Is...>, 
+decltype(auto) _part_impl1(ndarray<T, R>& a, std::index_sequence<Is...>,
     const Specs&... specs)
 {
     return _part_impl2(a, 
@@ -64,7 +67,7 @@ auto _part_impl1(ndarray<T, R>& a, std::index_sequence<Is...>,
 }
 
 template<typename T, size_t R, typename... Specs>
-auto part(ndarray<T, R>& a, const Specs&... specs)
+decltype(auto) part(ndarray<T, R>& a, const Specs&... specs)
 {
     static_assert(sizeof...(Specs) <= R, "badargc");
     return _part_impl1(a, 

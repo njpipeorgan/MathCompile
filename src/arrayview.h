@@ -427,11 +427,13 @@ struct simple_view
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _dims_t = std::array<size_t, ViewRank>;
 
+    pointer_type const identifier_;
     pointer_type data_;
     _dims_t dims_;
 
     template<typename... Specs>
-    simple_view(array_ref_type base, const Specs&... specs)
+    simple_view(array_ref_type base, const Specs&... specs) :
+        identifier_{base.data()}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         size_t offset = 0u;
@@ -472,16 +474,24 @@ struct simple_view
         return this->data_;
     }
 
+    template<typename Function>
+    void for_each(Function f, size_t size) const
+    {
+        std::for_each_n(this->begin(), size, f);
+    }
+
     template<typename FwdIter>
     void copy_to(FwdIter iter, size_t size) const
     {
-        std::copy_n(this->begin(), size, iter);
+        this->for_each(
+            [iter](const auto& val) mutable { *(iter++) = val; }, size);
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter, size_t size) const
     {
-        std::copy_n(iter, size, this->begin());
+        this->for_each(
+            [iter](auto& val) mutable { val = *(iter++); }, size);
     }
 
     auto to_array() const
@@ -548,12 +558,14 @@ struct regular_view
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _dims_t = std::array<size_t, ViewRank>;
 
+    pointer_type const identifier_;
     pointer_type data_;
     ptrdiff_t stride_;
     _dims_t dims_;
 
     template<typename... Specs>
-    regular_view(array_ref_type base, const Specs&... specs)
+    regular_view(array_ref_type base, const Specs&... specs) : 
+        identifier_{base.data()}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         this->stride_ = 1;
@@ -605,16 +617,24 @@ struct regular_view
         return regular_view_iterator<T, Const>(this->data_, this->stride_);
     }
 
+    template<typename Function>
+    void for_each(Function f, size_t size) const
+    {
+        std::for_each_n(this->begin(), size, f);
+    }
+
     template<typename FwdIter>
     void copy_to(FwdIter iter, size_t size) const
     {
-        std::copy_n(this->begin(), size, iter);
+        this->for_each(
+            [iter](const auto& val) mutable { *(iter++) = val; }, size);
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter, size_t size) const
     {
-        std::copy_n(iter, size, this->begin());
+        this->for_each(
+            [iter](auto& val) mutable { val = *(iter++); }, size);
     }
 
     auto to_array() const
@@ -648,13 +668,15 @@ struct general_view
         std::tuple_element_t<ViewRank - 1u, IndexersTuple>, 
         step_indexer>;
 
+    pointer_type const identifer_;
     pointer_type data_;
     _dims_t dims_;
     _strides_t strides_;
     _indexers_tuple indexers_;
 
     template<typename... Specs>
-    general_view(array_ref_type base, const Specs&... specs)
+    general_view(array_ref_type base, const Specs&... specs) :
+        identifier_{base.data()}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         size_t offset = 0u;
@@ -699,53 +721,9 @@ struct general_view
     }
 
     auto begin() const = delete;
-
-    template<size_t ViewLevel, typename FwdIter>
-    void _copy_to_impl(size_t index, FwdIter& iter) const
-    {
-        const auto& indexer = std::get<ViewLevel>(this->indexers_);
-        using Indexer = remove_cvref_t<decltype(indexer)>;
-
-        if constexpr (ViewLevel > 0u)
-            index *= this->strides_[ViewLevel - 1];
-        if constexpr (ViewLevel < ViewRank - 1u)
-        {
-            if constexpr (std::is_same_v<Indexer, list_indexer>)
-                for (const auto& i : indexer.indices())
-                    _copy_to_impl<ViewLevel + 1u>(index + i, iter);
-            else
-                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    _copy_to_impl<ViewLevel + 1u>(index + i, iter);
-        }
-        else if constexpr (_has_last_stride)
-        {
-            const auto last_stride = this->strides_[ViewLevel];
-            if constexpr (std::is_same_v<Indexer, list_indexer>)
-                for (const auto& i : indexer.indices())
-                    *(iter++) = this->data_[(index + i) * last_stride];
-            else
-                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    *(iter++) = this->data_[(index + i) * last_stride];
-        }
-        else
-        {
-            if constexpr (std::is_same_v<Indexer, list_indexer>)
-                for (const auto& i : indexer.indices())
-                    *(iter++) = this->data_[index + i];
-            else
-                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    *(iter++) = this->data_[index + i];
-        }
-    }
-
-    template<typename FwdIter>
-    void copy_to(FwdIter iter) const
-    {
-        _copy_to_impl<0>(0u, iter);
-    }
-
-    template<size_t ViewLevel, typename FwdIter>
-    void _copy_from_impl(size_t index, FwdIter& iter) const
+    
+    template<size_t ViewLevel, typename Function>
+    void _for_each_impl(size_t index, Function& f) const
     {
         const auto& indexer = std::get<ViewLevel>(this->indexers_);
         using Indexer = remove_cvref_t<decltype(indexer)>;
@@ -766,26 +744,40 @@ struct general_view
             const auto last_stride = this->strides_[ViewLevel];
             if constexpr (std::is_same_v<Indexer, list_indexer>)
                 for (const auto& i : indexer.indices())
-                    this->data_[(index + i) * last_stride] = *(iter++);
+                    f(this->data_[(index + i) * last_stride]);
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    this->data_[(index + i) * last_stride] = *(iter++);
+                    f(this->data_[(index + i) * last_stride]);
         }
         else
         {
             if constexpr (std::is_same_v<Indexer, list_indexer>)
                 for (const auto& i : indexer.indices())
-                    this->data_[index + i] = *(iter++);
+                    f(this->data_[index + i]);
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    this->data_[index + i] = *(iter++);
+                    f(this->data_[index + i]);
         }
     }
 
-    template<typename FwdIter>
-    void copy_from(FwdIter iter) const
+    template<typename Function>
+    void for_each(Function f, size_t = 0u) const
     {
-        _copy_from_impl<0>(0u, iter);
+        this->_for_each_impl(0u, f);
+    }
+
+    template<typename FwdIter>
+    void copy_to(FwdIter iter, size_t = 0u) const
+    {
+        this->for_each(
+            [iter](const auto& val) mutable { *(iter++) = val; });
+    }
+
+    template<typename FwdIter>
+    void copy_from(FwdIter iter, size_t = 0u) const
+    {
+        this->for_each(
+            [iter](auto& val) mutable { val = *(iter++); });
     }
 
     auto to_array() const

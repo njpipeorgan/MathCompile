@@ -1,6 +1,6 @@
 # MathCompile
 
-MathCompile is a package that translates *Wolfram Language* functions into C++ code. It is written mostly in *Wolfram Language* and utilize a C++ library for type deductiona and implementation of the supported functions. 
+MathCompile is a package that translates *Wolfram Language* functions into C++ code. It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions. 
 
 **Note**: The project is in the progress of adding necessary components to the C++ library. 
 
@@ -95,9 +95,10 @@ Do
 ```
 **Array functions**
 ```
-ConstantArray
+Set
 Part
 Span
+ConstantArray
 ```
 
 ## Supported types

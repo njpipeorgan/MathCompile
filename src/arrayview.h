@@ -100,6 +100,8 @@ struct scalar_indexer
 {
     size_t index_;
 
+    scalar_indexer() = default;
+
     template<typename IndexType>
     scalar_indexer(IndexType index, size_t dim) :
         index_{convert_index(index, dim)}
@@ -113,12 +115,14 @@ struct scalar_indexer
 
     size_t size() = delete;
 
-    size_t stride() = delete;
+    ptrdiff_t stride() = delete;
 };
 
 struct all_indexer
 {
     size_t size_;
+
+    all_indexer() = default;
 
     explicit all_indexer(size_t dim) :
         size_{dim}
@@ -135,9 +139,9 @@ struct all_indexer
         return this->size_;
     }
 
-    size_t stride() const
+    ptrdiff_t stride() const
     {
-        return 1u;
+        return 1;
     }
 };
 
@@ -145,6 +149,8 @@ struct unit_indexer
 {
     size_t begin_;
     size_t size_;
+
+    unit_indexer() = default;
 
     unit_indexer(size_t begin, size_t size) :
         begin_{begin}, size_{size}
@@ -161,9 +167,9 @@ struct unit_indexer
         return this->size_;
     }
 
-    size_t stride() const
+    ptrdiff_t stride() const
     {
-        return 1u;
+        return 1;
     }
 
     auto begin() const
@@ -180,11 +186,13 @@ struct unit_indexer
 struct step_indexer
 {
     size_t begin_;
-    ptrdiff_t step_;
     size_t size_;
+    ptrdiff_t step_;
 
-    step_indexer(size_t begin, ptrdiff_t step, size_t size) :
-        begin_{begin}, step_{step}, size_{size}
+    step_indexer() = default;
+
+    step_indexer(size_t begin, size_t size, ptrdiff_t step) :
+        begin_{begin}, size_{size}, step_{step}
     {
     }
 
@@ -198,7 +206,7 @@ struct step_indexer
         return this->size_;
     }
 
-    size_t stride() const
+    ptrdiff_t stride() const
     {
         return step_;
     }
@@ -218,6 +226,8 @@ struct list_indexer
 {
     std::vector<size_t> indices_;
 
+    list_indexer() = default;
+
     template<typename Iter>
     list_indexer(Iter idx_begin, Iter idx_end, size_t level_dim)
     {
@@ -232,7 +242,7 @@ struct list_indexer
         return 0u;
     }
 
-    size_t stride() = delete;
+    ptrdiff_t stride() = delete;
 
     size_t size() const
     {
@@ -264,70 +274,72 @@ struct span
     {
         if constexpr (default_begin && default_end && default_step)
             return all_indexer(dim);
-
-        // convert WL-style index to C-style index
-        ptrdiff_t begin = 1;
-        ptrdiff_t end = ptrdiff_t(dim);
-        ptrdiff_t step = 1;
-        if constexpr (!default_begin)
+        else
         {
-            if constexpr (std::is_unsigned_v<Begin>)
-                begin = ptrdiff_t(this->begin_);
-            else if (this->begin_ >= 0)
-                begin = ptrdiff_t(this->begin_);
-            else // this->begin_ < 0
-                begin = ptrdiff_t(this->begin_) + ptrdiff_t(dim + 1u);
-            //check out-of-bound
-            if (begin < 1 || begin > ptrdiff_t(dim))
-                throw std::logic_error("badindex");
-        }
-        if constexpr (!default_end)
-        {
-            if constexpr (std::is_unsigned_v<End>)
-                end = ptrdiff_t(this->end_);
-            else if (this->end_ >= 0)
-                end = ptrdiff_t(this->end_);
-            else // this->end_ < 0
-                end = ptrdiff_t(this->end_) + ptrdiff_t(dim + 1u);
-            //check out-of-bound
-            if (end < 1 || end > ptrdiff_t(dim))
-                throw std::logic_error("badindex");
-        }
-        if constexpr (!default_step)
-        {
-            step = step_;
-            if (step == 0)
-                throw std::logic_error("badstep");
-        }
-
-        if constexpr (default_step)
-        {
-            if constexpr (default_begin || default_end)
+            // convert WL-style index to C-style index
+            ptrdiff_t begin = 1;
+            ptrdiff_t end = ptrdiff_t(dim);
+            ptrdiff_t step = 1;
+            if constexpr (!default_begin)
             {
-                return unit_indexer(
-                    size_t(begin - 1),
-                    size_t(end - begin + 1));
+                if constexpr (std::is_unsigned_v<Begin>)
+                    begin = ptrdiff_t(this->begin_);
+                else if (this->begin_ >= 0)
+                    begin = ptrdiff_t(this->begin_);
+                else // this->begin_ < 0
+                    begin = ptrdiff_t(this->begin_) + ptrdiff_t(dim + 1u);
+                //check out-of-bound
+                if (begin < 1 || begin > ptrdiff_t(dim))
+                    throw std::logic_error("badindex");
             }
-            else
+            if constexpr (!default_end)
             {
-                return unit_indexer(
-                    size_t(begin - 1),
-                    end >= begin ? size_t(end - begin + 1) : 0u);
+                if constexpr (std::is_unsigned_v<End>)
+                    end = ptrdiff_t(this->end_);
+                else if (this->end_ >= 0)
+                    end = ptrdiff_t(this->end_);
+                else // this->end_ < 0
+                    end = ptrdiff_t(this->end_) + ptrdiff_t(dim + 1u);
+                //check out-of-bound
+                if (end < 1 || end > ptrdiff_t(dim))
+                    throw std::logic_error("badindex");
             }
-        }
-        else if (step > 0)
-        {
-            return step_indexer(
-                size_t(begin - 1),
-                end >= begin ? size_t((end - begin) / step) + 1u : 0u,
-                step);
-        }
-        else // step < 0
-        {
-            return step_indexer(
-                size_t(begin),
-                end <= begin ? size_t((begin - end) / -step) + 1u : 0u,
-                step);
+            if constexpr (!default_step)
+            {
+                step = step_;
+                if (step == 0)
+                    throw std::logic_error("badstep");
+            }
+
+            if constexpr (default_step)
+            {
+                if constexpr (default_begin || default_end)
+                {
+                    return unit_indexer(
+                        size_t(begin - 1),
+                        size_t(end - begin + 1));
+                }
+                else
+                {
+                    return unit_indexer(
+                        size_t(begin - 1),
+                        end >= begin ? size_t(end - begin + 1) : 0u);
+                }
+            }
+            else if (step > 0)
+            {
+                return step_indexer(
+                    size_t(begin - 1),
+                    end >= begin ? size_t((end - begin) / step) + 1u : 0u,
+                    step);
+            }
+            else // step < 0
+            {
+                return step_indexer(
+                    size_t(begin),
+                    end <= begin ? size_t((begin - end) / -step) + 1u : 0u,
+                    step);
+            }
         }
     }
 };
@@ -408,7 +420,7 @@ struct simple_view
         if constexpr (Level < ArrayRank - ViewRank)
         {
             static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
-            this->_initialize<Level + 1>(offset, dims, specs...);
+            this->_initialize<Level + 1u>(offset, dims, specs...);
         }
         else
         {
@@ -416,7 +428,7 @@ struct simple_view
             constexpr size_t ViewLevel = Level - (ArrayRank - ViewRank);
             this->dims_[ViewLevel] = spec1.size();
             if constexpr (Level < ArrayRank - 1u)
-                _initialize<Level + 1>(offset, dims, specs...);
+                _initialize<Level + 1u>(offset, dims, specs...);
         }
     }
 
@@ -484,14 +496,14 @@ struct regular_view
     using _dims_t = std::array<size_t, ViewRank>;
 
     pointer_type data_;
-    size_t stride_;
+    ptrdiff_t stride_;
     _dims_t dims_;
 
     template<typename... Specs>
     regular_view(array_ref_type base, const Specs&... specs)
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
-        this->stride_ = 1u;
+        this->stride_ = 1;
         size_t offset = 0u;
         this->_initialize<0u>(offset, base.dims_ptr(), specs...);
         this->data_ = base.data() + offset;
@@ -519,14 +531,14 @@ struct regular_view
             if constexpr (std::is_same_v<Spec1, step_indexer>)
                 this->stride_ *= spec1.stride();
             if constexpr (Level < ArrayRank - 1u)
-                _initialize<Level + 1>(offset, dims, specs...);
+                _initialize<Level + 1u>(offset, dims, specs...);
         }
         else
         {
             static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
             this->stride_ *= dims[Level];
             if constexpr (Level < ArrayRank - 1u)
-                _initialize<Level + 1>(offset, dims, specs...);
+                _initialize<Level + 1u>(offset, dims, specs...);
         }
     }
 
@@ -548,6 +560,74 @@ struct regular_view
 };
 
 template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typename IndexersTuple, bool Const>
-struct general_view {};
+struct general_view
+{
+    static_assert(ViewRank == std::tuple_size_v<IndexersTuple>, "internal");
+
+    static constexpr auto is_const = Const;
+    static constexpr auto array_rank = ArrayRank;
+    static constexpr auto view_rank = ViewRank;
+    static constexpr auto stride_rank = StrideRank;
+    static constexpr auto rank = ViewRank;
+
+    using value_type = T;
+    using array_ref_type = std::conditional_t<Const,
+        const ndarray<T, ArrayRank>&, ndarray<T, ArrayRank>&>;
+    using pointer_type = std::conditional_t<Const, const T*, T*>;
+    using _dims_t = std::array<size_t, ViewRank>;
+    using _strides_t = std::array<ptrdiff_t, ViewRank>;
+    using _indexers_tuple = IndexersTuple;
+
+    static constexpr auto _has_last_stride = (StrideRank != 0) || 
+        std::is_same_v<
+        std::tuple_element_t<ViewRank - 1u, IndexersTuple>, 
+        step_indexer>;
+
+    pointer_type data_;
+    _dims_t dims_;
+    _strides_t strides_;
+    _indexers_tuple indexers_;
+
+    template<typename... Specs>
+    general_view(array_ref_type base, const Specs&... specs)
+    {
+        static_assert(sizeof...(Specs) == ArrayRank, "internal");
+        size_t offset = 0u;
+        this->_initialize<0u, 0u>(offset, base.dims_ptr(), specs...);
+        this->data_ = base.data() + offset;
+    }
+
+    template<size_t Level, size_t ViewLevel, typename Spec1, typename... Specs>
+    auto _initialize(size_t& offset, const size_t* dims,
+        const Spec1& spec1, const Specs&... specs)
+    {
+        if constexpr (Level > 0)
+            offset *= dims[Level];
+        offset += spec1.offset();
+
+        if constexpr (std::is_same_v<Spec1, scalar_indexer>)
+        {
+            if constexpr (ViewLevel > 0u)
+                this->strides_[ViewLevel - 1] *= dims[Level];
+            if constexpr (Level < ArrayRank - 1u)
+                _initialize<Level + 1u, ViewLevel>(offset, dims, specs...);
+        }
+        else
+        {
+            if constexpr (ViewLevel > 0u)
+                this->strides_[ViewLevel - 1] *= dims[Level];
+            if constexpr (std::is_same_v<Spec1, step_indexer>)
+                this->strides_[ViewLevel] = spec1.stride();
+            else
+                this->strides_[ViewLevel] = 1;
+            this->dims_[ViewLevel] = spec1.size();
+            std::get<ViewLevel>(this->indexers_) = spec1;
+            if constexpr (Level < ArrayRank - 1u)
+                _initialize<Level + 1u, ViewLevel + 1u>(
+                    offset, dims, specs...);
+        }
+    }
+
+};
 
 }

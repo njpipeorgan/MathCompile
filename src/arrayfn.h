@@ -54,8 +54,7 @@ auto set(Dst&& dst, Src&& src)
         if (!_check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
             throw std::logic_error("baddims");
 
-        if (!std::is_same_v<typename SrcType::value_type,
-            typename DstType::value_type> || !has_aliasing(src, dst))
+        if (!has_aliasing(src, dst))
         {
             if constexpr (SrcType::category != view_category::General)
                 std::forward<decltype(dst)>(dst).copy_from(src.begin());

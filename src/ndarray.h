@@ -100,6 +100,11 @@ struct ndarray
         return this->dims_[Level];
     }
 
+    auto dims() const
+    {
+        return this->dims_;
+    }
+
     const size_t* dims_ptr() const
     {
         return this->dims_.data();
@@ -157,41 +162,45 @@ struct ndarray
         linear_pos_impl<0u>(pos, is...);
         return pos;
     }
-
-    template<typename Function>
-    void for_each(Function f)
+    
+    template<typename Function, typename... Iters>
+    void for_each(Function f, Iters... iters)
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i, ++ptr)
-            f(*ptr);
+        for (size_t i = 0u; i < this->size(); ++i)
+        {
+            f(*ptr++, (*iters++)...);
+        }
     }
 
-    template<typename Function>
-    void for_each(Function f) const
+    template<typename Function, typename... Iters>
+    void for_each(Function f, Iters... iters) const
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i, ++ptr)
-            f(*ptr);
+        for (size_t i = 0u; i < this->size(); ++i)
+        {
+            f(*ptr++, (*iters++)...);
+        }
     }
 
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i, ++ptr, ++iter)
-            *iter = *ptr;
+        for (size_t i = 0u; i < this->size(); ++i)
+            *iter++ = *ptr++;
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter) &
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i, ++ptr, ++iter)
-            *ptr = *iter;
+        for (size_t i = 0u; i < this->size(); ++i)
+            *ptr++ = *iter++;
     }
 
     template<typename FwdIter>
-    void copy_from(FwdIter iter) && = delete;
+    void copy_from(FwdIter) && = delete;
 
     auto to_array() const & -> decltype(auto)
     {

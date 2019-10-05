@@ -72,15 +72,18 @@ DivideBy
 **Numerical functions**
 ```
 N
+Abs
 Round
-Less
+Ceiling
+Floor
+IntegerPart
+FractionalPart
 ```
 **Complex numbers**
 ```
 Complex
 Re
 Im
-Abs
 Arg
 ```
 **Random numbers**
@@ -93,12 +96,16 @@ RandomComplex
 ```
 Do
 ```
-**Array functions**
+**Array generation**
+```
+ConstantArray
+Range
+```
+**Array manipulation**
 ```
 Set
 Part
 Span
-ConstantArray
 ```
 
 ## Supported types

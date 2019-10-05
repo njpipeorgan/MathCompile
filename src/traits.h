@@ -151,6 +151,15 @@ struct array_rank<general_view<T, A, V, S, IT, C>> :
 template<typename T>
 constexpr auto array_rank_v = array_rank<T>::value;
 
+template<typename T>
+struct is_movable : std::false_type {};
+
+template<typename T, size_t R>
+struct is_movable<ndarray<T, R>&&> : std::true_type {};
+
+template<typename T>
+constexpr auto is_movable_v = is_movable<T>::value;
+
 
 template<typename T, typename U>
 struct is_convertible

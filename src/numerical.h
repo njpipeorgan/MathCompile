@@ -17,122 +17,153 @@
 
 #pragma once
 
+#include <cmath>
+
 #include "types.h"
+#include "traits.h"
+#include "ndarray.h"
 
 namespace wl
 {
 
-//=============================================================================
-// Scalar numerical functions
-//=============================================================================
-
 template<typename X>
-auto _scalar_n(const X& x)
+auto n(X&& x)
 {
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_integral_v<X> || is_float_v<X>)
+    using XT = remove_cvref_t<X>;
+    constexpr auto x_rank = array_rank_v<XT>;
+    if constexpr (x_rank == 0)
     {
-        return double(x);
-    }
-    else // complex
-    {
-        return complex<double>(x.real(), x.imag());
-    }
-}
-
-template<typename X>
-auto _scalar_round(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_integral_v<X>)
-    {
-        return x;
-    }
-    else if constexpr (is_float_v<X>)
-    {
-        return int64_t(std::round(x));
-    }
-    else // complex
-    {
-        return complex<int64_t>(
-            _scalar_round(x.real()), _scalar_round(x.imag()));
-    }
-}
-
-template<typename X, typename Y>
-auto _scalar_less(const X& x, const Y& y)
-{
-    static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
-    return x < y;
-}
-
-
-//=============================================================================
-// Scalar numerical functions
-//=============================================================================
-
-template<typename T>
-auto n(T&& x)
-{
-    using X = remove_cvref_t<T>;
-    if constexpr (is_arithmetic_v<X>)
-    {
-        return _scalar_n(x);
-    }
-    else if constexpr (is_array_v<X>)
-    {
-        if constexpr (std::is_same_v<typename X::value_type, double>)
-        {
-            return std::forward<decltype(x)>(x);
-        }
+        static_assert(is_arithmetic_v<XT>, "badargtype");
+        if constexpr (is_integral_v<XT>)
+            return double(x);
         else
-        {
-            ndarray<double, X::rank> y(x.dims());
-            std::transform(x.begin(), x.end(), y.begin(),
-                [](auto a) { return _scalar_n(a); });
-            return y;
-        }
+            return x;
     }
     else
     {
-        static_assert(always_false_v<T>, "badargtype");
+        using XVT = typename XT::value_type;
+        if constexpr (is_integral_v<XVT>)
+        {
+            ndarray<decltype(n(XVT{})), x_rank> ret(x.dims());
+            x.for_each(
+                [](const auto& src, auto& dst) { dst = n(src); },
+                ret.begin());
+            return ret;
+        }
+        else
+            return std::forward<decltype(x)>(x);
     }
 }
 
-template<typename T>
-auto round(T&& x)
-{
-    using X = remove_cvref_t<T>;
-    static_assert(!is_string_v<X>, "badargtype");
+#define WL_DEFINE_ROUNDING_FUNCTION(name, stdname)                      \
+template<typename X>                                                    \
+auto name(X&& x)                                                        \
+{                                                                       \
+    using XT = remove_cvref_t<X>;                                       \
+    constexpr auto x_rank = array_rank_v<XT>;                           \
+    if constexpr (x_rank == 0)                                          \
+    {                                                                   \
+        static_assert(is_arithmetic_v<XT>, "badargtype");               \
+        if constexpr (is_integral_v<XT>)                                \
+            return x;                                                   \
+        if constexpr (is_float_v<XT>)                                   \
+            return int64_t(std::stdname(x));                            \
+        else                                                            \
+            return XT(name(x.real()), name(x.imag()));                  \
+    }                                                                   \
+    else                                                                \
+    {                                                                   \
+        using XVT = typename XT::value_type;                            \
+        if constexpr (is_integral_v<XVT>)                               \
+            return std::forward<decltype(x)>(x);                        \
+        else                                                            \
+        {                                                               \
+            ndarray<decltype(name(XVT{})), x_rank> ret(x.dims());       \
+            x.for_each(                                                 \
+                [](const auto& src, auto& dst) { dst = name(src); },    \
+                ret.begin());                                           \
+            return ret;                                                 \
+        }                                                               \
+    }                                                                   \
+}
 
-    if constexpr (is_arithmetic_v<X>)
+WL_DEFINE_ROUNDING_FUNCTION(round, round)
+WL_DEFINE_ROUNDING_FUNCTION(ceiling, ceil)
+WL_DEFINE_ROUNDING_FUNCTION(floor, floor)
+WL_DEFINE_ROUNDING_FUNCTION(integer_part, trunc)
+
+template<typename X>
+auto fractional_part(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto x_rank = array_rank_v<XT>;
+    if constexpr (x_rank == 0)
     {
-        return _scalar_round(x);
-    }
-    else if constexpr (is_array_v<X>)
-    {
-        if constexpr (is_integral_v<typename X::value_type>)
-        {
-            return std::forward<decltype(x)>(x);
-        }
+        static_assert(is_arithmetic_v<XT>, "badargtype");
+        if constexpr (is_integral_v<XT>)
+            return 0.;
+        else if constexpr (is_float_v<XT>)
+            return x - std::trunc(x);
         else
-        {
-            ndarray<double, X::rank> y(x.dims());
-            std::transform(x.begin(), x.end(), y.begin(),
-                [](auto a) { return _scalar_round(a); });
-            return y;
-        }
+            return XT(fractional_part(x.real()), fractional_part(x.imag()));
     }
     else
     {
-        static_assert(always_false_v<T>, "badargtype");
+        using XVT = typename XT::value_type;
+        if constexpr (is_integral_v<XVT>)
+        {
+            return ndarray<double, x_rank>(x.dims());
+        }
+        else if constexpr (is_movable_v<X&&>)
+        { // movable
+            ndarray<XVT, x_rank> ret(std::move(x));
+            ret.for_each([](auto& src) { src = fractional_part(src); });
+            return ret;
+        }
+        else
+        {
+            ndarray<XVT, x_rank> ret(x.dims());
+            x.for_each(
+                [](const auto& src, auto& dst) { dst = fractional_part(src); },
+                ret.begin());
+            return ret;
+        }
     }
 }
 
-template<typename X, typename Y>
-auto less(const X& x, const Y& y)
+template<typename X>
+auto abs(X&& x)
 {
-    return _scalar_less(x, y);
+    using XT = remove_cvref_t<X>;
+    constexpr auto x_rank = array_rank_v<XT>;
+    if constexpr (x_rank == 0)
+    {
+        static_assert(is_arithmetic_v<XT>, "badargtype");
+        if constexpr (std::is_unsigned_v<XT>)
+            return x;
+        else
+            return std::abs(x);
+    }
+    else
+    {
+        using XVT = typename XT::value_type;
+        if constexpr (std::is_unsigned_v<XT>)
+            return std::forward<decltype(x)>(x);
+        else if constexpr (is_real_v<XVT> && is_movable_v<X&&>)
+        { // movable
+            ndarray<XVT, x_rank> ret(std::move(x));
+            ret.for_each([](auto& src) { src = abs(src); });
+            return ret;
+        }
+        else
+        {
+            ndarray<decltype(abs(XVT{})), x_rank> ret(x.dims());
+            x.for_each(
+                [](const auto& src, auto& dst) { dst = abs(src); },
+                ret.begin());
+            return ret;
+        }
+    }
 }
 
 }

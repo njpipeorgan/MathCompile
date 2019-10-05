@@ -187,48 +187,6 @@ auto im(const T& x)
 }
 
 template<typename T>
-auto abs(T&& x)
-{
-    using X = remove_cvref_t<T>;
-    if constexpr (is_arithmetic_v<X>)
-    {
-        return _scalar_abs(x);
-    }
-    else if constexpr (is_array_v<X>)
-    {
-        using ValueType = typename X::value_type;
-        if constexpr (is_real_v<ValueType>)
-        {
-            if constexpr (std::is_unsigned_v<ValueType>)
-            {
-                return std::forward<decltype(x)>(x);
-            }
-            else // signed integer or float/double
-            {
-                ndarray<ValueType, X::rank> y(x);
-                for (ValueType& val : y)
-                {
-                    if (val < ValueType(0))
-                        val = -val;
-                }
-                return y;
-            }
-        }
-        else
-        {
-            ndarray<typename ValueType::value_type, X::rank> y(x.dims());
-            std::transform(x.begin(), x.end(), y.begin(),
-                [](auto a) { return _scalar_abs(a); });
-            return y;
-        }
-    }
-    else
-    {
-        static_assert(always_false_v<T>, "badargtype");
-    }
-}
-
-template<typename T>
 auto arg(T&& x)
 {
     using X = remove_cvref_t<T>;

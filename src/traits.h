@@ -130,6 +130,15 @@ template<typename T>
 constexpr auto is_array_view_v = is_array_view<T>::value;
 
 template<typename T>
+constexpr auto is_numerical_type_v = 
+    is_arithmetic_v<T> || is_array_v<T> || is_array_view_v<T>;
+
+template<typename T>
+constexpr auto is_wl_type_v = 
+    is_numerical_type_v<T> || is_bool_v<T> || is_string_v<T>;
+
+
+template<typename T>
 struct array_rank : std::integral_constant<size_t, 0u> {};
 
 template<typename T, size_t R>

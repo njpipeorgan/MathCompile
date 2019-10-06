@@ -354,36 +354,36 @@ macro[code_]:=code//.{
   }
 
 
-(*nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]*)
+nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]
 
 codegen[args[indices_,vars_,types_],___]:=
   If[Length[indices]==0,{},
     Normal@SparseArray[indices->MapThread[#1<>" "<>#2&,{types/.nil->"auto",vars}],Max[indices],"auto"]]
 
-codegen[function[indices_,vars_,types_,expr_],___]:=
-  {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto..."],", "],")",codegen[expr,"Return"]}
+codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
+  {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto..."],", "],")",codegen[sequence[exprs],"Return"]}
 
-codegen[scope[_,expr_],any___]:=codegen[expr,any]
+codegen[scope[_,sequence[exprs___]],any___]:=codegen[sequence[exprs],any]
 
-codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = wl::view_guard(",codegen[expr,"Return"]<>")"}
+codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = wl::view_guard(",codegen[expr,"Value"],")"}
 
 codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 
-codegen[literal[s_String],___]:="std::string("<>s<>")"
-codegen[literal[i_Integer],___]:="int64_t("<>ToString@CForm[i]<>")"
-codegen[literal[r_Real],___]:="double("<>ToString@CForm[r]<>")"
+codegen[literal[s_String],___]:=ToString@CForm[s]<>"_s"
+codegen[literal[i_Integer],___]:=ToString@CForm[i]<>"_i"
+codegen[literal[r_Real],___]:=ToString@CForm[r]<>"_r"
 
 codegen[native[name_],___]:="wl::"<>name
 
 codegen[vargtag,___]:="wl::varg_tag{}"
 codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"
 
-codegen[clause[type_][func_,{iters___}],___]:=codegen[native["clause_"<>ToLowerCase[type]][func,iters]]
+codegen[clause[type_][func_,{iters___}],___]:={"wl::clause_"<>nativename[type],"(",codegen[func,"Return"],",",Riffle[codegen[#,"Return"]&/@{iters},", "],")"}
 codegen[iter[expr___],___]:=codegen[native["iterator"][expr]]
 codegen[variter[expr___],___]:=codegen[native["var_iterator"][expr]]
 
-codegen[typed[type_String],___]:=type<>"()"
-codegen[typed["array"[type_,rank_]],___]:="wl::ndarray<"<>type<>", "<>ToString[rank]<>">()"
+codegen[typed[type_String],___]:=type<>"{}"
+codegen[typed["array"[type_,rank_]],___]:="wl::ndarray<"<>type<>", "<>ToString[rank]<>">{}"
 
 codegen[var[name_],___]:=name
 codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
@@ -391,28 +391,16 @@ codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]
 codegen[sequence[expr___],"Scope"]:={"{",({codegen[#],";"}&/@{expr}),"}"}
 codegen[sequence[most___,initialize[var_,expr_]],"Return"]:=codegen[sequence[most,initialize[var,expr],var],"Return"]
-codegen[sequence[most___,last_],"Return"]:={"{",({codegen[#],";"}&/@{most}),"return ",codegen[last],";","}"}
-codegen[sequence[expr___],___]:={"[&]",codegen[sequence[expr],"Return"],"()"}
+codegen[sequence[most___,last_],"Return"]:={"{",({codegen[#],";"}&/@{most}),"return ",codegen[last,"Return"],";","}"}
+codegen[sequence[expr___],"Hold"]:={"[&]",codegen[sequence[expr],"Return"]}
+codegen[sequence[expr___],___]:={codegen[sequence[expr],"Hold"],"()"}
 
-codegen[branch[cond_,true_,false_],___]:=
-  {"if (",codegen[cond,"Return"],")",codegen[true,"Scope"]," else ",codegen[false,"Scope"]}
-
-codegen[branch[cond_,sequence[expr1___,ret1_],sequence[expr2___,ret2_]],"Return"]:=
-  Module[{c=newvar,args=newvar},{
-    "[&]","{","const auto "<>c<>" = ",codegen[cond],";",
-    "if ("<>c<>")",codegen[sequence[expr1],"Scope"],
-    " else",codegen[sequence[expr2],"Scope"],"\n",
-    "return ","[&, "<>c<>"](auto&&... "<>args<>")","{",
-    "if ("<>c<>")","{","return ",codegen[ret1],
-      "(std::forward<decltype("<>args<>")>("<>args<>")...)",";","}",
-    " else","{","return ",codegen[ret2],
-      "(std::forward<decltype("<>args<>")>("<>args<>")...)",";",
-    "}","\n","}",";","}","()"}
-  ]
+codegen[branch[cond_,expr1_,expr2_],___]:=
+  codegen[native["branch_if"][cond,expr1,expr2],"Hold"]
 
 codegen[list[any___],___]:=codegen[native["list"][any]]
 
-codegen[head_[args___],___]:={codegen[head,"Return"],"(",Riffle[codegen[#,"Return"]&/@{args},", "],")"}
+codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
 
 codegen[any_,rest___]:=(Message[codegen::bad,tostring[any]];Throw["codegen"])
 

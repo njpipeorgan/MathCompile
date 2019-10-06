@@ -17,7 +17,40 @@
 
 #pragma once
 
+#include <type_traits>
+
+#include "traits.h"
+#include "types.h"
+
 namespace wl
 {
+
+template<typename A, typename B>
+auto branch_if(bool cond, A&& a, B&& b)
+{
+    using AType = std::invoke_result_t<decltype(a)>;
+    using BType = std::invoke_result_t<decltype(b)>;
+    if constexpr (is_wl_type_v<AType>)
+    {
+        static_assert(std::is_same_v<AType, BType>, "badargtype");
+        if (cond)
+            return std::forward<decltype(a)>(a)();
+        else
+            return std::forward<decltype(b)>(b)();
+    }
+    else // probably a function
+    {
+        return
+            [cond,
+            a = std::forward<decltype(a)>(a)(),
+            b = std::forward<decltype(b)>(b)()] (auto&&... args)
+        {
+            if (cond)
+                return a(std::forward<decltype(args)>(args)...);
+            else
+                return b(std::forward<decltype(args)>(args)...);
+        };
+    }
+}
 
 }

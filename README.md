@@ -98,6 +98,7 @@ Do
 ```
 **Array generation**
 ```
+List
 ConstantArray
 Range
 ```

@@ -71,7 +71,6 @@ auto set(Dst&& dst, Src&& src)
     }
 }
 
-
 template<typename T, size_t R, size_t N, size_t I, typename Iter, typename Tuple>
 void _copy_list_array_elements(
     Iter dst, const size_t* dims, size_t size, Tuple&& elems)
@@ -141,12 +140,42 @@ auto list(First&& first, Rest&&... rest)
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
 {
-    static_assert(is_arithmetic_v<T> || is_string_v<T>, "badargtype");
-    constexpr size_t R = sizeof...(dims);
-    ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)...}, val);
-    return x;
+    static_assert(is_numerical_type_v<T>, "badargtype");
+    constexpr auto val_rank = array_rank_v<T>;
+    constexpr auto rep_rank = sizeof...(dims);
+    constexpr auto all_rank = val_rank + rep_rank;
+    if constexpr (val_rank > 0)
+    {
+        using ValueType = typename T::value_type;
+        std::array<int64_t, all_rank> all_dims{int64_t(dims)...};
+        std::copy_n(val.dims().begin(), val_rank, all_dims.data() + rep_rank);
+        ndarray<ValueType, all_rank> ret(all_dims);
+        size_t val_size = val.size();
+        if constexpr (T::category == view_category::Array ||
+            T::category == view_category::Simple)
+        {
+            auto iter = ret.begin();
+            auto end = iter + ret.size();
+            for (; iter != end; iter += val_size)
+                val.copy_to(iter);
+        }
+        else
+        {
+            auto buffer = val.to_array();
+            auto iter = ret.begin();
+            auto end = iter + ret.size();
+            for (; iter != end; iter += val_size)
+                buffer.copy_to(iter);
+        }
+        return ret;
+    }
+    else
+    {
+        ndarray<T, all_rank> ret(
+            std::array<int64_t, all_rank>{int64_t(dims)...}, val);
+        return ret;
+    }
 }
-
 
 template<size_t>
 using make_all_type = all_type;

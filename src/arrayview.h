@@ -530,6 +530,16 @@ struct simple_view
         return ndarray<T, ViewRank>(this->dims_,
             this->begin(), this->begin() + this->size());
     }
+
+    void step_forward()
+    {
+        this->data_ += this->size_;
+    }
+
+    bool view_position_equal(const simple_view& other) const
+    {
+        this->data_ == other.data_;
+    }
 };
 
 template<typename T, bool Const>

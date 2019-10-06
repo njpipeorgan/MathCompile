@@ -267,6 +267,18 @@ auto range(Begin begin, End end, Step step)
     }
 }
 
+template<typename Begin, typename End>
+auto range(Begin begin, End end)
+{
+    static_assert(is_real_v<Begin> && is_real_v<End>, "badargtype");
+    return range(begin, end, int8_t(1));
+}
 
+template<typename End>
+auto range(End end)
+{
+    static_assert(is_real_v<End>, "badargtype");
+    return range(End(1), end, int8_t(1));
+}
 
 }

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "types.h"
+#include "ndarray.h"
 #include "const.h"
 #include "control.h"
 #include "clause.h"
@@ -27,6 +28,7 @@
 #include "numerical.h"
 #include "random.h"
 #include "arrayfn.h"
+#include "functional.h"
 
 namespace wl
 {

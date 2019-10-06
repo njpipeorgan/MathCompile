@@ -321,6 +321,13 @@ struct span
                 step = step_;
                 if (step == 0)
                     throw std::logic_error("badstep");
+                else if (step < 0)
+                {
+                    if constexpr (default_begin)
+                        begin = ptrdiff_t(dim);
+                    if constexpr (default_end)
+                        end = 1;
+                }
             }
 
             if constexpr (default_step)
@@ -348,7 +355,7 @@ struct span
             else // step < 0
             {
                 return step_indexer(
-                    size_t(begin),
+                    size_t(begin - 1),
                     end <= begin ? size_t((begin - end) / -step) + 1u : 0u,
                     step);
             }
@@ -531,12 +538,13 @@ struct simple_view
             this->begin(), this->begin() + this->size());
     }
 
-    void step_forward()
+    auto step_forward()
     {
         this->data_ += this->size_;
+        return *this;
     }
 
-    bool view_position_equal(const simple_view& other) const
+    bool view_pos_equal(const simple_view& other) const
     {
         this->data_ == other.data_;
     }

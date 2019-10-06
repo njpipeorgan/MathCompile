@@ -280,7 +280,10 @@ $builtinfunctions=native/@
   "Part"            ->"part",
   "Span"            ->"make_span",
   "Total"           ->"total",
-  "Mean"            ->"mean"
+  "Mean"            ->"mean",
+  "Range"           ->"range",
+(*functional*)
+  "Select"          ->"select"
 |>;
 
 

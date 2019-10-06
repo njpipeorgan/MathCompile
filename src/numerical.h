@@ -19,6 +19,8 @@
 
 #include <cmath>
 
+#include <complex>
+
 #include "types.h"
 #include "traits.h"
 #include "ndarray.h"
@@ -68,8 +70,8 @@ auto name(X&& x)                                                        \
             return x;                                                   \
         if constexpr (is_float_v<XT>)                                   \
             return int64_t(std::stdname(x));                            \
-        else                                                            \
-            return XT(name(x.real()), name(x.imag()));                  \
+        else if constexpr (is_complex_v<XT>)                            \
+            return XT(name(std::real(x)), name(std::imag(x)));          \
     }                                                                   \
     else                                                                \
     {                                                                   \
@@ -164,6 +166,20 @@ auto abs(X&& x)
             return ret;
         }
     }
+}
+
+template<typename X, typename Y>
+auto greater(const X& x, const Y& y)
+{
+    static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
+    return x > y;
+}
+
+template<typename X, typename Y>
+auto less(const X& x, const Y& y)
+{
+    static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
+    return x < y;
 }
 
 }

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cassert>
+
 #include <algorithm>
 #include <array>
 #include <complex>
@@ -66,6 +68,11 @@ struct ndarray
     {
     }
 
+    ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
+        dims_{dims}, data_(std::move(movable))
+    {
+    }
+
     template<typename Dims>
     static size_t _input_dims_size(const Dims& dims)
     {
@@ -92,6 +99,16 @@ struct ndarray
     size_t size() const
     {
         return data_.size();
+    }
+    
+    template<size_t Level>
+    size_t partial_size() const
+    {
+        static_assert(Level <= R, "internal");
+        if constexpr (Level == R)
+            return 1u;
+        else
+            return this->dims_[Level] * this->partial_size<Level + 1u>();
     }
 
     template<size_t Level>
@@ -143,6 +160,14 @@ struct ndarray
 
     auto cbegin() const { return data_.cbegin(); }
     auto cend() const { return data_.cend(); }
+
+    void resize(size_t new_dim0, ptrdiff_t size_diff)
+    {
+        assert(size_diff == 
+            ptrdiff_t((new_dim0 - dims_[0]) * partial_size<1u>()));
+        this->data_.resize(data_.size() + size_diff);
+        this->dims_[0] = new_dim0;
+    }
 
     template<size_t Level, typename... Is>
     void linear_pos_impl(size_t& pos, 

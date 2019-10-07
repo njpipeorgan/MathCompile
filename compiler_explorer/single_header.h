@@ -159,7 +159,7 @@ inline auto operator ""_i(unsigned long long i) {
 inline auto operator ""_r(long double r) {
     return double(r);
 }
-inline auto operator ""_s(const char* x) {
+inline auto operator ""_s(const char* x, size_t) {
     return std::string(x);
 }
 }

@@ -238,7 +238,6 @@ struct list_indexer
     template<typename Iter>
     list_indexer(Iter idx_begin, Iter idx_end, size_t level_dim)
     {
-        using IndexType = remove_cvref_t<decltype(*idx_begin)>;
         indices_.resize(idx_end - idx_begin);
         std::transform(idx_begin, idx_end, indices_.begin(),
             [&](const auto& idx) { return convert_index(idx, level_dim); });

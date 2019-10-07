@@ -39,20 +39,19 @@ auto select(const ndarray<T, R>& input, Function f)
         auto ret_dims = input.dims();
         ret_dims[0] = 0u;
         ndarray<T, R> ret(ret_dims);
+        size_t item_size = ret.template partial_size<1u>();
+        size_t item_count = 0;
         auto view_iter = part(input, 1u);
         auto view_end = part(input, -1).step_forward();
-        size_t item_count = 0;
-        size_t item_size = ret.partial_size<1u>();
         for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
         {
             if (f(view_iter))
             {
-                ++item_count;
-                ret.resize(item_count, item_size);
-                view_iter.copy_to(
-                    ret.begin() + (item_count - 1u) * item_count);
+                ret.resize(++item_count, item_size);
+                view_iter.copy_to(ret.begin() + (item_count - 1u) * item_size);
             }
         }
+        return ret;
     }
 }
 

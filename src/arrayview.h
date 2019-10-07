@@ -497,22 +497,18 @@ struct simple_view
     }
 
     template<typename Function, typename... Iters>
-    void for_each(Function f, Iters... iters)
-    {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i)
-        {
-            f(*ptr++, (*iters++)...);
-        }
-    }
-
-    template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
         auto ptr = this->data();
         for (size_t i = 0u; i < this->size(); ++i)
         {
-            f(*ptr++, (*iters++)...);
+            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
+            {
+                if (f(*ptr++, (*iters++)...))
+                    break;
+            }
+            else
+                f(*ptr++, (*iters++)...);
         }
     }
 
@@ -546,7 +542,7 @@ struct simple_view
 
     bool view_pos_equal(const simple_view& other) const
     {
-        this->data_ == other.data_;
+        return this->data_ == other.data_;
     }
 };
 
@@ -705,22 +701,18 @@ struct regular_view
     }
 
     template<typename Function, typename... Iters>
-    void for_each(Function f, Iters... iters)
-    {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i, ptr += this->stride_)
-        {
-            f(*ptr, (*iters++)...);
-        }
-    }
-
-    template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
         auto ptr = this->data();
         for (size_t i = 0u; i < this->size(); ++i, ptr += this->stride_)
         {
-            f(*ptr, (*iters++)...);
+            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
+            {
+                if (f(*ptr, (*iters++)...))
+                    break;
+            }
+            else
+                f(*ptr, (*iters++)...);
         }
     }
 
@@ -846,8 +838,11 @@ struct general_view
     }
 
     template<size_t ViewLevel, typename Function, typename... Iters>
-    void _for_each_impl(size_t index, Function& f, Iters&... iters) const
+    void _for_each_impl(size_t index, bool& break_flag, 
+        Function& f, Iters&... iters) const
     {
+        constexpr bool check_break =
+            std::is_same_v<bool, decltype(f(*data_, *iters...))>;
         const auto& indexer = std::get<ViewLevel>(this->indexers_);
         using Indexer = remove_cvref_t<decltype(indexer)>;
 
@@ -857,36 +852,53 @@ struct general_view
         {
             if constexpr (std::is_same_v<Indexer, list_indexer>)
                 for (const auto& i : indexer.indices())
+                {
                     _for_each_impl<ViewLevel + 1u>(index + i, f, iters...);
+                    if (check_break && break_flag)
+                        break;
+                }
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
+                {
                     _for_each_impl<ViewLevel + 1u>(index + i, f, iters...);
-        }
-        else if constexpr (_has_last_stride)
-        {
-            const auto last_stride = this->strides_[ViewLevel];
-            if constexpr (std::is_same_v<Indexer, list_indexer>)
-                for (const auto& i : indexer.indices())
-                    f(this->data_[(index + i) * last_stride], (*iters++)...);
-            else
-                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    f(this->data_[(index + i) * last_stride], (*iters++)...);
+                    if (check_break && break_flag)
+                        break;
+                }
         }
         else
         {
+            const auto last_stride = _has_last_stride ? 
+                this->strides_[ViewLevel] : ptrdiff_t(1);
             if constexpr (std::is_same_v<Indexer, list_indexer>)
                 for (const auto& i : indexer.indices())
-                    f(this->data_[index + i], (*iters++)...);
+                {
+                    if constexpr (check_break)
+                    {
+                        if (f(this->data_[(index + i) * last_stride], (*iters++)...))
+                            break;
+                    }
+                    else
+                        f(this->data_[(index + i) * last_stride], (*iters++)...);
+                }
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                    f(this->data_[index + i], (*iters++)...);
+                {
+                    if constexpr (check_break)
+                    {
+                        if (f(this->data_[(index + i) * last_stride], (*iters++)...))
+                            break;
+                    }
+                    else
+                        f(this->data_[(index + i) * last_stride], (*iters++)...);
+                }
         }
     }
 
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        this->_for_each_impl<0u>(0u, f, iters...);
+        bool break_flag = false;
+        this->_for_each_impl<0u>(0u, break_flag, f, iters...);
     }
 
     template<typename FwdIter>

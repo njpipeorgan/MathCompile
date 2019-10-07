@@ -239,6 +239,8 @@ $builtinfunctions=native/@
   "Greater"         ->"greater",
   "LessEqual"       ->"less_equal",
   "GreaterEqual"    ->"greater_equal",
+  "Equal"           ->"equal",
+  "Unequal"         ->"unequal",
   "NumericalOrder"  ->"numerical_order",
 (* elementary functions *)
   "Log"             ->"log",

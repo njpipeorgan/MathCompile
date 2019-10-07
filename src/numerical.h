@@ -182,4 +182,57 @@ auto less(const X& x, const Y& y)
     return x < y;
 }
 
+template<typename X, typename Y>
+auto equal(const X& x, const Y& y)
+{
+    constexpr auto x_rank = array_rank_v<X>;
+    constexpr auto y_rank = array_rank_v<Y>;
+    static_assert(x_rank == y_rank, "badrank");
+
+    if constexpr (x_rank == 0)
+    {
+        static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
+            (is_wl_type_v<X>, std::is_same_v<X, Y>), "badargtype");
+        if constexpr (is_complex_v<X>)
+            return x == X(y);
+        else if constexpr (is_complex_v<Y>)
+            return Y(x) == y;
+        else
+            return x == y;
+    }
+    else
+    {
+        if (!_check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
+            return false;
+        if constexpr (X::category != view_category::General)
+        {
+            bool equal_flag = true;
+            y.for_each([&](const auto& a, const auto& b)
+            {
+                equal_flag = equal(a, b);
+                return !equal_flag;
+            }, x.begin());
+            return equal_flag;
+        }
+        else if constexpr (Y::category != view_category::General)
+        {
+            return equal(y, x);
+        }
+        else
+        {
+            if constexpr (sizeof(typename X::value_type) <
+                sizeof(typename Y::value_type))
+                return equal(x.to_array, y);
+            else
+                return equal(x, y.to_array);
+        }
+    }
+}
+
+template<typename X, typename Y>
+auto unequal(const X& x, const Y& y)
+{
+    return !equal(x, y);
+}
+
 }

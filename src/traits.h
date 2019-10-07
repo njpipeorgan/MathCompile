@@ -169,6 +169,10 @@ struct is_movable<ndarray<T, R>&&> : std::true_type {};
 template<typename T>
 constexpr auto is_movable_v = is_movable<T>::value;
 
+template<typename T>
+constexpr auto array_is_const_v = std::is_const_v<
+    std::remove_pointer_t<decltype(T{}.data())>>;
+
 
 template<typename T, typename U>
 struct is_convertible

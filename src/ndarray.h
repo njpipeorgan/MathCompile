@@ -194,7 +194,13 @@ struct ndarray
         auto ptr = this->data();
         for (size_t i = 0u; i < this->size(); ++i)
         {
-            f(*ptr++, (*iters++)...);
+            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
+            {
+                if (f(*ptr++, (*iters++)...))
+                    break;
+            }
+            else
+                f(*ptr++, (*iters++)...);
         }
     }
 
@@ -204,7 +210,13 @@ struct ndarray
         auto ptr = this->data();
         for (size_t i = 0u; i < this->size(); ++i)
         {
-            f(*ptr++, (*iters++)...);
+            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
+            {
+                if (f(*ptr++, (*iters++)...))
+                    break;
+            }
+            else
+                f(*ptr++, (*iters++)...);
         }
     }
 

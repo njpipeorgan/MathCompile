@@ -87,7 +87,7 @@ void _copy_list_array_elements(
         std::move(elem).copy_to(dst);
     }
     if constexpr (I < N - 1)
-        _copy_list_array_elements<T, R, N, I + 1>(dst + size, dims, size, 
+        _copy_list_array_elements<T, R, N, I + 1>(dst + size, dims, size,
             std::forward<decltype(elems)>(elems));
 }
 
@@ -116,7 +116,7 @@ auto list(First&& first, Rest&&... rest)
         ndarray<FirstType, 1u> ret(std::array<size_t, 1u>{dim0});
         _copy_list_scalar_elements<FirstType, dim0, 0u>(
             ret.begin(),
-            std::make_tuple(std::forward<decltype(first)>(first), 
+            std::make_tuple(std::forward<decltype(first)>(first),
                 std::forward<decltype(rest)>(rest)...));
         return ret;
     }
@@ -128,8 +128,9 @@ auto list(First&& first, Rest&&... rest)
         std::copy_n(first.dims().begin(), first_rank, dims.data() + 1);
         using FirstValueType = typename FirstType::value_type;
         ndarray<FirstValueType, rank> ret(dims);
+        size_t item_size = first.size();
         _copy_list_array_elements<FirstValueType, first_rank, dim0, 0u>(
-            ret.begin(), dims.data() + 1, first.size(), 
+            ret.begin(), dims.data() + 1, item_size,
             std::make_tuple(std::forward<decltype(first)>(first),
                 std::forward<decltype(rest)>(rest)...));
         return ret;
@@ -180,42 +181,56 @@ auto constant_array(const T& val, varg_tag, const Dims&... dims)
 template<size_t>
 using make_all_type = all_type;
 
-template<typename T, size_t R, typename... Indexers>
-auto _part_impl3(ndarray<T, R>& a, 
-    const Indexers&... indexers) -> decltype(auto)
+template<typename Array, typename... Indexers>
+auto _part_impl3(Array&& a, Indexers&&... indexers) -> decltype(auto)
 {
-    static_assert(sizeof...(Indexers) == R, "badargc");
+    using ArrayType = remove_cvref_t<Array>;
+    using ValueType = typename ArrayType::value_type;
+    constexpr auto is_const = array_is_const_v<Array&&>;
+    static_assert(sizeof...(Indexers) <= array_rank_v<ArrayType>, "badargc");
     using return_type = typename view_detail::view_type<Indexers...>::
-        template return_type<T, false, Indexers...>;
+        template return_type<ValueType, is_const, Indexers...>;
     if constexpr (is_array_view_v<return_type>)
-        return return_type(a, indexers...);
+        return return_type(a, std::forward<decltype(indexers)>(indexers)...);
     else
         return a.data()[a.linear_pos(indexers.offset()...)];
 }
 
-template<typename T, size_t R, size_t... Is, typename... Specs>
-auto _part_impl2(ndarray<T, R>& a, std::index_sequence<Is...>,
-    const Specs&... specs) -> decltype(auto)
+template<typename Array, size_t... Is, typename... Specs>
+auto _part_impl2(Array&& a, std::index_sequence<Is...>,
+    Specs&&... specs) -> decltype(auto)
 {
-    static_assert(sizeof...(Specs) == R, "badargc");
-    return _part_impl3(a, make_indexer(specs, a.dims_[Is])...);
+    return _part_impl3(std::forward<decltype(a)>(a), 
+        make_indexer(std::forward<decltype(specs)>(specs), a.dims_[Is])...);
 }
 
-template<typename T, size_t R, size_t... Is, typename... Specs>
-auto _part_impl1(ndarray<T, R>& a, std::index_sequence<Is...>,
-    const Specs&... specs) -> decltype(auto)
+template<size_t R, typename Array, size_t... Is, typename... Specs>
+auto _part_impl1(Array&& a, std::index_sequence<Is...>,
+    Specs&&... specs) -> decltype(auto)
 {
-    return _part_impl2(a,
-        std::make_index_sequence<R>{}, specs..., make_all_type<Is>{}...);
+    return _part_impl2(std::forward<decltype(a)>(a),
+        std::make_index_sequence<R>{}, 
+        std::forward<decltype(specs)>(specs)..., 
+        make_all_type<Is>{}...);
 }
 
-template<typename T, size_t R, typename... Specs>
-auto part(ndarray<T, R>& a,
-    const Specs&... specs) -> decltype(auto)
+template<typename Array, typename... Specs>
+auto part(Array&& a, Specs&&... specs) -> decltype(auto)
 {
+    using ArrayType = remove_cvref_t<Array>;
+    static_assert(is_wl_type_v<ArrayType>, "badargtype");
+    constexpr auto R = array_rank_v<ArrayType>;
     static_assert(sizeof...(Specs) <= R, "badargc");
-    return _part_impl1(a,
-        std::make_index_sequence<R - sizeof...(Specs)>{}, specs...);
+    if constexpr (R == 0)
+        return std::forward<decltype(a)>(a);
+    else if constexpr (ArrayType::category != view_category::Array)
+        return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
+    else
+    {
+        return _part_impl1<R>(std::forward<decltype(a)>(a),
+            std::make_index_sequence<R - sizeof...(Specs)>{},
+            std::forward<decltype(specs)>(specs)...);
+    }
 }
 
 template<typename Begin, typename End, typename Step>

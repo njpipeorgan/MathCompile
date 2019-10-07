@@ -42,15 +42,15 @@ struct varg_tag
 namespace literal
 {
 
-auto operator ""_i(unsigned long long i) {
+inline constexpr auto operator ""_i(unsigned long long i) {
     return int64_t(i);
 }
 
-auto operator ""_r(long double r) {
+inline constexpr auto operator ""_r(long double r) {
     return double(r);
 }
 
-auto operator ""_s(const char* x) {
+inline constexpr auto operator ""_s(const char* x) {
     return std::string(x);
 }
 

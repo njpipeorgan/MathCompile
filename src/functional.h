@@ -39,10 +39,10 @@ auto select(const ndarray<T, R>& input, Function f)
         auto ret_dims = input.dims();
         ret_dims[0] = 0u;
         ndarray<T, R> ret(ret_dims);
-        size_t item_size = ret.template partial_size<1u>();
         size_t item_count = 0;
         auto view_iter = part(input, 1u);
         auto view_end = part(input, -1).step_forward();
+        size_t item_size = view_iter.size();
         for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
         {
             if (f(view_iter))
@@ -55,5 +55,25 @@ auto select(const ndarray<T, R>& input, Function f)
     }
 }
 
+template<typename T, size_t R, typename Function>
+auto count(const ndarray<T, R>& input, Function f)
+{
+    if constexpr (R == 1)
+    {
+        size_t item_count = 0;
+        input.for_each([&](const auto& x) { if (f(x)) ++item_count; });
+        return item_count;
+    }
+    else if constexpr (R >= 2)
+    {
+        size_t item_count = 0;
+        auto view_iter = part(input, 1u);
+        auto view_end = part(input, -1).step_forward();
+        for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
+            if (f(view_iter))
+                ++item_count;
+        return item_count;
+    }
+}
 
 }

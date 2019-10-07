@@ -58,6 +58,10 @@ I
 ```
 Module
 ```
+**Control flow**
+```
+If
+```
 **Arithmetic functions**
 ```
 Plus
@@ -78,13 +82,17 @@ Ceiling
 Floor
 IntegerPart
 FractionalPart
+Greater
+Less
+Equal
+Unequal
 ```
 **Complex numbers**
 ```
-Complex
-Re
-Im
-Arg
+Re (partial)
+Im (partial)
+Arg (partial)
+Conjugate (partial)
 ```
 **Random numbers**
 ```
@@ -95,6 +103,7 @@ RandomComplex
 **Functions with iterators**
 ```
 Do
+Table (partial)
 ```
 **Array generation**
 ```
@@ -105,8 +114,10 @@ Range
 **Array manipulation**
 ```
 Set
-Part
+Part (partial)
 Span
+Select
+Count
 ```
 
 ## Supported types

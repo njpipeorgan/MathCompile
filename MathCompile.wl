@@ -355,7 +355,8 @@ macro[code_]:=code//.{
     id["RandomComplex"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
     id["RandomComplex"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
     id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
-    id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag]
+    id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
+    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func]
   }
 
 

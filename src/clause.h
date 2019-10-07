@@ -23,44 +23,51 @@
 namespace wl
 {
 
-template<typename Fn, typename FirstIter, typename NextIter, typename... RestIters>
-auto clause_do(Fn fn, FirstIter&& first_iter, NextIter&& next_iter, RestIters&&... rest_iters)
+template<typename Fn, typename First, typename Next, typename... Rest>
+auto clause_do(Fn fn, 
+    const First& first, const Next& next, const Rest&... rest)
 {
-    for (size_t i = 0; i < first_iter.length(); ++i)
+    for (size_t i = 0; i < first.length(); ++i)
     {
-        if constexpr (FirstIter::has_variable)
+        if constexpr (First::has_variable)
         {
-            const auto arg1 = first_iter[i];
-            clause_do(
-                [fn, arg1](auto&&... args) { return fn(arg1, std::forward<decltype(args)>(args)...); },
-                std::forward<decltype(next_iter)>(next_iter),
-                std::forward<decltype(rest_iters)>(rest_iters)...);
+            const auto& arg1 = first[i];
+            clause_do([fn, &arg1](auto&&... args) {
+                return fn(arg1, std::forward<decltype(args)>(args)...); },
+                next, rest...);
         }
         else
-        {
-            clause_do(
-                fn,
-                std::forward<decltype(next_iter)>(next_iter),
-                std::forward<decltype(rest_iters)>(rest_iters)...);
-        }
+            clause_do(fn, next, rest...);
     }
 }
 
-template<typename Fn, typename LastIter>
-auto clause_do(Fn fn, LastIter&& last_iter)
+template<typename Fn, typename Last>
+auto clause_do(Fn fn, const Last& last)
 {
-    for (size_t i = 0; i < last_iter.length(); ++i)
+    for (size_t i = 0; i < last.length(); ++i)
     {
-        if constexpr (LastIter::has_variable)
-        {
-            const auto arg1 = last_iter[i];
-            fn(arg1);
-        }
+        if constexpr (Last::has_variable)
+            fn(last[i]);
         else
-        {
             fn();
-        }
     }
 }
+
+template<typename Fn, typename... Iters>
+auto clause_table(Fn fn, const Iters&... iters)
+{
+    constexpr auto rank = sizeof...(iters);
+    using ValueType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    static_assert(rank >= 1u, "internal");
+    static_assert(is_arithmetic_v<ValueType>, "internal"); // for now
+    auto dims = std::array<size_t, rank>{iters.length()...};
+    ndarray<ValueType, rank> ret(dims);
+    auto ret_iter = ret.begin();
+    clause_do([&](auto&&... args) {
+        *ret_iter++ = fn(std::forward<decltype(args)>(args)...); },
+        iters...);
+    return ret;
+}
+
 
 }

@@ -4,6 +4,16 @@ MathCompile is a package that translates *Wolfram Language* functions into C++ c
 
 **Note**: The project is in the progress of adding necessary components to the C++ library. 
 
+## Prerequisite
+
+- *Wolfram Mathematica* 11+
+- C++ compiler supporting C++17 features
+
+  - clang 5+, with `-std=c++1z` flag
+  - g++ 7+, with `-std=c++1z` flag
+  - icc 19+, with `-std=c++1z` flag
+  - msvc 19.20+ (VS 2017 16.0), with `/std:c++17` flag
+
 ## In a nutshell
 
 Load the package:
@@ -13,32 +23,26 @@ Load the package:
 Compile a function using `CompileToCode`:
 ```
 CompileToCode[
-    Function[{Typed[p,"Integer"]},
-        Module[{f=If[p>0,#+1&,#-1&]},f[p]]
+  Function[{Typed[p, "Integer"]},
+    Module[{f=If[p>0,#+p&,#-p&]},
+      f[42]
     ]
+  ]
 ]
 ```
-The output is a C++ function: 
+The output is a C++ function, and you can see it compiles by this Compiler Explorer [link](https://godbolt.org/z/7oXuzK).
 ```c++
-auto main_function(int64_t v16) {
-    auto v15 = [&] {
-        const auto v17 = wl::greater(v16, int64_t(0));
-        if (v17) {
-        } else {
-        }
-        return [&, v17](auto&&... v18) {
-            if (v17) {
-                return [&](auto v14, auto...) {
-                    return wl::plus(v14, int64_t(1));
-                }(std::forward<decltype(v18)>(v18)...);
-            } else {
-                return [&](auto v13, auto...) {
-                    return wl::plus(v13, int64_t(-1));
-                }(std::forward<decltype(v18)>(v18)...);
-            }
+auto main_function(int64_t v17) {
+    auto v16 = wl::view_guard(wl::branch_if(wl::greater(v17, 0_i), [&] {
+        return [&](auto v15, auto...) {
+            return wl::plus(v15, v17);
         };
-    }();
-    return v15(v16);
+    }, [&] {
+        return [&](auto v14, auto...) {
+            return wl::plus(v14, wl::times(-1_i, v17));
+        };
+    }));
+    return v16(42_i);
 }
 ```
 

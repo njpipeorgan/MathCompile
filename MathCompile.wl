@@ -417,7 +417,7 @@ codeformat[segments_List]:=
   StringRiffle[#,{"","\n","\n"}]&@
     FoldPairList[
       Module[{pad=#1-Boole[StringTake[#2,1]=="}"]},
-       {StringRepeat[" ",4pad]<>#2,pad+Boole[StringTake[#2,-1]=="{"]}]&,
+       {If[pad<=0,"",StringRepeat[" ",4pad]]<>#2,pad+Boole[StringTake[#2,-1]=="{"]}]&,
       0,StringJoin/@SplitBy[segments/.{"{"->Sequence[" {","\n"],";"->Sequence[";","\n"]},#=="\n"&][[;;;;2]]
     ]
 maincodegen[code_]:=codeformat@initcodegen[code]

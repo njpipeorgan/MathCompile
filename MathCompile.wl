@@ -371,7 +371,7 @@ codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
 
 codegen[scope[_,sequence[exprs___]],any___]:=codegen[sequence[exprs],any]
 
-codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native["val"][expr]],")"}
+codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native["val"][expr]]}
 
 codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 

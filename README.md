@@ -30,19 +30,19 @@ CompileToCode[
   ]
 ]
 ```
-The output is a C++ function, and you can see it compiles by this Compiler Explorer [link](https://godbolt.org/z/7oXuzK).
+The output is a C++ function, and you can see it compiles by this Compiler Explorer [link](https://godbolt.org/z/HEMhmS).
 ```c++
-auto main_function(int64_t v17) {
-    auto v16 = wl::view_guard(wl::branch_if(wl::greater(v17, 0_i), [&] {
-        return [&](auto v15, auto...) {
-            return wl::plus(v15, v17);
-        };
+auto main_function(int64_t v49) {
+    auto v48 = wl::val(wl::branch_if(wl::greater(v49, 0_i), [&] {
+        return wl::val([&](auto v47, auto...) {
+            return wl::val(wl::plus(v47, v49));
+        });
     }, [&] {
-        return [&](auto v14, auto...) {
-            return wl::plus(v14, wl::times(-1_i, v17));
-        };
+        return wl::val([&](auto v46, auto...) {
+            return wl::val(wl::plus(v46, wl::times(-1_i, v49)));
+        });
     }));
-    return v16(42_i);
+    return wl::val(v48(42_i));
 }
 ```
 
@@ -107,7 +107,9 @@ RandomComplex
 **Functions with iterators**
 ```
 Do
-Table (partial)
+Table
+Sum
+Product
 ```
 **Array generation**
 ```
@@ -118,7 +120,7 @@ Range
 **Array manipulation**
 ```
 Set
-Part (partial)
+Part
 Span
 Select
 Count

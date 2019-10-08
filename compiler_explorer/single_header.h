@@ -2840,5 +2840,4 @@ auto count(const ndarray<T, R>& input, Function f)
 }
 namespace wl
 {
-std::default_random_engine wl::global_random_engine;
 }

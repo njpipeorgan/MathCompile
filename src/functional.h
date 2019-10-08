@@ -40,8 +40,8 @@ auto select(const ndarray<T, R>& input, Function f)
         ret_dims[0] = 0u;
         ndarray<T, R> ret(ret_dims);
         size_t item_count = 0;
-        auto view_iter = part(input, 1u);
-        auto view_end = part(input, -1).step_forward();
+        auto view_iter = input.template view_begin<1u>();
+        auto view_end = input.template view_end<1u>();
         size_t item_size = view_iter.size();
         for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
         {
@@ -67,8 +67,8 @@ auto count(const ndarray<T, R>& input, Function f)
     else if constexpr (R >= 2)
     {
         size_t item_count = 0;
-        auto view_iter = part(input, 1u);
-        auto view_end = part(input, -1).step_forward();
+        auto view_iter = input.template view_begin<1u>();
+        auto view_end = input.template view_end<1u>();
         for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
             if (f(view_iter))
                 ++item_count;

@@ -371,7 +371,7 @@ codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
 
 codegen[scope[_,sequence[exprs___]],any___]:=codegen[sequence[exprs],any]
 
-codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = wl::view_guard(",codegen[expr,"Value"],")"}
+codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native["val"][expr]],")"}
 
 codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 
@@ -397,7 +397,7 @@ codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]
 codegen[sequence[expr___],"Scope"]:={"{",({codegen[#],";"}&/@{expr}),"}"}
 codegen[sequence[most___,initialize[var_,expr_]],"Return"]:=codegen[sequence[most,initialize[var,expr],var],"Return"]
-codegen[sequence[most___,last_],"Return"]:={"{",({codegen[#],";"}&/@{most}),"return ",codegen[last,"Return"],";","}"}
+codegen[sequence[most___,last_],"Return"]:={"{",({codegen[#],";"}&/@{most}),"return ",codegen[native["val"][last]],";","}"}
 codegen[sequence[expr___],"Hold"]:={"[&]",codegen[sequence[expr],"Return"]}
 codegen[sequence[expr___],___]:={codegen[sequence[expr],"Hold"],"()"}
 

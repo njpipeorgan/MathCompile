@@ -24,6 +24,7 @@
 #include "ndarray.h"
 #include "arrayview.h"
 #include "numerical.h"
+#include "utils.h"
 
 namespace wl
 {
@@ -52,7 +53,7 @@ auto set(Dst&& dst, Src&& src)
     else
     {
         static_assert(dst_rank == src_rank, "badrank");
-        if (!_check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
+        if (!utils::check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
             throw std::logic_error("baddims");
 
         if (!has_aliasing(src, dst))
@@ -82,7 +83,7 @@ void _copy_list_array_elements(
         using SrcValueType = typename SrcType::value_type;
         static_assert(is_convertible_v<SrcValueType, T>, "badargtype");
         auto elem = std::get<I>(std::forward<decltype(elems)>(elems));
-        if (!_check_dims<R>(elem.dims_ptr(), dims))
+        if (!utils::check_dims<R>(elem.dims_ptr(), dims))
             throw std::logic_error("baddims");
         std::move(elem).copy_to(dst);
     }

@@ -1,4 +1,4 @@
-// Compiler from Wolfram Language to C++
+﻿// Compiler from Wolfram Language to C++
 // 
 // Copyright 2019 Tianhuan Lu
 //
@@ -32,5 +32,7 @@
 
 namespace wl
 {
+
+std::default_random_engine wl::global_random_engine;
 
 }

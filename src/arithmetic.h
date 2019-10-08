@@ -24,6 +24,7 @@
 #include "arrayview.h"
 #include "ndarray.h"
 #include "numerical.h"
+#include "utils.h"
 
 namespace wl
 {
@@ -84,7 +85,7 @@ auto _scalar_or_array_##name(const X& x, const Y& y)                        \
         if constexpr (y_rank > 0)                                           \
         {                                                                   \
             static_assert(x_rank == y_rank, "badrank");                     \
-            if (!_check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))           \
+            if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
             ndarray<decltype(_scalar_plus(x[0], y[0])), x_rank> z(x.dims());\
             for (size_t i = 0; i < x.size(); ++i)                           \
@@ -112,8 +113,8 @@ template<typename X, typename Y>                                            \
 auto name(X&& x, Y&& y)                                                     \
 {                                                                           \
     return _scalar_or_array_##name(                                         \
-        view_guard(std::forward<decltype(x)>(x)),                           \
-        view_guard(std::forward<decltype(y)>(y)));                          \
+        val(std::forward<decltype(x)>(x)),                                  \
+        val(std::forward<decltype(y)>(y)));                                 \
 }
 
 WL_DEFINE_ARITHMETIC_FUNCTION(plus)
@@ -161,7 +162,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         else                                                                \
         {                                                                   \
             static_assert(x_rank == y_rank, "badrank");                     \
-            if (!_check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))           \
+            if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
             if constexpr (YType::category != view_category::General)        \
                 x.for_each([](auto& dst, const auto& src)                   \
@@ -190,7 +191,5 @@ WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
-
-
 
 }

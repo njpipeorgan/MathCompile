@@ -350,6 +350,57 @@ using view_type = typename view_derive_impl<I_<0u, 0u, 0u>, Indexers...>::type;
 }
 namespace wl
 {
+namespace utils
+{
+template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
+auto _dims_join_impl(
+    const std::array<size_t, R1>& dims1, std::index_sequence<Is1...>, 
+    const std::array<size_t, R2>& dims2, std::index_sequence<Is2...>)
+{
+    return std::array<size_t, R1 + R2>{dims1[Is1]..., dims2[Is2]...};
+}
+template<size_t R1, size_t R2>
+auto dims_join(const std::array<size_t, R1>& dims1,
+    const std::array<size_t, R2>& dims2)
+{
+    return _dims_join_impl(dims1, std::make_index_sequence<R1>{}, 
+        dims2, std::make_index_sequence<R2>{});
+}
+template<size_t R, size_t... Is>
+auto _size_of_dims_impl(const std::array<size_t, R> dims, 
+    std::index_sequence<Is...>)
+{
+    return (dims[Is] * ...);
+}
+template<size_t R>
+auto size_of_dims(const std::array<size_t, R> dims)
+{
+    return _size_of_dims_impl(dims, std::make_index_sequence<R>{});
+}
+template<size_t... Is>
+bool check_dims_impl(const size_t* dims1, const size_t* dims2, 
+    std::index_sequence<Is...>)
+{
+    return ((dims1[Is] == dims2[Is]) && ... );
+}
+template<size_t R>
+auto check_dims(const size_t* dims1, const size_t* dims2)
+{
+    static_assert(R >= 1u, "internal");
+    return check_dims_impl(dims1, dims2, std::make_index_sequence<R>{});
+}
+template<size_t R>
+auto check_dims(const std::array<size_t, R>& dims1, 
+    const std::array<size_t, R>& dims2)
+{
+    static_assert(R >= 1u, "internal");
+    return check_dims_impl(dims1.data(), dims2.data(), 
+        std::make_index_sequence<R>{});
+}
+}
+}
+namespace wl
+{
 template<bool UnitStep>
 struct indexer_iter;
 template<>
@@ -662,16 +713,7 @@ auto make_indexer(const IndexType& index, size_t dim)
         return scalar_indexer(index, dim);
     }
 }
-template<size_t Rank>
-bool _check_dims(const size_t* dims1, const size_t* dims2)
-{
-    static_assert(Rank >= 1u, "internal");
-    if constexpr (Rank == 1u)
-        return *dims1 == *dims2;
-    else
-        return (*dims1 == *dims2) &&
-        _check_dims<Rank - 1u>(dims1 + 1, dims2 + 1);
-}
+struct level_iter_tag {};
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
 struct simple_view
 {
@@ -689,6 +731,13 @@ struct simple_view
     pointer_type data_;
     _dims_t dims_;
     size_t size_;
+    simple_view(level_iter_tag, 
+        array_ref_type base, ptrdiff_t offset, const size_t* dims) :
+        identifier_{base.data()}, data_{base.data() + offset}
+    {
+        std::copy_n(dims, ViewRank, this->dims_.begin());
+        this->size_ = utils::size_of_dims(this->dims_);
+    }
     template<typename... Specs>
     simple_view(array_ref_type base, const Specs&... specs) :
         identifier_{base.data()}, size_{1u}
@@ -778,10 +827,14 @@ struct simple_view
         return ndarray<T, ViewRank>(this->dims_,
             this->begin(), this->begin() + this->size());
     }
+    auto apply_pointer_offset(ptrdiff_t diff)
+    {
+        this->data_ += diff;
+        return *this;
+    }
     auto step_forward()
     {
-        this->data_ += this->size_;
-        return *this;
+        return apply_pointer_offset(this->size_);
     }
     bool view_pos_equal(const simple_view& other) const
     {
@@ -1118,12 +1171,12 @@ struct general_view
     }
 };
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
-auto view_guard(const simple_view<T, ArrayRank, ViewRank, Const>& view)
+auto val(const simple_view<T, ArrayRank, ViewRank, Const>& view)
 {
     return view.to_array();
 }
 template<typename Any>
-auto view_guard(Any&& any)
+auto val(Any&& any)
 {
     if constexpr (is_array_view_v<remove_cvref_t<Any>>)
         return std::forward<decltype(any)>(any).to_array();
@@ -1267,7 +1320,6 @@ struct ndarray
     {
         return data_.size();
     }
-    
     template<size_t Level>
     size_t partial_size() const
     {
@@ -1314,17 +1366,51 @@ struct ndarray
     auto end() { return data_.end(); }
     auto begin() const { return data_.begin(); }
     auto end() const { return data_.end(); }
-    auto cbegin() const { return data_.cbegin(); }
-    auto cend() const { return data_.cend(); }
+    template<size_t Level>
+    auto view_begin()
+    {
+        static_assert(Level <= R, "internal");
+        if constexpr (Level == R)
+            return this->begin();
+        else
+            return simple_view<T, R, R - Level, false>(level_iter_tag{}, 
+                *this, 0, this->dims_.data() + Level);
+    }
+    template<size_t Level>
+    auto view_end()
+    {
+        if constexpr (Level == R)
+            return this->end();
+        else
+            return this->view_begin().apply_pointer_offset(this->size());
+    }
+    template<size_t Level>
+    auto view_begin() const
+    {
+        static_assert(Level <= R, "internal");
+        if constexpr (Level == R)
+            return this->begin();
+        else
+            return simple_view<T, R, R - Level, true>(
+                *this, 0, this->dims_.data() + Level);
+    }
+    template<size_t Level>
+    auto view_end() const
+    {
+        if constexpr (Level == R)
+            return this->end();
+        else
+            return this->view_begin().apply_pointer_offset(this->size());
+    }
     void resize(size_t new_dim0, ptrdiff_t size_diff)
     {
-        assert(size_diff == 
+        assert(size_diff ==
             ptrdiff_t((new_dim0 - dims_[0]) * partial_size<1u>()));
         this->data_.resize(data_.size() + size_diff);
         this->dims_[0] = new_dim0;
     }
     template<size_t Level, typename... Is>
-    void linear_pos_impl(size_t& pos, 
+    void linear_pos_impl(size_t& pos,
         const size_t& i1, const Is&... is) const
     {
         pos += i1;
@@ -1340,7 +1426,6 @@ struct ndarray
         linear_pos_impl<0u>(pos, is...);
         return pos;
     }
-    
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters)
     {
@@ -1565,7 +1650,7 @@ auto equal(const X& x, const Y& y)
     }
     else
     {
-        if (!_check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
+        if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
             return false;
         if constexpr (X::category != view_category::General)
         {
@@ -1756,7 +1841,7 @@ auto _scalar_or_array_##name(const X& x, const Y& y)                        \
         if constexpr (y_rank > 0)                                           \
         {                                                                   \
             static_assert(x_rank == y_rank, "badrank");                     \
-            if (!_check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))           \
+            if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
             ndarray<decltype(_scalar_plus(x[0], y[0])), x_rank> z(x.dims());\
             for (size_t i = 0; i < x.size(); ++i)                           \
@@ -1784,8 +1869,8 @@ template<typename X, typename Y>                                            \
 auto name(X&& x, Y&& y)                                                     \
 {                                                                           \
     return _scalar_or_array_##name(                                         \
-        view_guard(std::forward<decltype(x)>(x)),                           \
-        view_guard(std::forward<decltype(y)>(y)));                          \
+        val(std::forward<decltype(x)>(x)),                                  \
+        val(std::forward<decltype(y)>(y)));                                 \
 }
 WL_DEFINE_ARITHMETIC_FUNCTION(plus)
 WL_DEFINE_ARITHMETIC_FUNCTION(subtract)
@@ -1820,7 +1905,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         else                                                                \
         {                                                                   \
             static_assert(x_rank == y_rank, "badrank");                     \
-            if (!_check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))           \
+            if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
             if constexpr (YType::category != view_category::General)        \
                 x.for_each([](auto& dst, const auto& src)                   \
@@ -1881,48 +1966,172 @@ auto branch_if(bool cond, A&& a, B&& b)
 }
 namespace wl
 {
-template<typename Fn, typename First, typename Next, typename... Rest>
-auto clause_do(Fn fn, 
-    const First& first, const Next& next, const Rest&... rest)
+template<typename Skip, typename Break, typename Fn, typename First, typename... Rest>
+auto _clause_impl(Skip& skip_flag, Break& break_flag, Fn fn,
+    const First& first, const Rest&... rest)
 {
-    for (size_t i = 0; i < first.length(); ++i)
+    if constexpr (sizeof...(Rest) == 0)
     {
-        if constexpr (First::has_variable)
+        for (size_t i = 0; i < first.length(); ++i)
         {
-            const auto& arg1 = first[i];
-            clause_do([fn, &arg1](auto&&... args) {
-                return fn(arg1, std::forward<decltype(args)>(args)...); },
-                next, rest...);
+            if constexpr (std::is_same_v<Skip, bool>)
+                if (skip_flag)
+                {
+                    skip_flag = false;
+                    continue;
+                }
+            if constexpr (First::has_variable)
+                fn(first[i]);
+            else
+                fn();
         }
-        else
-            clause_do(fn, next, rest...);
+    }
+    else
+    {
+        for (size_t i = 0; i < first.length(); ++i)
+        {
+            if constexpr (First::has_variable)
+            {
+                const auto& arg1 = first[i];
+                _clause_impl(skip_flag, break_flag,
+                    [&](const auto&... args) { return fn(arg1, args...); },
+                    rest...);
+            }
+            else
+                _clause_impl(skip_flag, break_flag, fn, rest...);
+        }
     }
 }
-template<typename Fn, typename Last>
-auto clause_do(Fn fn, const Last& last)
+template<typename Fn, typename... Iters>
+auto clause_do(Fn fn, const Iters&... iters)
 {
-    for (size_t i = 0; i < last.length(); ++i)
-    {
-        if constexpr (Last::has_variable)
-            fn(last[i]);
-        else
-            fn();
-    }
+    static_assert(sizeof...(Iters) >= 1, "internal");
+    wl::void_type skip_flag;    // skip flag is not used
+    wl::void_type break_flag;   // break flag is not used
+    _clause_impl(skip_flag, break_flag, fn, iters...);
+    return wl::void_type{};
 }
 template<typename Fn, typename... Iters>
 auto clause_table(Fn fn, const Iters&... iters)
 {
-    constexpr auto rank = sizeof...(iters);
-    using ValueType = remove_cvref_t<decltype(fn(iters[0]...))>;
-    static_assert(rank >= 1u, "internal");
-    static_assert(is_arithmetic_v<ValueType>, "internal"); // for now
-    auto dims = std::array<size_t, rank>{iters.length()...};
-    ndarray<ValueType, rank> ret(dims);
-    auto ret_iter = ret.begin();
-    clause_do([&](auto&&... args) {
-        *ret_iter++ = fn(std::forward<decltype(args)>(args)...); },
-        iters...);
-    return ret;
+    constexpr auto outer_rank = sizeof...(iters);
+    static_assert(outer_rank >= 1u, "internal");
+    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
+    auto outer_size = utils::size_of_dims(outer_dims);
+    if (outer_size == 0u)
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+            return ndarray<InnerType, outer_rank>(outer_dims);
+        else
+            throw std::logic_error("badargv");
+    }
+    else
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+        {
+            ndarray<InnerType, outer_rank> ret(outer_dims);
+            auto ret_iter = ret.begin();
+            wl::void_type skip_flag;    // skip flag is not used
+            wl::void_type break_flag;   // break flag is not used
+            _clause_impl(skip_flag, break_flag,
+                [&](const auto&... args) { *ret_iter++ = fn(args...); },
+                iters...);
+            return ret;
+        }
+        else
+        {
+            using ValueType = typename InnerType::value_type;
+            constexpr auto inner_rank = array_rank_v<InnerType>;
+            auto first_item = fn(iters[0]...);
+            auto inner_dims = first_item.dims();
+            auto all_dims = utils::dims_join(outer_dims, inner_dims);
+            ndarray<ValueType, outer_rank + inner_rank> ret(all_dims);
+            auto ret_iter = ret.template view_begin<outer_rank>();
+            first_item.copy_to(ret_iter.begin());
+            ret_iter.step_forward();
+            bool skip_flag = true;
+            wl::void_type break_flag;   // break flag is not used
+            _clause_impl(skip_flag, break_flag,
+                [&](const auto&... args)
+                {
+                    auto item = fn(args...);
+                    if (!utils::check_dims(ret_iter.dims(), item.dims()))
+                        throw std::logic_error("baddims");
+                    item.copy_to(ret_iter.begin());
+                    ret_iter.step_forward();
+                },
+                iters...);
+            return ret;
+        }
+    }
+}
+template<typename Fn, typename... Iters>
+auto clause_sum(Fn fn, const Iters&... iters)
+{
+    constexpr auto outer_rank = sizeof...(iters);
+    static_assert(outer_rank >= 1u, "internal");
+    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
+    auto outer_size = utils::size_of_dims(outer_dims);
+    if (outer_size == 0u)
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+            return InnerType{};
+        else
+            throw std::logic_error("badargv");
+    }
+    else
+    {
+        auto ret = fn(iters[0]...);
+        bool skip_flag = true;
+        wl::void_type break_flag;   // break flag is not used
+        _clause_impl(skip_flag, break_flag,
+            [&](const auto&... args)
+            {
+                auto item = fn(args...);
+                if (!utils::check_dims(ret.dims(), item.dims()))
+                    throw std::logic_error("baddims");
+                add_to(ret, item);
+            },
+            iters...);
+        return ret;
+    }
+}
+template<typename Fn, typename... Iters>
+auto clause_product(Fn fn, const Iters&... iters)
+{
+    constexpr auto outer_rank = sizeof...(iters);
+    static_assert(outer_rank >= 1u, "internal");
+    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
+    auto outer_size = utils::size_of_dims(outer_dims);
+    if (outer_size == 0u)
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+            return InnerType(int8_t(1));
+        else
+            throw std::logic_error("badargv");
+    }
+    else
+    {
+        auto ret = fn(iters[0]...);
+        bool skip_flag = true;
+        wl::void_type break_flag;   // break flag is not used
+        _clause_impl(skip_flag, break_flag,
+            [&](const auto&... args)
+            {
+                auto item = fn(args...);
+                if (!utils::check_dims(ret.dims(), item.dims()))
+                    throw std::logic_error("baddims");
+                times_by(ret, item);
+            },
+            iters...);
+        return ret;
+    }
 }
 }
 namespace wl
@@ -2346,7 +2555,7 @@ auto set(Dst&& dst, Src&& src)
     else
     {
         static_assert(dst_rank == src_rank, "badrank");
-        if (!_check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
+        if (!utils::check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
             throw std::logic_error("baddims");
         if (!has_aliasing(src, dst))
         {
@@ -2374,7 +2583,7 @@ void _copy_list_array_elements(
         using SrcValueType = typename SrcType::value_type;
         static_assert(is_convertible_v<SrcValueType, T>, "badargtype");
         auto elem = std::get<I>(std::forward<decltype(elems)>(elems));
-        if (!_check_dims<R>(elem.dims_ptr(), dims))
+        if (!utils::check_dims<R>(elem.dims_ptr(), dims))
             throw std::logic_error("baddims");
         std::move(elem).copy_to(dst);
     }
@@ -2594,8 +2803,8 @@ auto select(const ndarray<T, R>& input, Function f)
         ret_dims[0] = 0u;
         ndarray<T, R> ret(ret_dims);
         size_t item_count = 0;
-        auto view_iter = part(input, 1u);
-        auto view_end = part(input, -1).step_forward();
+        auto view_iter = input.template view_begin<1u>();
+        auto view_end = input.template view_end<1u>();
         size_t item_size = view_iter.size();
         for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
         {
@@ -2620,8 +2829,8 @@ auto count(const ndarray<T, R>& input, Function f)
     else if constexpr (R >= 2)
     {
         size_t item_count = 0;
-        auto view_iter = part(input, 1u);
-        auto view_end = part(input, -1).step_forward();
+        auto view_iter = input.template view_begin<1u>();
+        auto view_end = input.template view_end<1u>();
         for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
             if (f(view_iter))
                 ++item_count;
@@ -2631,4 +2840,5 @@ auto count(const ndarray<T, R>& input, Function f)
 }
 namespace wl
 {
+std::default_random_engine wl::global_random_engine;
 }

@@ -28,6 +28,7 @@
 #include "traits.h"
 #include "const.h"
 #include "view_derive.h"
+#include "utils.h"
 
 namespace wl
 {
@@ -400,16 +401,7 @@ auto make_indexer(const IndexType& index, size_t dim)
     }
 }
 
-template<size_t Rank>
-bool _check_dims(const size_t* dims1, const size_t* dims2)
-{
-    static_assert(Rank >= 1u, "internal");
-    if constexpr (Rank == 1u)
-        return *dims1 == *dims2;
-    else
-        return (*dims1 == *dims2) &&
-        _check_dims<Rank - 1u>(dims1 + 1, dims2 + 1);
-}
+struct level_iter_tag {};
 
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
 struct simple_view
@@ -430,6 +422,14 @@ struct simple_view
     pointer_type data_;
     _dims_t dims_;
     size_t size_;
+
+    simple_view(level_iter_tag, 
+        array_ref_type base, ptrdiff_t offset, const size_t* dims) :
+        identifier_{base.data()}, data_{base.data() + offset}
+    {
+        std::copy_n(dims, ViewRank, this->dims_.begin());
+        this->size_ = utils::size_of_dims(this->dims_);
+    }
 
     template<typename... Specs>
     simple_view(array_ref_type base, const Specs&... specs) :
@@ -533,10 +533,15 @@ struct simple_view
             this->begin(), this->begin() + this->size());
     }
 
+    auto apply_pointer_offset(ptrdiff_t diff)
+    {
+        this->data_ += diff;
+        return *this;
+    }
+
     auto step_forward()
     {
-        this->data_ += this->size_;
-        return *this;
+        return apply_pointer_offset(this->size_);
     }
 
     bool view_pos_equal(const simple_view& other) const
@@ -921,13 +926,13 @@ struct general_view
 };
 
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
-auto view_guard(const simple_view<T, ArrayRank, ViewRank, Const>& view)
+auto val(const simple_view<T, ArrayRank, ViewRank, Const>& view)
 {
     return view.to_array();
 }
 
 template<typename Any>
-auto view_guard(Any&& any)
+auto val(Any&& any)
 {
     if constexpr (is_array_view_v<remove_cvref_t<Any>>)
         return std::forward<decltype(any)>(any).to_array();

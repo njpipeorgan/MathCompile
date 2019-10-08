@@ -1,4 +1,4 @@
-// Compiler from Wolfram Language to C++
+﻿// Compiler from Wolfram Language to C++
 // 
 // Copyright 2019 Tianhuan Lu
 //
@@ -19,55 +19,189 @@
 
 #include "types.h"
 #include "iterator.h"
+#include "utils.h"
 
 namespace wl
 {
 
-template<typename Fn, typename First, typename Next, typename... Rest>
-auto clause_do(Fn fn, 
-    const First& first, const Next& next, const Rest&... rest)
+template<typename Skip, typename Break, typename Fn, typename First, typename... Rest>
+auto _clause_impl(Skip& skip_flag, Break& break_flag, Fn fn,
+    const First& first, const Rest&... rest)
 {
-    for (size_t i = 0; i < first.length(); ++i)
+    if constexpr (sizeof...(Rest) == 0)
     {
-        if constexpr (First::has_variable)
+        for (size_t i = 0; i < first.length(); ++i)
         {
-            const auto& arg1 = first[i];
-            clause_do([fn, &arg1](auto&&... args) {
-                return fn(arg1, std::forward<decltype(args)>(args)...); },
-                next, rest...);
+            if constexpr (std::is_same_v<Skip, bool>)
+                if (skip_flag)
+                {
+                    skip_flag = false;
+                    continue;
+                }
+            if constexpr (First::has_variable)
+                fn(first[i]);
+            else
+                fn();
         }
-        else
-            clause_do(fn, next, rest...);
+    }
+    else
+    {
+        for (size_t i = 0; i < first.length(); ++i)
+        {
+            if constexpr (First::has_variable)
+            {
+                const auto& arg1 = first[i];
+                _clause_impl(skip_flag, break_flag,
+                    [&](const auto&... args) { return fn(arg1, args...); },
+                    rest...);
+            }
+            else
+                _clause_impl(skip_flag, break_flag, fn, rest...);
+        }
     }
 }
 
-template<typename Fn, typename Last>
-auto clause_do(Fn fn, const Last& last)
+template<typename Fn, typename... Iters>
+auto clause_do(Fn fn, const Iters&... iters)
 {
-    for (size_t i = 0; i < last.length(); ++i)
-    {
-        if constexpr (Last::has_variable)
-            fn(last[i]);
-        else
-            fn();
-    }
+    static_assert(sizeof...(Iters) >= 1, "internal");
+    wl::void_type skip_flag;    // skip flag is not used
+    wl::void_type break_flag;   // break flag is not used
+    _clause_impl(skip_flag, break_flag, fn, iters...);
+    return wl::void_type{};
 }
 
 template<typename Fn, typename... Iters>
 auto clause_table(Fn fn, const Iters&... iters)
 {
-    constexpr auto rank = sizeof...(iters);
-    using ValueType = remove_cvref_t<decltype(fn(iters[0]...))>;
-    static_assert(rank >= 1u, "internal");
-    static_assert(is_arithmetic_v<ValueType>, "internal"); // for now
-    auto dims = std::array<size_t, rank>{iters.length()...};
-    ndarray<ValueType, rank> ret(dims);
-    auto ret_iter = ret.begin();
-    clause_do([&](auto&&... args) {
-        *ret_iter++ = fn(std::forward<decltype(args)>(args)...); },
-        iters...);
-    return ret;
+    constexpr auto outer_rank = sizeof...(iters);
+    static_assert(outer_rank >= 1u, "internal");
+    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
+    auto outer_size = utils::size_of_dims(outer_dims);
+
+    if (outer_size == 0u)
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+            return ndarray<InnerType, outer_rank>(outer_dims);
+        else
+            throw std::logic_error("badargv");
+    }
+    else
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+        {
+            ndarray<InnerType, outer_rank> ret(outer_dims);
+            auto ret_iter = ret.begin();
+            wl::void_type skip_flag;    // skip flag is not used
+            wl::void_type break_flag;   // break flag is not used
+            _clause_impl(skip_flag, break_flag,
+                [&](const auto&... args) { *ret_iter++ = fn(args...); },
+                iters...);
+            return ret;
+        }
+        else
+        {
+            using ValueType = typename InnerType::value_type;
+            constexpr auto inner_rank = array_rank_v<InnerType>;
+            auto first_item = fn(iters[0]...);
+            auto inner_dims = first_item.dims();
+            auto all_dims = utils::dims_join(outer_dims, inner_dims);
+            ndarray<ValueType, outer_rank + inner_rank> ret(all_dims);
+
+            auto ret_iter = ret.template view_begin<outer_rank>();
+            first_item.copy_to(ret_iter.begin());
+            ret_iter.step_forward();
+
+            bool skip_flag = true;
+            wl::void_type break_flag;   // break flag is not used
+            _clause_impl(skip_flag, break_flag,
+                [&](const auto&... args)
+                {
+                    auto item = fn(args...);
+                    if (!utils::check_dims(ret_iter.dims(), item.dims()))
+                        throw std::logic_error("baddims");
+                    item.copy_to(ret_iter.begin());
+                    ret_iter.step_forward();
+                },
+                iters...);
+            return ret;
+        }
+    }
 }
+
+template<typename Fn, typename... Iters>
+auto clause_sum(Fn fn, const Iters&... iters)
+{
+    constexpr auto outer_rank = sizeof...(iters);
+    static_assert(outer_rank >= 1u, "internal");
+    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
+    auto outer_size = utils::size_of_dims(outer_dims);
+
+    if (outer_size == 0u)
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+            return InnerType{};
+        else
+            throw std::logic_error("badargv");
+    }
+    else
+    {
+        auto ret = fn(iters[0]...);
+        bool skip_flag = true;
+        wl::void_type break_flag;   // break flag is not used
+        _clause_impl(skip_flag, break_flag,
+            [&](const auto&... args)
+            {
+                auto item = fn(args...);
+                if (!utils::check_dims(ret.dims(), item.dims()))
+                    throw std::logic_error("baddims");
+                add_to(ret, item);
+            },
+            iters...);
+        return ret;
+    }
+}
+
+template<typename Fn, typename... Iters>
+auto clause_product(Fn fn, const Iters&... iters)
+{
+    constexpr auto outer_rank = sizeof...(iters);
+    static_assert(outer_rank >= 1u, "internal");
+    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
+    auto outer_size = utils::size_of_dims(outer_dims);
+
+    if (outer_size == 0u)
+    {
+        if constexpr (is_arithmetic_v<InnerType>)
+            return InnerType(int8_t(1));
+        else
+            throw std::logic_error("badargv");
+    }
+    else
+    {
+        auto ret = fn(iters[0]...);
+
+        bool skip_flag = true;
+        wl::void_type break_flag;   // break flag is not used
+        _clause_impl(skip_flag, break_flag,
+            [&](const auto&... args)
+            {
+                auto item = fn(args...);
+                if (!utils::check_dims(ret.dims(), item.dims()))
+                    throw std::logic_error("baddims");
+                times_by(ret, item);
+            },
+            iters...);
+        return ret;
+    }
+}
+
 
 
 }

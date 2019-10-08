@@ -100,7 +100,7 @@ struct ndarray
     {
         return data_.size();
     }
-    
+
     template<size_t Level>
     size_t partial_size() const
     {
@@ -158,19 +158,56 @@ struct ndarray
     auto begin() const { return data_.begin(); }
     auto end() const { return data_.end(); }
 
-    auto cbegin() const { return data_.cbegin(); }
-    auto cend() const { return data_.cend(); }
+    template<size_t Level>
+    auto view_begin()
+    {
+        static_assert(Level <= R, "internal");
+        if constexpr (Level == R)
+            return this->begin();
+        else
+            return simple_view<T, R, R - Level, false>(level_iter_tag{}, 
+                *this, 0, this->dims_.data() + Level);
+    }
+
+    template<size_t Level>
+    auto view_end()
+    {
+        if constexpr (Level == R)
+            return this->end();
+        else
+            return this->view_begin().apply_pointer_offset(this->size());
+    }
+
+    template<size_t Level>
+    auto view_begin() const
+    {
+        static_assert(Level <= R, "internal");
+        if constexpr (Level == R)
+            return this->begin();
+        else
+            return simple_view<T, R, R - Level, true>(
+                *this, 0, this->dims_.data() + Level);
+    }
+
+    template<size_t Level>
+    auto view_end() const
+    {
+        if constexpr (Level == R)
+            return this->end();
+        else
+            return this->view_begin().apply_pointer_offset(this->size());
+    }
 
     void resize(size_t new_dim0, ptrdiff_t size_diff)
     {
-        assert(size_diff == 
+        assert(size_diff ==
             ptrdiff_t((new_dim0 - dims_[0]) * partial_size<1u>()));
         this->data_.resize(data_.size() + size_diff);
         this->dims_[0] = new_dim0;
     }
 
     template<size_t Level, typename... Is>
-    void linear_pos_impl(size_t& pos, 
+    void linear_pos_impl(size_t& pos,
         const size_t& i1, const Is&... is) const
     {
         pos += i1;
@@ -187,7 +224,7 @@ struct ndarray
         linear_pos_impl<0u>(pos, is...);
         return pos;
     }
-    
+
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters)
     {

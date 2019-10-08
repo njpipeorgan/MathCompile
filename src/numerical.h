@@ -24,6 +24,7 @@
 #include "types.h"
 #include "traits.h"
 #include "ndarray.h"
+#include "utils.h"
 
 namespace wl
 {
@@ -202,7 +203,7 @@ auto equal(const X& x, const Y& y)
     }
     else
     {
-        if (!_check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
+        if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
             return false;
         if constexpr (X::category != view_category::General)
         {

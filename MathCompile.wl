@@ -16,6 +16,7 @@ Begin["`Private`"];
 parse::unknown="`1` cannot be parsed.";
 syntax::iter="`1` does not have a correct syntax for an iterator.";
 syntax::bad="`1` does not have a correct syntax for `2`.";
+syntax::badtype="`1` is not a valid type.";
 syntax::farg="`1` does not have a correct syntax for a function argument.";
 syntax::fpure="`1` does not have a correct syntax for a pure function.";
 syntax::scopevar="`1` does not have a correct syntax for a local variable.";
@@ -73,11 +74,11 @@ Apply[(totypespec[#2]:=#1)&,$typenames,{1}];
 totypename["array"[type:Except["void"|"array"[___]],rank_Integer/;rank>=1]]:="Array"[totypename[type],rank]
 totypespec["Array"[type:Except["Void"|"Array"[___]],rank_Integer/;rank>=1]]:="array"[totypespec[type],rank]
 
-totypename[any___]:=Throw["type"]
-totypespec[any___]:=Throw["type"]
+totypename[any___]:=Missing[]
+totypespec[any___]:=Missing[]
 
-istypename[name_]:=Catch[True&@totypespec[name],"type",False&]
-istypespec[spec_]:=Catch[True&@totypename[spec],"type",False&]
+istypename[name_]:=!MissingQ@totypespec[name]
+istypespec[spec_]:=!MissingQ@totypename[spec]
 
 
 syntax[list][code_]:=code//.{
@@ -147,7 +148,7 @@ syntax[scope][code_]:=code//.{
           id["Set"][id[var_],init_/;(Head[init]=!=id["Typed"])]:>{var,init},
           id["Set"][id[var_],id["Typed"][literal[type_]/;istypename[type]]]:>{var,typed[totypespec[type]]},
           id["Set"][id[var_],id["Typed"][literal["Array"][literal[t_],literal[r_]]/;istypename["Array"[t,r]]]]:>{var,typed[totypespec["Array"[t,r]]]},
-          id["Set"][id[var_],id["Typed"][t___]]:>{var,badsyntax[id["Typed"][t]]},
+          id["Set"][id[var_],id["Typed"][t___]]:>(Message[syntax::badtype,tostring@id["Typed"][t]];Throw["syntax"]),
           any_:>(Message[syntax::scopevar,tostring[any]];Throw["syntax"])
         },{1}])
   }/.{
@@ -162,8 +163,7 @@ syntax[branch][code_]:=code//.{
   }
 
 syntax[sequence][code_]:=code//.{
-    id["CompoundExpression"][exprs__]:>sequence[exprs]}/.{
-    id["CompoundExpression"]:>badsyntax[id["CompoundExpression"]]}//.{
+    id["CompoundExpression"][exprs__]:>sequence[exprs]}//.{
     sequence[before___,sequence[exprs___],after___]:>sequence[before,exprs,after]}/.{
     sequence[]:>sequence[id["Null"]]
   }

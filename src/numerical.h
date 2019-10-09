@@ -1,4 +1,4 @@
-// Compiler from Wolfram Language to C++
+﻿// Compiler from Wolfram Language to C++
 // 
 // Copyright 2019 Tianhuan Lu
 //
@@ -47,7 +47,7 @@ auto n(X&& x)
         using XVT = typename XT::value_type;
         if constexpr (is_integral_v<XVT>)
         {
-            ndarray<decltype(n(XVT{})), x_rank> ret(x.dims());
+            ndarray<decltype(n(XVT{})), x_rank > ret(x.dims());
             x.for_each(
                 [](const auto& src, auto& dst) { dst = n(src); },
                 ret.begin());
@@ -152,7 +152,7 @@ auto abs(X&& x)
         using XVT = typename XT::value_type;
         if constexpr (std::is_unsigned_v<XT>)
             return std::forward<decltype(x)>(x);
-        else if constexpr (is_real_v<XVT> && is_movable_v<X&&>)
+        else if constexpr (is_real_v<XVT>&& is_movable_v<X&&>)
         { // movable
             ndarray<XVT, x_rank> ret(std::move(x));
             ret.for_each([](auto& src) { src = abs(src); });
@@ -160,7 +160,7 @@ auto abs(X&& x)
         }
         else
         {
-            ndarray<decltype(abs(XVT{})), x_rank> ret(x.dims());
+            ndarray<decltype(abs(XVT{})), x_rank > ret(x.dims());
             x.for_each(
                 [](const auto& src, auto& dst) { dst = abs(src); },
                 ret.begin());
@@ -209,10 +209,10 @@ auto equal(const X& x, const Y& y)
         {
             bool equal_flag = true;
             y.for_each([&](const auto& a, const auto& b)
-            {
-                equal_flag = equal(a, b);
-                return !equal_flag;
-            }, x.begin());
+                {
+                    equal_flag = equal(a, b);
+                    return !equal_flag;
+                }, x.begin());
             return equal_flag;
         }
         else if constexpr (Y::category != view_category::General)
@@ -234,6 +234,56 @@ template<typename X, typename Y>
 auto unequal(const X& x, const Y& y)
 {
     return !equal(x, y);
+}
+
+template<typename X, typename Y>
+auto mod(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+
+    auto scalar_mod = [](const auto& x, const auto& y)
+    {
+        using X = remove_cvref_t<decltype(x)>;
+        using Y = remove_cvref_t<decltype(y)>;
+        static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
+        if constexpr (is_integral_v<X> && is_integral_v<Y>)
+        {
+            using C = std::conditional_t<
+                std::is_signed_v<X> || std::is_signed_v<Y>,
+                make_signed_t<common_type_t<X, Y>>,
+                common_type_t<X, Y>>;
+            if (y == 0)
+                return C(0);
+            else
+            {
+                auto xi = C(x);
+                auto yi = C(y);
+                C rem = xi % yi;
+                if (std::is_signed_v<C> && (rem != 0))
+                    rem += yi & ((xi ^ yi) >> (8u * sizeof(C) - 1u));
+                return rem;
+            }
+        }
+        else
+        {
+            using C = common_type_t<X, Y>;
+            if (y == 0)
+                return C(0);
+            else
+            {
+                auto xi = C(x);
+                auto yi = C(y);
+                C rem = std::fmod(xi, yi);
+                if (rem != 0 && ((xi > 0) ^ (yi > 0)))
+                    rem += yi;
+                return rem;
+            }
+        }
+    };
+
+    return utils::listable_function(scalar_mod,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
 }

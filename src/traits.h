@@ -76,6 +76,15 @@ struct common_type : _index_to_type<std::min(_type_to_index<T>::value, _type_to_
 template<typename T, typename U>
 using common_type_t = typename common_type<T, U>::type;
 
+template<typename T> struct make_signed { using type = T; };
+template<> struct make_signed<uint8_t> { using type = int8_t; };
+template<> struct make_signed<uint16_t> { using type = int16_t; };
+template<> struct make_signed<uint32_t> { using type = int32_t; };
+template<> struct make_signed<uint64_t> { using type = int64_t; };
+
+template<typename T>
+using make_signed_t = typename make_signed<T>::type;
+
 template<typename T>
 using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
@@ -129,13 +138,52 @@ struct is_array_view<general_view<T, A, V, S, IT, C>> : std::true_type {};
 template<typename T>
 constexpr auto is_array_view_v = is_array_view<T>::value;
 
-template<typename T>
-constexpr auto is_numerical_type_v = 
-    is_arithmetic_v<T> || is_array_v<T> || is_array_view_v<T>;
+template<typename T, typename = void>
+struct is_numerical_type : 
+    std::bool_constant<is_arithmetic_v<T>> {};
 
 template<typename T>
-constexpr auto is_wl_type_v = 
-    is_numerical_type_v<T> || is_bool_v<T> || is_string_v<T>;
+struct is_numerical_type<T, std::void_t<typename T::value_type>> : 
+    std::bool_constant<is_arithmetic_v<typename T::value_type>> {};
+
+template<typename T>
+constexpr auto is_numerical_type_v = is_numerical_type<T>::value;
+
+template<typename T, typename = void>
+struct is_boolean_type : 
+    std::bool_constant<std::is_same_v<bool, T>> {};
+
+template<typename T>
+struct is_boolean_type<T, std::void_t<typename T::value_type>> :
+    std::bool_constant<std::is_same_v<bool, typename T::value_type>> {};
+
+template<typename T>
+constexpr auto is_boolean_type_v = is_boolean_type<T>::value;
+
+template<typename T, typename = void>
+struct is_string_type :
+    std::bool_constant<std::is_same_v<std::string, T>> {};
+
+template<typename T>
+struct is_string_type<T, std::void_t<typename T::value_type>> :
+    std::bool_constant<std::is_same_v<std::string, typename T::value_type>> {};
+
+template<typename T>
+constexpr auto is_string_type_v = is_string_type<T>::value;
+
+template<typename T>
+constexpr auto is_wl_type_v = is_arithmetic_v<T> ||
+    is_array_v<T> || is_array_view_v<T> || is_bool_v<T> || is_string_v<T>;
+
+template<typename T, typename = void>
+struct is_function : std::false_type {};
+
+template<typename T>
+struct is_function<T, std::void_t<decltype(&remove_cvref_t<T>::operator())>> :
+    std::true_type{};
+
+template<typename T>
+constexpr auto is_function_v = is_function<T>::value;
 
 
 template<typename T>

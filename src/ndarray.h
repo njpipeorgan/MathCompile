@@ -34,7 +34,8 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray
 {
-    static_assert(R > 0, "");
+    static_assert(R > 0, "internal");
+    static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
 
     using value_type = T;
     static constexpr auto rank = R;
@@ -111,10 +112,12 @@ struct ndarray
             return this->dims_[Level] * this->partial_size<Level + 1u>();
     }
 
+    // uses one-based indexing
     template<size_t Level>
     size_t dimension() const
     {
-        return this->dims_[Level];
+        static_assert(1 <= Level && Level <= R, "internal");
+        return this->dims_[Level - 1];
     }
 
     auto dims() const

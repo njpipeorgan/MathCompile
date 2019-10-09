@@ -222,6 +222,7 @@ $builtinfunctions=native/@
   "Ceiling"         ->"ceiling",
   "IntegerPart"     ->"integer_part",
   "FractionalPart"  ->"fractional_part",
+  "Mod"             ->"mod",
   "Min"             ->"min",
   "Max"             ->"max",
   "Abs"             ->"abs",
@@ -242,6 +243,15 @@ $builtinfunctions=native/@
   "Equal"           ->"equal",
   "Unequal"         ->"unequal",
   "NumericalOrder"  ->"numerical_order",
+(* boolean functions *)
+  "Not"             ->"bool_not",
+  "And"             ->"bool_and",
+  "Or"              ->"bool_or",
+  "Xor"             ->"bool_xor",
+  "Nand"            ->"bool_nand",
+  "Nor"             ->"bool_nor",
+  "Xnor"            ->"bool_xnor",
+  "Implies"         ->"implies",
 (* elementary functions *)
   "Log"             ->"log",
   "Log10"           ->"log10",
@@ -279,13 +289,15 @@ $builtinfunctions=native/@
 (* array operation *)
     (*"ConstantArray"*)
   "Set"             ->"set",
+  "Dimensions"      ->"dimensions",
   "Part"            ->"part",
   "Span"            ->"make_span",
-  "Total"           ->"total",
+    (*"Total"*)
   "Mean"            ->"mean",
   "Range"           ->"range",
 (*functional*)
   "Select"          ->"select"
+    (*"Count"*)
 |>;
 
 
@@ -356,7 +368,11 @@ macro[code_]:=code//.{
     id["RandomComplex"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
     id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
     id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
-    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func]
+    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func],
+    id["Total"][array_]:>native["total"][array],
+    id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
+    id["Total"][array_,list[literal[i_Integer]]]:>native["total"][array,const[i],const[i]],
+    id["Total"][array_,list[literal[i1_Integer],literal[i2_Integer]]]:>native["total"][array,const[i1],const[i2]]
   }
 
 
@@ -378,6 +394,7 @@ codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 codegen[literal[s_String],___]:=ToString@CForm[s]<>"_s"
 codegen[literal[i_Integer],___]:=ToString@CForm[i]<>"_i"
 codegen[literal[r_Real],___]:=ToString@CForm[r]<>"_r"
+codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
 
 codegen[native[name_],___]:="wl::"<>name
 

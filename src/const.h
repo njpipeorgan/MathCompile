@@ -29,5 +29,7 @@ constexpr auto const_e           = double(2.7182818284590452354e+0);
 constexpr auto const_degree      = double(1.7453292519943295769e-2);
 constexpr auto const_euler_gamma = double(5.7721566490153286061e-1);
 constexpr auto const_i           = complex<float>(0.f, 1.f);
+constexpr auto const_true        = true;
+constexpr auto const_false       = false;
 
 }

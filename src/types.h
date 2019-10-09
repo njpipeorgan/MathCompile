@@ -39,6 +39,12 @@ struct varg_tag
 {
 };
 
+template<int64_t I>
+struct const_int
+{
+    static constexpr auto value = I;
+};
+
 namespace literal
 {
 

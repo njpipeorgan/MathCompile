@@ -1022,7 +1022,7 @@ auto indirect_view_copy(Dst&& dst, const Src& src)
 
     std::vector<T> buffer(src.size());
     src.copy_to(buffer.begin());
-    std::forward<decltype(dst)>(dst).copy_from(buffer.begin());
+    dst.copy_from(buffer.begin());
 }
 
 }

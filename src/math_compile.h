@@ -26,6 +26,7 @@
 #include "complex.h"
 #include "elementary.h"
 #include "numerical.h"
+#include "boolean.h"
 #include "random.h"
 #include "arrayfn.h"
 #include "functional.h"

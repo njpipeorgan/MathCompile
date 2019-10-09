@@ -41,13 +41,14 @@ auto set(Dst&& dst, Src&& src)
     {
         if constexpr (dst_rank == 0u)
         { // scalar -> scalar
-            std::forward<decltype(dst)>(dst) =
-                std::forward<decltype(src)>(src);
+            dst = std::forward<decltype(src)>(src);
+            return std::forward<decltype(dst)>(dst);
         }
         else
         { // scalar -> ndarray / array_view
-            std::forward<decltype(dst)>(dst).copy_from(
+            dst.copy_from(
                 make_scalar_view_iterator(src));
+            return std::forward<decltype(dst)>(dst);
         }
     }
     else
@@ -63,11 +64,13 @@ auto set(Dst&& dst, Src&& src)
             else if (DstType::category != view_category::General)
                 src.copy_to(dst.begin());
             else // general_view -> general_view
-                indirect_view_copy(std::forward<decltype(dst)>(dst), src);
+                indirect_view_copy(dst, src);
+            return std::forward<decltype(dst)>(dst);
         }
         else // has aliasing
         {
-            indirect_view_copy(std::forward<decltype(dst)>(dst), src);
+            indirect_view_copy(dst, src);
+            return std::forward<decltype(dst)>(dst);
         }
     }
 }
@@ -295,6 +298,107 @@ auto range(End end)
 {
     static_assert(is_real_v<End>, "badargtype");
     return range(End(1), end, int8_t(1));
+}
+
+template<typename Array, int64_t I1, int64_t I2>
+auto total(const Array& a, const_int<I1>, const_int<I2>)
+{
+    constexpr auto rank = array_rank_v<Array>;
+    static_assert(rank >= 1, "badargtype");
+    using ValueType = typename Array::value_type;
+    constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + rank + 1;
+    constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + rank + 1;
+    static_assert(1 <= L1 && L1 <= L2 && L2 <= rank, "badlevel");
+
+    if constexpr (Array::category == view_category::General)
+        return total(a.to_array(), const_int<I1>{}, const_int<I2>{});
+    else
+    {
+        if constexpr (L1 == 1)
+        {
+            if constexpr (L2 == rank)
+            {
+                auto ret = ValueType{};
+                a.for_each([&](const auto& val) { ret += val; });
+                return ret;
+            }
+            else
+            {
+                auto ret_dims = utils::dims_take<L2 + 1, rank>(a.dims());
+                ndarray<ValueType, rank - L2> ret(ret_dims);
+                const auto inter_size = utils::size_of_dims(
+                    utils::dims_take<L1, L2>(a.dims()));
+                const auto inner_size = ret.size();
+                auto iter = a.begin();
+                for (size_t j = 0; j < inter_size; ++j)
+                    for (size_t k = 0; k < inner_size; ++k)
+                        ret[k] += *iter++;
+                return ret;
+            }
+        }
+        else // L1 > 1
+        {
+            if constexpr (L2 == rank)
+            {
+                auto ret_dims = utils::dims_take<1, L1 - 1>(a.dims());
+                ndarray<ValueType, L1 - 1> ret(ret_dims);
+                const auto outer_size = ret.size();
+                const auto inter_size = utils::size_of_dims(
+                    utils::dims_take<L1, L2>(a.dims()));
+                auto iter = a.begin();
+                for (size_t i = 0; i < outer_size; ++i)
+                    for (size_t j = 0; j < inter_size; ++j)
+                        ret[i] += *iter++;
+                return ret;
+            }
+            else
+            {
+                auto outer_dims = utils::dims_take<1, L1 - 1>(a.dims());
+                auto inter_dims = utils::dims_take<L1, L2>(a.dims());
+                auto inner_dims = utils::dims_take<L2 + 1, rank>(a.dims());
+                auto ret_dims = utils::dims_join(outer_dims, inner_dims);
+                ndarray<ValueType, rank - (L2 - L1 + 1)> ret(ret_dims);
+                auto iter = a.begin();
+                const auto outer_size = utils::size_of_dims(outer_dims);
+                const auto inter_size = utils::size_of_dims(inter_dims);
+                const auto inner_size = utils::size_of_dims(inner_dims);
+                for (size_t i = 0; i < outer_size; ++i)
+                    for (size_t j = 0; j < inter_size; ++j)
+                        for (size_t k = 0; k < inner_size; ++k)
+                            ret[i * inner_size + k] += *iter++;
+                return ret;
+            }
+        }
+    }
+}
+
+template<typename Array, int64_t I>
+auto total(const Array& a, const_int<I>)
+{
+    return total(a, const_int<1>{}, const_int<I>{});
+}
+
+template<typename Array>
+auto total(const Array& a)
+{
+    return total(a, const_int<1>{}, const_int<1>{});
+}
+
+template<typename Array>
+auto mean(const Array& a)
+{
+    return divide(total(a), a.dimension<1>());
+}
+
+template<typename Array>
+auto dimensions(const Array& a)
+{
+    constexpr auto rank = array_rank_v<Array>;
+    if constexpr (rank == 0)
+        return ndarray<int64_t, 1>();
+    else
+        return ndarray<int64_t, 1>(std::array<size_t, 1>{rank}, 
+            a.dims_ptr(), a.dims_ptr() + rank);
 }
 
 }

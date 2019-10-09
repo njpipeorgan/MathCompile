@@ -45,8 +45,13 @@ WL_DEFINE_REAL_SCALAR_OPERATIONS(times, *)
 template<typename X, typename Y>
 auto _scalar_divide(const X& x, const Y& y)
 {
-    using C = common_type_t<common_type_t<X, Y>, float>;
-    return C(C(x) / C(y));
+    if constexpr (is_integral_v<X>&& is_integral_v<Y>)
+        return double(x) / double(y);
+    else
+    {
+        using C = common_type_t<X, Y>;
+        return C(x) / C(y);
+    }
 }
 
 #define WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(name, oper)             \
@@ -87,14 +92,19 @@ auto _scalar_or_array_##name(const X& x, const Y& y)                        \
             static_assert(x_rank == y_rank, "badrank");                     \
             if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
-            ndarray<decltype(_scalar_plus(x[0], y[0])), x_rank> z(x.dims());\
+            using XType = typename X::value_type;                           \
+            using YType = typename Y::value_type;                           \
+            using ValueType = decltype(_scalar_##name(XType{}, YType{}));   \
+            ndarray<ValueType, x_rank> z(x.dims());                         \
             for (size_t i = 0; i < x.size(); ++i)                           \
                 z[i] = _scalar_##name(x[i], y[i]);                          \
             return z;                                                       \
         }                                                                   \
         else                                                                \
         {                                                                   \
-            ndarray<decltype(_scalar_plus(x[0], y)), x_rank> z(x.dims());   \
+            using YType = typename Y::value_type;                           \
+            using ValueType = decltype(_scalar_##name(X{}, YType{}));       \
+            ndarray<ValueType, x_rank> z(x.dims());                         \
             for (size_t i = 0; i < x.size(); ++i)                           \
                 z[i] = _scalar_##name(x[i], y);                             \
             return z;                                                       \

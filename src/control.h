@@ -28,9 +28,9 @@ namespace wl
 template<typename A, typename B>
 auto branch_if(bool cond, A&& a, B&& b)
 {
-    using AType = std::invoke_result_t<decltype(a)>;
-    using BType = std::invoke_result_t<decltype(b)>;
-    if constexpr (is_wl_type_v<AType>)
+    using AType = remove_cvref_t<decltype(a())>;
+    using BType = remove_cvref_t<decltype(b())>;
+    if constexpr (!is_function_v<AType>)
     {
         static_assert(std::is_same_v<AType, BType>, "badargtype");
         if (cond)
@@ -38,12 +38,12 @@ auto branch_if(bool cond, A&& a, B&& b)
         else
             return std::forward<decltype(b)>(b)();
     }
-    else // probably a function
+    else // "if" returns a function
     {
         return
             [cond,
-            a = std::forward<decltype(a)>(a)(),
-            b = std::forward<decltype(b)>(b)()] (auto&&... args)
+            a = std::forward<decltype(a)>(a),
+            b = std::forward<decltype(b)>(b)](auto&&... args)
         {
             if (cond)
                 return a(std::forward<decltype(args)>(args)...);

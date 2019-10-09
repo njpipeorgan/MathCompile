@@ -57,14 +57,8 @@ E
 Degree
 EulerGamma
 I
-```
-**Scope functions**
-```
-Module
-```
-**Control flow**
-```
-If
+True
+False
 ```
 **Arithmetic functions**
 ```
@@ -72,10 +66,42 @@ Plus
 Subtract
 Times
 Divide
+```
+**Procedual programming**
+```
+Set
+Module
+If
 AddTo
 SubtractFrom
 TimesBy
 DivideBy
+```
+**Functional programming**
+```
+Select
+Count
+```
+**Loops**
+```
+Do
+Sum
+Product
+```
+**List construction**
+```
+List
+Dimensions
+Table
+ConstantArray
+Range
+```
+**List manipulation**
+```
+Part
+Span
+Total
+Mean
 ```
 **Numerical functions**
 ```
@@ -86,6 +112,7 @@ Ceiling
 Floor
 IntegerPart
 FractionalPart
+Mod
 Greater
 Less
 Equal
@@ -103,27 +130,6 @@ Conjugate (partial)
 RandomInteger
 RandomReal
 RandomComplex
-```
-**Functions with iterators**
-```
-Do
-Table
-Sum
-Product
-```
-**Array generation**
-```
-List
-ConstantArray
-Range
-```
-**Array manipulation**
-```
-Set
-Part
-Span
-Select
-Count
 ```
 
 ## Supported types

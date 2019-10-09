@@ -20,6 +20,8 @@
 #include <cmath>
 
 #include "types.h"
+#include "traits.h"
+#include "utils.h"
 
 namespace wl
 {
@@ -36,20 +38,6 @@ auto make_complex(const Re& re, const Im& im)
 //=============================================================================
 // Scalar numerical complex functions
 //=============================================================================
-
-template<typename X>
-auto _scalar_re(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return x.real();
-    }
-    else
-    {
-        return x;
-    }
-}
 
 template<typename X>
 auto _scalar_im(const X& x)
@@ -127,131 +115,72 @@ auto _scalar_conjugate(const X& x)
 //=============================================================================
 
 
-template<typename T>
-auto re(T&& x)
+template<typename X>
+auto re(X&& x)
 {
-    using X = remove_cvref_t<T>;
-    if constexpr (is_arithmetic_v<X>)
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto scalar_re = [](const auto& x)
     {
-        return _scalar_re(x);
-    }
-    else if constexpr (is_array_v<X>)
-    {
-        using ValueType = typename X::value_type;
-        if constexpr (is_real_v<ValueType>)
-        {
-            return std::forward<decltype(x)>(x);
-        }
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_complex_v<XV>)
+            return x.real();
         else
-        {
-            ndarray<typename ValueType::value_type, X::rank> y(x.dims());
-            std::transform(x.begin(), x.end(), y.begin(),
-                [](auto a) { return _scalar_re(a); });
-            return y;
-        }
-    }
-    else
-    {
-        static_assert(always_false_v<T>, "badargtype");
-    }
+            return x;
+    };
+    return utils::listable_function(scalar_re, std::forward<decltype(x)>(x));
 }
 
-template<typename T>
-auto im(const T& x)
+template<typename X>
+auto im(X&& x)
 {
-    using X = remove_cvref_t<T>;
-    if constexpr (is_arithmetic_v<X>)
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto scalar_im = [](const auto& x)
     {
-        return _scalar_im(x);
-    }
-    else if constexpr (is_array_v<X>)
-    {
-        using ValueType = typename X::value_type;
-        if constexpr (is_real_v<ValueType>)
-        {
-            ndarray<ValueType, X::rank> y(x.dims(), ValueType(0));
-            return y;
-        }
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_complex_v<XV>)
+            return x.imag();
         else
-        {
-            ndarray<typename ValueType::value_type, X::rank> y(x.dims());
-            std::transform(x.begin(), x.end(), y.begin(),
-                [](auto a) { return _scalar_im(a); });
-            return y;
-        }
-    }
-    else
-    {
-        static_assert(always_false_v<T>, "badargtype");
-    }
+            return XV(0);
+    };
+    return utils::listable_function(scalar_im, std::forward<decltype(x)>(x));
 }
 
-template<typename T>
-auto arg(T&& x)
+template<typename X>
+auto arg(X&& x)
 {
-    using X = remove_cvref_t<T>;
-    if constexpr (is_arithmetic_v<X>)
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto scalar_arg = [](const auto& x)
     {
-        return _scalar_arg(x);
-    }
-    else if constexpr (is_array_v<X>)
-    {
-        using ValueType = typename X::value_type;
-        using ResultType = decltype(_scalar_arg(ValueType{}));
-        if constexpr (is_real_v<ValueType>)
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_complex_v<XV>)
+            return std::arg(x);
+        else if constexpr (is_integral_v<XV>)
         {
-            ndarray<ResultType, X::rank> y(x.dims());
-            if constexpr (!std::is_unsigned_v<ValueType>)
-            {
-                for (size_t i = 0; i < x.size(); ++i)
-                {
-                    if (x[i] < ValueType(0))
-                        y[i] = ResultType(const_pi);
-                }
-            }
-            return y;
+            if constexpr (std::is_unsigned_v<XV>)
+                return double(0);
+            else
+                return x >= X(0) ? double(0) : const_pi;
         }
         else
-        {
-            ndarray<typename ValueType::value_type, X::rank> y(x.dims());
-            std::transform(x.begin(), x.end(), y.begin(),
-                [](auto a) { return _scalar_arg(a); });
-            return y;
-        }
-    }
-    else
-    {
-        static_assert(always_false_v<T>, "badargtype");
-    }
+            return x >= X(0) ? X(0) : X(const_pi);
+    };
+    return utils::listable_function(scalar_arg, std::forward<decltype(x)>(x));
 }
 
-template<typename T>
-auto conjugate(T&& x)
+template<typename X>
+auto conjugate(X&& x)
 {
-    using X = remove_cvref_t<T>;
-    if constexpr (is_arithmetic_v<X>)
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto scalar_conjugate = [](const auto& x)
     {
-        return _scalar_conjugate(x);
-    }
-    else if constexpr (is_array_v<X>)
-    {
-        using ValueType = typename X::value_type;
-        if constexpr (is_real_v<ValueType>)
-        {
-            return std::forward<decltype(x)>(x);
-        }
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_complex_v<XV>)
+            return std::conj(x);
         else
-        {
-            ndarray<ValueType, X::rank> y(x.dims());
-            std::transform(x.begin(), x.end(), y.begin(),
-                [](auto a) { return _scalar_conjugate(a); });
-            return y;
-        }
-    }
-    else
-    {
-        static_assert(always_false_v<T>, "badargtype");
-    }
+            return x;
+    };
+    return utils::listable_function(scalar_conjugate, 
+        std::forward<decltype(x)>(x));
 }
 
 }

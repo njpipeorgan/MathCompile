@@ -56,13 +56,13 @@ struct uniform
         return 1u;
     }
 
-    T operator()() const
+    T operator()()
     {
         return dist_(global_random_engine);
     }
 
     template<typename Ptr>
-    void operator()(Ptr ptr) const
+    void operator()(Ptr ptr)
     {
         *ptr = dist_(global_random_engine);
     }
@@ -89,7 +89,7 @@ struct uniform<complex<T>>
         return 1u;
     }
 
-    complex<T> operator()() const
+    complex<T> operator()()
     {
         return complex<T>(
             dist_re_(global_random_engine),
@@ -97,7 +97,7 @@ struct uniform<complex<T>>
     }
 
     template<typename Ptr>
-    void operator()(Ptr ptr) const
+    void operator()(Ptr ptr)
     {
         ptr->real() = dist_re_(global_random_engine);
         ptr->imag() = dist_im_(global_random_engine);
@@ -123,13 +123,13 @@ struct normal
         return 1u;
     }
 
-    T operator()() const
+    T operator()()
     {
         return dist_(global_random_engine);
     }
 
     template<typename Ptr>
-    void operator()(Ptr ptr) const
+    void operator()(Ptr ptr)
     {
         *ptr = dist_(global_random_engine);
     }
@@ -138,7 +138,7 @@ struct normal
 }
 
 template<typename Dist, typename... Dims>
-auto _random_variate_impl(const Dist& dist, const Dims&... dims)
+auto _random_variate_impl(Dist dist, const Dims&... dims)
 {
     using T = typename Dist::value_type;
     constexpr size_t R1 = Dist::rank;

@@ -120,10 +120,11 @@ Unequal
 ```
 **Complex numbers**
 ```
-Re (partial)
-Im (partial)
-Arg (partial)
-Conjugate (partial)
+Complex
+Re
+Im
+Arg
+Conjugate
 ```
 **Random numbers**
 ```

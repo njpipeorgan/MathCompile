@@ -108,7 +108,7 @@ auto check_dims(const std::array<size_t, R>& dims1,
         std::make_index_sequence<R>{});
 }
 
-template<typename Fn, typename X, typename Y>
+template<typename Fn, typename X>
 auto listable_function(Fn fn, X&& x)
 {
     using XT = remove_cvref_t<X>;

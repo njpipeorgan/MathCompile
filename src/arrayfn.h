@@ -387,7 +387,7 @@ auto total(const Array& a)
 template<typename Array>
 auto mean(const Array& a)
 {
-    return divide(total(a), a.dimension<1>());
+    return divide(total(a), a.template dimension<1>());
 }
 
 template<typename Array>

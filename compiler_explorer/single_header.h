@@ -26,6 +26,8 @@ template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typen
 struct general_view;
 template<typename T>
 using complex = std::complex<T>;
+struct void_type;
+struct all_type;
 template<typename...>
 constexpr auto always_false_v = false;
 template<typename T> struct _type_to_index : std::integral_constant<int, -1> {};
@@ -122,15 +124,9 @@ struct is_string_type<T, std::void_t<typename T::value_type>> :
 template<typename T>
 constexpr auto is_string_type_v = is_string_type<T>::value;
 template<typename T>
-constexpr auto is_wl_type_v = is_arithmetic_v<T> ||
-    is_array_v<T> || is_array_view_v<T> || is_bool_v<T> || is_string_v<T>;
-template<typename T, typename = void>
-struct is_function : std::false_type {};
-template<typename T>
-struct is_function<T, std::void_t<decltype(&remove_cvref_t<T>::operator())>> :
-    std::true_type{};
-template<typename T>
-constexpr auto is_function_v = is_function<T>::value;
+constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> || 
+    is_array_view_v<T> || is_bool_v<T> || is_string_v<T> || 
+    std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
 template<typename T>
 struct array_rank : std::integral_constant<size_t, 0u> {};
 template<typename T, size_t R>
@@ -1838,7 +1834,7 @@ auto equal(const X& x, const Y& y)
     if constexpr (x_rank == 0)
     {
         static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
-            (is_wl_type_v<X>, std::is_same_v<X, Y>), "badargtype");
+            (is_value_type_v<X>, std::is_same_v<X, Y>), "badargtype");
         if constexpr (is_complex_v<X>)
             return x == X(y);
         else if constexpr (is_complex_v<Y>)
@@ -1879,7 +1875,7 @@ auto unequal(const X& x, const Y& y)
 {
     return !equal(x, y);
 }
-auto scalar_mod = [](const auto& x, const auto& y)
+auto _scalar_mod = [](const auto& x, const auto& y)
 {
     using X = remove_cvref_t<decltype(x)>;
     using Y = remove_cvref_t<decltype(y)>;
@@ -1923,7 +1919,7 @@ auto mod(X&& x, Y&& y)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(scalar_mod,
+    return utils::listable_function(_scalar_mod,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 }
@@ -2196,7 +2192,7 @@ auto branch_if(bool cond, A&& a, B&& b)
 {
     using AType = remove_cvref_t<decltype(a())>;
     using BType = remove_cvref_t<decltype(b())>;
-    if constexpr (!is_function_v<AType>)
+    if constexpr (is_value_type_v<AType>)
     {
         static_assert(std::is_same_v<AType, BType>, "badargtype");
         if (cond)
@@ -2208,8 +2204,8 @@ auto branch_if(bool cond, A&& a, B&& b)
     {
         return
             [cond,
-            a = std::forward<decltype(a)>(a),
-            b = std::forward<decltype(b)>(b)](auto&&... args)
+            a = std::forward<decltype(a)>(a)(),
+            b = std::forward<decltype(b)>(b)()](auto&&... args)
         {
             if (cond)
                 return a(std::forward<decltype(args)>(args)...);
@@ -2997,7 +2993,7 @@ template<typename Array, typename... Specs>
 auto part(Array&& a, Specs&&... specs) -> decltype(auto)
 {
     using ArrayType = remove_cvref_t<Array>;
-    static_assert(is_wl_type_v<ArrayType>, "badargtype");
+    static_assert(is_value_type_v<ArrayType>, "badargtype");
     constexpr auto R = array_rank_v<ArrayType>;
     static_assert(sizeof...(Specs) <= R, "badargc");
     if constexpr (R == 0)

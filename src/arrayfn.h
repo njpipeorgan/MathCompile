@@ -222,7 +222,7 @@ template<typename Array, typename... Specs>
 auto part(Array&& a, Specs&&... specs) -> decltype(auto)
 {
     using ArrayType = remove_cvref_t<Array>;
-    static_assert(is_wl_type_v<ArrayType>, "badargtype");
+    static_assert(is_value_type_v<ArrayType>, "badargtype");
     constexpr auto R = array_rank_v<ArrayType>;
     static_assert(sizeof...(Specs) <= R, "badargc");
     if constexpr (R == 0)

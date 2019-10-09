@@ -193,7 +193,7 @@ auto equal(const X& x, const Y& y)
     if constexpr (x_rank == 0)
     {
         static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
-            (is_wl_type_v<X>, std::is_same_v<X, Y>), "badargtype");
+            (is_value_type_v<X>, std::is_same_v<X, Y>), "badargtype");
         if constexpr (is_complex_v<X>)
             return x == X(y);
         else if constexpr (is_complex_v<Y>)

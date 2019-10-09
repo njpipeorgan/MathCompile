@@ -43,6 +43,11 @@ struct general_view;
 template<typename T>
 using complex = std::complex<T>;
 
+struct void_type;
+
+struct all_type;
+
+
 template<typename...>
 constexpr auto always_false_v = false;
 
@@ -172,18 +177,9 @@ template<typename T>
 constexpr auto is_string_type_v = is_string_type<T>::value;
 
 template<typename T>
-constexpr auto is_wl_type_v = is_arithmetic_v<T> ||
-    is_array_v<T> || is_array_view_v<T> || is_bool_v<T> || is_string_v<T>;
-
-template<typename T, typename = void>
-struct is_function : std::false_type {};
-
-template<typename T>
-struct is_function<T, std::void_t<decltype(&remove_cvref_t<T>::operator())>> :
-    std::true_type{};
-
-template<typename T>
-constexpr auto is_function_v = is_function<T>::value;
+constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> || 
+    is_array_view_v<T> || is_bool_v<T> || is_string_v<T> || 
+    std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
 
 
 template<typename T>

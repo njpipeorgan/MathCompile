@@ -183,4 +183,30 @@ auto conjugate(X&& x)
         std::forward<decltype(x)>(x));
 }
 
+template<typename X>
+auto abs_arg(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    static_assert(is_numerical_type_v<XT>, "badargtype");
+    constexpr auto rank = array_rank_v<XT>;
+    if constexpr (rank == 0)
+    {
+        using T = decltype(arg(XT{}));
+        ndarray<T, 1u> ret(std::array<size_t, 1u>{2});
+        ret[0] = T(abs(x));
+        ret[1] = T(arg(x));
+    }
+    else
+    {
+        using XV = typename XT::value_type;
+        using T = decltype(arg(XV{}));
+        auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
+        ndarray<T, rank + 1u> ret(dims);
+        auto iter = ret.begin();
+        x.for_each([&](const auto& a)
+        { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
+        return ret;
+    }
+}
+
 }

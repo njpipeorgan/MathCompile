@@ -57,16 +57,16 @@ parse[Hold[any_]]:=(Message[parse::unknown,ToString[Unevaluated[any]]];Throw["le
 
 $typenames={
   {"void", "Void"},
-  {"bool", "Boolean"},
-  {"std::string", "String"},
+  {"wl::boolean", "Boolean"},
+  {"wl::string", "String"},
   {"int64_t", "Integer"},    {"uint64_t", "UnsignedInteger"},
   {"int8_t",  "Integer8"},   {"uint8_t",  "UnsignedInteger8"},
   {"int16_t", "Integer16"},  {"uint16_t", "UnsignedInteger16"},
   {"int32_t", "Integer32"},  {"uint32_t", "UnsignedInteger32"},
   {"int64_t", "Integer64"},  {"uint64_t", "UnsignedInteger64"},
-  {"double",  "Real"},       {"std::complex<double>", "Complex"},
-  {"float",   "Real32"},     {"std::complex<float>",  "Complex64"},
-  {"double",  "Real64"},     {"std::complex<double>", "Complex128"}
+  {"double",  "Real"},       {"wl::complex<double>", "Complex"},
+  {"float",   "Real32"},     {"wl::complex<float>",  "Complex64"},
+  {"double",  "Real64"},     {"wl::complex<double>", "Complex128"}
 };
 
 Apply[(totypename[#1]:=#2)&,$typenames,{1}];

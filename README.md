@@ -12,7 +12,7 @@ MathCompile is a package that translates *Wolfram Language* functions into C++ c
   - clang 5+, with `-std=c++1z` flag
   - g++ 7+, with `-std=c++1z` flag
   - icc 19+, with `-std=c++1z` flag
-  - msvc 19.20+ (VS 2017 16.0), with `/std:c++17` flag
+  - msvc 19.20+ (VS 2019 16.0), with `/std:c++17` flag
 
 ## In a nutshell
 

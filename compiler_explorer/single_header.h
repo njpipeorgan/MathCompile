@@ -26,8 +26,10 @@ template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typen
 struct general_view;
 template<typename T>
 using complex = std::complex<T>;
+using string = std::string;
 struct void_type;
 struct all_type;
+struct boolean;
 template<typename...>
 constexpr auto always_false_v = false;
 template<typename T> struct _type_to_index : std::integral_constant<int, -1> {};
@@ -70,9 +72,9 @@ constexpr auto is_integral_v = std::is_integral_v<T>;
 template<typename T>
 constexpr auto is_float_v = std::is_floating_point_v<T>;
 template<typename T>
-constexpr auto is_string_v = std::is_same_v<T, std::string>;
+constexpr auto is_string_v = std::is_same_v<T, string>;
 template<typename T>
-constexpr auto is_bool_v = std::is_same_v<T, bool>;
+constexpr auto is_boolean_v = std::is_same_v<T, boolean>;
 template<typename T>
 struct is_complex : std::false_type {};
 template<typename T>
@@ -82,7 +84,7 @@ constexpr auto is_complex_v = is_complex<T>::value;
 template<typename T>
 constexpr auto is_real_v = is_integral_v<T> || is_float_v<T>;
 template<typename T>
-constexpr auto is_arithmetic_v = is_integral_v<T> || is_float_v<T> || is_complex_v<T>;
+constexpr auto is_arithmetic_v = is_real_v<T> || is_complex_v<T>;
 template<typename T>
 struct is_array : std::false_type {};
 template<typename T, size_t R>
@@ -100,32 +102,23 @@ struct is_array_view<general_view<T, A, V, S, IT, C>> : std::true_type {};
 template<typename T>
 constexpr auto is_array_view_v = is_array_view<T>::value;
 template<typename T, typename = void>
-struct is_numerical_type : 
-    std::bool_constant<is_arithmetic_v<T>> {};
+struct value_type { using type = T; };
 template<typename T>
-struct is_numerical_type<T, std::void_t<typename T::value_type>> : 
-    std::bool_constant<is_arithmetic_v<typename T::value_type>> {};
+struct value_type<T, std::void_t<typename T::value_type>>
+{
+    using type = typename T::value_type;
+};
 template<typename T>
-constexpr auto is_numerical_type_v = is_numerical_type<T>::value;
-template<typename T, typename = void>
-struct is_boolean_type : 
-    std::bool_constant<std::is_same_v<bool, T>> {};
+using value_type_t = typename value_type<T>::type;
 template<typename T>
-struct is_boolean_type<T, std::void_t<typename T::value_type>> :
-    std::bool_constant<std::is_same_v<bool, typename T::value_type>> {};
+constexpr auto is_numerical_type_v = is_arithmetic_v<value_type_t<T>>;
 template<typename T>
-constexpr auto is_boolean_type_v = is_boolean_type<T>::value;
-template<typename T, typename = void>
-struct is_string_type :
-    std::bool_constant<std::is_same_v<std::string, T>> {};
+constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
 template<typename T>
-struct is_string_type<T, std::void_t<typename T::value_type>> :
-    std::bool_constant<std::is_same_v<std::string, typename T::value_type>> {};
-template<typename T>
-constexpr auto is_string_type_v = is_string_type<T>::value;
+constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
 template<typename T>
 constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> || 
-    is_array_view_v<T> || is_bool_v<T> || is_string_v<T> || 
+    is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> || 
     std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
 template<typename T>
 struct array_rank : std::integral_constant<size_t, 0u> {};
@@ -155,11 +148,11 @@ constexpr auto array_is_const_v = std::is_const_v<
 template<typename T, typename U>
 struct is_convertible
 {
-    static constexpr bool value =
-        is_complex_v<U> ||
-        is_integral_v<T> ||
+    static constexpr bool value = is_complex_v<U> || is_integral_v<T> ||
         (is_float_v<T> && is_float_v<U>);
 };
+template<typename T>
+struct is_convertible<T, T> : std::true_type {};
 template<typename T, typename U>
 constexpr auto is_convertible_v = is_convertible<T, U>::value;
 template<typename... Ts>
@@ -168,8 +161,7 @@ template<>
 struct all_is_integral<> : std::true_type {};
 template<typename T1, typename... Ts>
 struct all_is_integral<T1, Ts...> : 
-    std::integral_constant<bool, 
-    is_integral_v<T1> && all_is_integral<Ts...>::value> {};
+    std::bool_constant<is_integral_v<T1> && all_is_integral<Ts...>::value> {};
 }
 namespace wl
 {
@@ -181,6 +173,34 @@ struct all_type
 };
 struct varg_tag
 {
+};
+struct boolean
+{
+    bool val_ = false;
+    constexpr boolean(bool val) : val_{val}
+    {
+    }
+    constexpr boolean() = default;
+    constexpr boolean operator&&(boolean other) const
+    {
+        return this->val_ && other.val_;
+    }
+    constexpr boolean operator||(boolean other) const
+    {
+        return this->val_ || other.val_;
+    }
+    constexpr boolean operator^ (boolean other) const
+    {
+        return this->val_ ^ other.val_;
+    }
+    constexpr boolean operator!() const
+    {
+        return !this->val_;
+    }
+    constexpr operator bool() const
+    {
+        return this->val_;
+    }
 };
 template<int64_t I>
 struct const_int
@@ -209,8 +229,8 @@ constexpr auto const_e           = double(2.7182818284590452354e+0);
 constexpr auto const_degree      = double(1.7453292519943295769e-2);
 constexpr auto const_euler_gamma = double(5.7721566490153286061e-1);
 constexpr auto const_i           = complex<float>(0.f, 1.f);
-constexpr auto const_true        = true;
-constexpr auto const_false       = false;
+constexpr auto const_true        = boolean(true);
+constexpr auto const_false       = boolean(false);
 }
 namespace wl
 {
@@ -1456,6 +1476,8 @@ struct ndarray
 {
     static_assert(R > 0, "internal");
     static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
+    static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>, 
+        "badargtype");
     using value_type = T;
     static constexpr auto rank = R;
     using _dims_t = std::array<size_t, R>;
@@ -2039,94 +2061,122 @@ auto iterator(Any&& any)
 }
 namespace wl
 {
-#define WL_DEFINE_REAL_SCALAR_OPERATIONS(name, oper)  \
-template<typename X, typename Y>                      \
-auto _scalar_##name(const X& x, const Y& y)           \
-{ return common_type_t<X, Y>(x oper y); }
-WL_DEFINE_REAL_SCALAR_OPERATIONS(plus, +)
-WL_DEFINE_REAL_SCALAR_OPERATIONS(subtract, -)
-WL_DEFINE_REAL_SCALAR_OPERATIONS(times, *)
-template<typename X, typename Y>
-auto _scalar_divide(const X& x, const Y& y)
+auto _scalar_plus = [](const auto& x, const auto& y)
 {
-    if constexpr (is_integral_v<X>&& is_integral_v<Y>)
-        return double(x) / double(y);
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(std::real(x) + std::real(y),
+                std::imag(x) + std::imag(y));
+        else
+            return complex<C>(std::real(x) + C(y), std::imag(x));
+    }
     else
     {
-        using C = common_type_t<X, Y>;
-        return C(x) / C(y);
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(C(x) + std::real(y), std::imag(y));
+        else
+            return C(x) + C(y);
     }
+};
+auto _scalar_subtract = [](const auto& x, const auto& y)
+{
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(std::real(x) - std::real(y),
+                std::imag(x) - std::imag(y));
+        else
+            return complex<C>(std::real(x) - C(y), std::imag(x));
+    }
+    else
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(C(x) - std::real(y), -std::imag(y));
+        else
+            return C(x) - C(y);
+    }
+};
+auto _scalar_times = [](const auto& x, const auto& y)
+{
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(x) * complex<C>(y);
+        else
+            return complex<C>(std::real(x) * C(y), std::imag(x) * C(y));
+    }
+    else
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(C(x) * std::real(y), C(x) * std::imag(y));
+        else
+            return C(x) * C(y);
+    }
+};
+auto _scalar_divide = [](const auto& x, const auto& y)
+{
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(x) / complex<C>(y);
+        else
+            return complex<C>(x) / C(y);
+    }
+    else
+    {
+        if constexpr (is_complex_v<YV>)
+            return C(x) / complex<C>(y);
+        else if constexpr (is_integral_v<XV>&& is_integral_v<YV>)
+            return double(x) / double(y);
+        else
+            return C(x) / C(y);
+    }
+};
+template<typename X, typename Y>
+auto plus(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_plus,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
-#define WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(name, oper)             \
-template<typename X, typename Y>                                    \
-auto _scalar_##name(const complex<X>& x, const Y& y)                \
-{  return complex<common_type_t<X, Y>>(                             \
-    x.real() oper y, x.imag()); }                                   \
-template<typename X, typename Y>                                    \
-auto _scalar_##name(const X& x, const complex<Y>& y)                \
-{ return complex<common_type_t<X, Y>>(                              \
-    y.real() oper x, y.imag()); }                                   \
-template<typename X, typename Y>                                    \
-auto _scalar_##name(const complex<X>& x, const complex<Y>& y)       \
-{ return complex<common_type_t<X, Y>>(                              \
-    x.real() oper y.real(), x.imag() oper y.imag()); }
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(plus, +)
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(subtract, -)
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(times, *)
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(divide, /)
-#define WL_DEFINE_ARITHMETIC_FUNCTION(name)                                 \
-template<typename X, typename Y>                                            \
-auto _scalar_or_array_##name(const X& x, const Y& y)                        \
-{                                                                           \
-    static_assert(!is_string_v<X> && !is_string_v<Y>, "badargtype");        \
-    static_assert(!is_bool_v<X> && !is_bool_v<Y>, "badargtype");            \
-    constexpr auto x_rank = array_rank_v<X>;                                \
-    constexpr auto y_rank = array_rank_v<Y>;                                \
-    if constexpr (x_rank > 0)                                               \
-    {                                                                       \
-        if constexpr (y_rank > 0)                                           \
-        {                                                                   \
-            static_assert(x_rank == y_rank, "badrank");                     \
-            if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
-                throw std::logic_error("baddims");                          \
-            using XType = typename X::value_type;                           \
-            using YType = typename Y::value_type;                           \
-            using ValueType = decltype(_scalar_##name(XType{}, YType{}));   \
-            ndarray<ValueType, x_rank> z(x.dims());                         \
-            for (size_t i = 0; i < x.size(); ++i)                           \
-                z[i] = _scalar_##name(x[i], y[i]);                          \
-            return z;                                                       \
-        }                                                                   \
-        else                                                                \
-        {                                                                   \
-            using YType = typename Y::value_type;                           \
-            using ValueType = decltype(_scalar_##name(X{}, YType{}));       \
-            ndarray<ValueType, x_rank> z(x.dims());                         \
-            for (size_t i = 0; i < x.size(); ++i)                           \
-                z[i] = _scalar_##name(x[i], y);                             \
-            return z;                                                       \
-        }                                                                   \
-    }                                                                       \
-    else if constexpr (y_rank > 0)                                          \
-    {                                                                       \
-        return name(y, x);                                                  \
-    }                                                                       \
-    else                                                                    \
-    {                                                                       \
-        return _scalar_##name(x, y);                                        \
-    }                                                                       \
-}                                                                           \
-template<typename X, typename Y>                                            \
-auto name(X&& x, Y&& y)                                                     \
-{                                                                           \
-    return _scalar_or_array_##name(                                         \
-        val(std::forward<decltype(x)>(x)),                                  \
-        val(std::forward<decltype(y)>(y)));                                 \
+template<typename X, typename Y>
+auto subtract(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_subtract,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
-WL_DEFINE_ARITHMETIC_FUNCTION(plus)
-WL_DEFINE_ARITHMETIC_FUNCTION(subtract)
-WL_DEFINE_ARITHMETIC_FUNCTION(times)
-WL_DEFINE_ARITHMETIC_FUNCTION(divide)
+template<typename X, typename Y>
+auto times(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_times,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+template<typename X, typename Y>
+auto divide(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_divide,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
 #define WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(name, func)                 \
 template<typename X, typename Y>                                        \
 auto _scalar_##name(X& x, const Y& y)                                   \
@@ -2396,73 +2446,6 @@ auto make_complex(const Re& re, const Im& im)
     return complex<T>(T(re), T(im));
 }
 template<typename X>
-auto _scalar_im(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return x.imag();
-    }
-    else
-    {
-        return X(0);
-    }
-}
-template<typename X>
-auto _scalar_abs(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return std::abs(x);
-    }
-    else if constexpr (std::is_unsigned_v<X>)
-    {
-        return x;
-    }
-    else
-    {
-        return x >= X(0) ? x : -x;
-    }
-}
-template<typename X>
-auto _scalar_arg(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return std::arg(x);
-    }
-    else if constexpr (is_integral_v<X>)
-    {
-        if constexpr (std::is_unsigned_v<X>)
-        {
-            return double(0.0);
-        }
-        else
-        {
-            return x >= X(0) ? double(0) : const_pi;
-        }
-    }
-    else // float/double
-    {
-        return x >= X(0) ? X(0) : X(const_pi);
-    }
-}
-template<typename X>
-auto _scalar_conjugate(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return std::conj(x);
-    }
-    else
-    {
-        return x;
-    }
-}
-template<typename X>
 auto re(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -2523,8 +2506,30 @@ auto conjugate(X&& x)
         else
             return x;
     };
-    return utils::listable_function(scalar_conjugate, 
+    return utils::listable_function(scalar_conjugate,
         std::forward<decltype(x)>(x));
+}
+template<typename X>
+auto re_im(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    static_assert(is_numerical_type_v<XT>, "badargtype");
+    constexpr auto rank = array_rank_v<XT>;
+    if constexpr (rank == 0)
+    {
+        ndarray<XT, 1u> ret(std::array<size_t, 1u>{2});
+        ret[0] = re(x);
+        ret[1] = im(x);
+    }
+    else
+    {
+        using XV = typename XT::value_type;
+        auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
+        ndarray<XV, rank + 1u> ret(dims);
+        auto iter = ret.begin();
+        x.for_each([&](const auto& a) { *iter++ = re(a), *iter++ = im(a); });
+        return ret;
+    }
 }
 template<typename X>
 auto abs_arg(X&& x)
@@ -2547,7 +2552,7 @@ auto abs_arg(X&& x)
         ndarray<T, rank + 1u> ret(dims);
         auto iter = ret.begin();
         x.for_each([&](const auto& a)
-        { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
+            { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
         return ret;
     }
 }
@@ -2557,22 +2562,23 @@ namespace wl
 }
 namespace wl
 {
-#define WL_DEFINE_UNARY_BOOLEAN_FUNCTION(name, expr)                        \
-template<typename X>                                                        \
-auto name(X&& x)                                                            \
-{                                                                           \
-    static_assert(is_boolean_type_v<remove_cvref_t<X>>, "badargtype");      \
-    return utils::listable_function([](bool x) { return expr; },            \
-        std::forward<decltype(x)>(x));                                      \
+#define WL_DEFINE_UNARY_BOOLEAN_FUNCTION(name, expr)                    \
+template<typename X>                                                    \
+auto name(X&& x)                                                        \
+{                                                                       \
+    static_assert(is_boolean_type_v<remove_cvref_t<X>>, "badargtype");  \
+    return utils::listable_function([](boolean x) { return expr; },     \
+        std::forward<decltype(x)>(x));                                  \
 }
-#define WL_DEFINE_BINARY_BOOLEAN_FUNCTION(name, expr)                       \
-template<typename X, typename Y>                                            \
-auto name(X&& x, Y&& y)                                                     \
-{                                                                           \
-    static_assert(is_boolean_type_v<remove_cvref_t<X>> &&                   \
-        is_boolean_type_v<remove_cvref_t<Y>>, "badargtype");                \
-    return utils::listable_function([](bool x, bool y) { return expr; },    \
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));        \
+#define WL_DEFINE_BINARY_BOOLEAN_FUNCTION(name, expr)                   \
+template<typename X, typename Y>                                        \
+auto name(X&& x, Y&& y)                                                 \
+{                                                                       \
+    static_assert(is_boolean_type_v<remove_cvref_t<X>> &&               \
+        is_boolean_type_v<remove_cvref_t<Y>>, "badargtype");            \
+    return utils::listable_function(                                    \
+        [](boolean x, boolean y) { return expr; },                      \
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));    \
 }
 WL_DEFINE_UNARY_BOOLEAN_FUNCTION(bool_not, !x)
 WL_DEFINE_UNARY_BOOLEAN_FUNCTION(boole, int64_t(x))
@@ -2772,23 +2778,27 @@ auto set(Dst&& dst, Src&& src)
     using SrcType = remove_cvref_t<Src>;
     constexpr auto dst_rank = array_rank_v<DstType>;
     constexpr auto src_rank = array_rank_v<SrcType>;
+    using DstValue = value_type_t<DstType>;
+    using SrcValue = value_type_t<SrcType>;
     if constexpr (src_rank == 0u)
     {
         if constexpr (dst_rank == 0u)
         { // scalar -> scalar
-            dst = std::forward<decltype(src)>(src);
-            return std::forward<decltype(dst)>(dst);
+            static_assert(is_convertible_v<SrcType, DstType>, "badargtype");
+            dst = DstType(src);
+            return std::forward<decltype(src)>(src);
         }
         else
         { // scalar -> ndarray / array_view
-            dst.copy_from(
-                make_scalar_view_iterator(src));
-            return std::forward<decltype(dst)>(dst);
+            static_assert(is_convertible_v<SrcType, DstValue>, "badargtype");
+            dst.copy_from(make_scalar_view_iterator(DstValue(src)));
+            return std::forward<decltype(src)>(src);
         }
     }
     else
     {
         static_assert(dst_rank == src_rank, "badrank");
+        static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
         if (!utils::check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
             throw std::logic_error("baddims");
         if (!has_aliasing(src, dst))
@@ -2799,12 +2809,12 @@ auto set(Dst&& dst, Src&& src)
                 src.copy_to(dst.begin());
             else // general_view -> general_view
                 indirect_view_copy(dst, src);
-            return std::forward<decltype(dst)>(dst);
+            return std::forward<decltype(src)>(src);
         }
         else // has aliasing
         {
             indirect_view_copy(dst, src);
-            return std::forward<decltype(dst)>(dst);
+            return std::forward<decltype(src)>(src);
         }
     }
 }
@@ -2874,7 +2884,6 @@ auto list(First&& first, Rest&&... rest)
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
 {
-    static_assert(is_numerical_type_v<T>, "badargtype");
     constexpr auto val_rank = array_rank_v<T>;
     constexpr auto rep_rank = sizeof...(dims);
     constexpr auto all_rank = val_rank + rep_rank;

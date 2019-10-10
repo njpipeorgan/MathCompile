@@ -35,86 +35,6 @@ auto make_complex(const Re& re, const Im& im)
     return complex<T>(T(re), T(im));
 }
 
-//=============================================================================
-// Scalar numerical complex functions
-//=============================================================================
-
-template<typename X>
-auto _scalar_im(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return x.imag();
-    }
-    else
-    {
-        return X(0);
-    }
-}
-
-template<typename X>
-auto _scalar_abs(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return std::abs(x);
-    }
-    else if constexpr (std::is_unsigned_v<X>)
-    {
-        return x;
-    }
-    else
-    {
-        return x >= X(0) ? x : -x;
-    }
-}
-
-template<typename X>
-auto _scalar_arg(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return std::arg(x);
-    }
-    else if constexpr (is_integral_v<X>)
-    {
-        if constexpr (std::is_unsigned_v<X>)
-        {
-            return double(0.0);
-        }
-        else
-        {
-            return x >= X(0) ? double(0) : const_pi;
-        }
-    }
-    else // float/double
-    {
-        return x >= X(0) ? X(0) : X(const_pi);
-    }
-}
-
-template<typename X>
-auto _scalar_conjugate(const X& x)
-{
-    static_assert(is_arithmetic_v<X>, "badargtype");
-    if constexpr (is_complex_v<X>)
-    {
-        return std::conj(x);
-    }
-    else
-    {
-        return x;
-    }
-}
-
-//=============================================================================
-// Array numerical complex functions
-//=============================================================================
-
-
 template<typename X>
 auto re(X&& x)
 {
@@ -179,8 +99,31 @@ auto conjugate(X&& x)
         else
             return x;
     };
-    return utils::listable_function(scalar_conjugate, 
+    return utils::listable_function(scalar_conjugate,
         std::forward<decltype(x)>(x));
+}
+
+template<typename X>
+auto re_im(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    static_assert(is_numerical_type_v<XT>, "badargtype");
+    constexpr auto rank = array_rank_v<XT>;
+    if constexpr (rank == 0)
+    {
+        ndarray<XT, 1u> ret(std::array<size_t, 1u>{2});
+        ret[0] = re(x);
+        ret[1] = im(x);
+    }
+    else
+    {
+        using XV = typename XT::value_type;
+        auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
+        ndarray<XV, rank + 1u> ret(dims);
+        auto iter = ret.begin();
+        x.for_each([&](const auto& a) { *iter++ = re(a), *iter++ = im(a); });
+        return ret;
+    }
 }
 
 template<typename X>
@@ -204,7 +147,7 @@ auto abs_arg(X&& x)
         ndarray<T, rank + 1u> ret(dims);
         auto iter = ret.begin();
         x.for_each([&](const auto& a)
-        { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
+            { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
         return ret;
     }
 }

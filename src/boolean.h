@@ -25,23 +25,24 @@
 namespace wl
 {
 
-#define WL_DEFINE_UNARY_BOOLEAN_FUNCTION(name, expr)                        \
-template<typename X>                                                        \
-auto name(X&& x)                                                            \
-{                                                                           \
-    static_assert(is_boolean_type_v<remove_cvref_t<X>>, "badargtype");      \
-    return utils::listable_function([](bool x) { return expr; },            \
-        std::forward<decltype(x)>(x));                                      \
+#define WL_DEFINE_UNARY_BOOLEAN_FUNCTION(name, expr)                    \
+template<typename X>                                                    \
+auto name(X&& x)                                                        \
+{                                                                       \
+    static_assert(is_boolean_type_v<remove_cvref_t<X>>, "badargtype");  \
+    return utils::listable_function([](boolean x) { return expr; },     \
+        std::forward<decltype(x)>(x));                                  \
 }
 
-#define WL_DEFINE_BINARY_BOOLEAN_FUNCTION(name, expr)                       \
-template<typename X, typename Y>                                            \
-auto name(X&& x, Y&& y)                                                     \
-{                                                                           \
-    static_assert(is_boolean_type_v<remove_cvref_t<X>> &&                   \
-        is_boolean_type_v<remove_cvref_t<Y>>, "badargtype");                \
-    return utils::listable_function([](bool x, bool y) { return expr; },    \
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));        \
+#define WL_DEFINE_BINARY_BOOLEAN_FUNCTION(name, expr)                   \
+template<typename X, typename Y>                                        \
+auto name(X&& x, Y&& y)                                                 \
+{                                                                       \
+    static_assert(is_boolean_type_v<remove_cvref_t<X>> &&               \
+        is_boolean_type_v<remove_cvref_t<Y>>, "badargtype");            \
+    return utils::listable_function(                                    \
+        [](boolean x, boolean y) { return expr; },                      \
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));    \
 }
 
 WL_DEFINE_UNARY_BOOLEAN_FUNCTION(bool_not, !x)

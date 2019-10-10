@@ -39,6 +39,38 @@ struct varg_tag
 {
 };
 
+struct boolean
+{
+    bool val_ = false;
+
+    constexpr boolean(bool val) : val_{val}
+    {
+    }
+
+    constexpr boolean() = default;
+
+    constexpr boolean operator&&(boolean other) const
+    {
+        return this->val_ && other.val_;
+    }
+    constexpr boolean operator||(boolean other) const
+    {
+        return this->val_ || other.val_;
+    }
+    constexpr boolean operator^ (boolean other) const
+    {
+        return this->val_ ^ other.val_;
+    }
+    constexpr boolean operator!() const
+    {
+        return !this->val_;
+    }
+    constexpr operator bool() const
+    {
+        return this->val_;
+    }
+};
+
 template<int64_t I>
 struct const_int
 {

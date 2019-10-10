@@ -36,24 +36,28 @@ auto set(Dst&& dst, Src&& src)
     using SrcType = remove_cvref_t<Src>;
     constexpr auto dst_rank = array_rank_v<DstType>;
     constexpr auto src_rank = array_rank_v<SrcType>;
+    using DstValue = value_type_t<DstType>;
+    using SrcValue = value_type_t<SrcType>;
 
     if constexpr (src_rank == 0u)
     {
         if constexpr (dst_rank == 0u)
         { // scalar -> scalar
-            dst = std::forward<decltype(src)>(src);
-            return std::forward<decltype(dst)>(dst);
+            static_assert(is_convertible_v<SrcType, DstType>, "badargtype");
+            dst = DstType(src);
+            return std::forward<decltype(src)>(src);
         }
         else
         { // scalar -> ndarray / array_view
-            dst.copy_from(
-                make_scalar_view_iterator(src));
-            return std::forward<decltype(dst)>(dst);
+            static_assert(is_convertible_v<SrcType, DstValue>, "badargtype");
+            dst.copy_from(make_scalar_view_iterator(DstValue(src)));
+            return std::forward<decltype(src)>(src);
         }
     }
     else
     {
         static_assert(dst_rank == src_rank, "badrank");
+        static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
         if (!utils::check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
             throw std::logic_error("baddims");
 
@@ -65,12 +69,12 @@ auto set(Dst&& dst, Src&& src)
                 src.copy_to(dst.begin());
             else // general_view -> general_view
                 indirect_view_copy(dst, src);
-            return std::forward<decltype(dst)>(dst);
+            return std::forward<decltype(src)>(src);
         }
         else // has aliasing
         {
             indirect_view_copy(dst, src);
-            return std::forward<decltype(dst)>(dst);
+            return std::forward<decltype(src)>(src);
         }
     }
 }
@@ -145,7 +149,6 @@ auto list(First&& first, Rest&&... rest)
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
 {
-    static_assert(is_numerical_type_v<T>, "badargtype");
     constexpr auto val_rank = array_rank_v<T>;
     constexpr auto rep_rank = sizeof...(dims);
     constexpr auto all_rank = val_rank + rep_rank;

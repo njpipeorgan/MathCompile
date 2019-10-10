@@ -43,9 +43,13 @@ struct general_view;
 template<typename T>
 using complex = std::complex<T>;
 
+using string = std::string;
+
 struct void_type;
 
 struct all_type;
+
+struct boolean;
 
 
 template<typename...>
@@ -100,10 +104,10 @@ template<typename T>
 constexpr auto is_float_v = std::is_floating_point_v<T>;
 
 template<typename T>
-constexpr auto is_string_v = std::is_same_v<T, std::string>;
+constexpr auto is_string_v = std::is_same_v<T, string>;
 
 template<typename T>
-constexpr auto is_bool_v = std::is_same_v<T, bool>;
+constexpr auto is_boolean_v = std::is_same_v<T, boolean>;
 
 template<typename T>
 struct is_complex : std::false_type {};
@@ -116,7 +120,7 @@ template<typename T>
 constexpr auto is_real_v = is_integral_v<T> || is_float_v<T>;
 
 template<typename T>
-constexpr auto is_arithmetic_v = is_integral_v<T> || is_float_v<T> || is_complex_v<T>;
+constexpr auto is_arithmetic_v = is_real_v<T> || is_complex_v<T>;
 
 
 template<typename T>
@@ -144,41 +148,29 @@ template<typename T>
 constexpr auto is_array_view_v = is_array_view<T>::value;
 
 template<typename T, typename = void>
-struct is_numerical_type : 
-    std::bool_constant<is_arithmetic_v<T>> {};
+struct value_type { using type = T; };
 
 template<typename T>
-struct is_numerical_type<T, std::void_t<typename T::value_type>> : 
-    std::bool_constant<is_arithmetic_v<typename T::value_type>> {};
+struct value_type<T, std::void_t<typename T::value_type>>
+{
+    using type = typename T::value_type;
+};
 
 template<typename T>
-constexpr auto is_numerical_type_v = is_numerical_type<T>::value;
-
-template<typename T, typename = void>
-struct is_boolean_type : 
-    std::bool_constant<std::is_same_v<bool, T>> {};
+using value_type_t = typename value_type<T>::type;
 
 template<typename T>
-struct is_boolean_type<T, std::void_t<typename T::value_type>> :
-    std::bool_constant<std::is_same_v<bool, typename T::value_type>> {};
+constexpr auto is_numerical_type_v = is_arithmetic_v<value_type_t<T>>;
 
 template<typename T>
-constexpr auto is_boolean_type_v = is_boolean_type<T>::value;
-
-template<typename T, typename = void>
-struct is_string_type :
-    std::bool_constant<std::is_same_v<std::string, T>> {};
+constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
 
 template<typename T>
-struct is_string_type<T, std::void_t<typename T::value_type>> :
-    std::bool_constant<std::is_same_v<std::string, typename T::value_type>> {};
-
-template<typename T>
-constexpr auto is_string_type_v = is_string_type<T>::value;
+constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
 
 template<typename T>
 constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> || 
-    is_array_view_v<T> || is_bool_v<T> || is_string_v<T> || 
+    is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> || 
     std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
 
 
@@ -221,11 +213,12 @@ constexpr auto array_is_const_v = std::is_const_v<
 template<typename T, typename U>
 struct is_convertible
 {
-    static constexpr bool value =
-        is_complex_v<U> ||
-        is_integral_v<T> ||
+    static constexpr bool value = is_complex_v<U> || is_integral_v<T> ||
         (is_float_v<T> && is_float_v<U>);
 };
+
+template<typename T>
+struct is_convertible<T, T> : std::true_type {};
 
 template<typename T, typename U>
 constexpr auto is_convertible_v = is_convertible<T, U>::value;
@@ -239,7 +232,6 @@ struct all_is_integral<> : std::true_type {};
 
 template<typename T1, typename... Ts>
 struct all_is_integral<T1, Ts...> : 
-    std::integral_constant<bool, 
-    is_integral_v<T1> && all_is_integral<Ts...>::value> {};
+    std::bool_constant<is_integral_v<T1> && all_is_integral<Ts...>::value> {};
 
 }

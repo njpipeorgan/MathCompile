@@ -29,113 +29,130 @@
 namespace wl
 {
 
-//=============================================================================
-// Scalar arithmetic functions
-//=============================================================================
-
-#define WL_DEFINE_REAL_SCALAR_OPERATIONS(name, oper)  \
-template<typename X, typename Y>                      \
-auto _scalar_##name(const X& x, const Y& y)           \
-{ return common_type_t<X, Y>(x oper y); }
-
-WL_DEFINE_REAL_SCALAR_OPERATIONS(plus, +)
-WL_DEFINE_REAL_SCALAR_OPERATIONS(subtract, -)
-WL_DEFINE_REAL_SCALAR_OPERATIONS(times, *)
-
-template<typename X, typename Y>
-auto _scalar_divide(const X& x, const Y& y)
+auto _scalar_plus = [](const auto& x, const auto& y)
 {
-    if constexpr (is_integral_v<X>&& is_integral_v<Y>)
-        return double(x) / double(y);
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(std::real(x) + std::real(y),
+                std::imag(x) + std::imag(y));
+        else
+            return complex<C>(std::real(x) + C(y), std::imag(x));
+    }
     else
     {
-        using C = common_type_t<X, Y>;
-        return C(x) / C(y);
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(C(x) + std::real(y), std::imag(y));
+        else
+            return C(x) + C(y);
     }
+};
+
+auto _scalar_subtract = [](const auto& x, const auto& y)
+{
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(std::real(x) - std::real(y),
+                std::imag(x) - std::imag(y));
+        else
+            return complex<C>(std::real(x) - C(y), std::imag(x));
+    }
+    else
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(C(x) - std::real(y), -std::imag(y));
+        else
+            return C(x) - C(y);
+    }
+};
+
+auto _scalar_times = [](const auto& x, const auto& y)
+{
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(x) * complex<C>(y);
+        else
+            return complex<C>(std::real(x) * C(y), std::imag(x) * C(y));
+    }
+    else
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(C(x) * std::real(y), C(x) * std::imag(y));
+        else
+            return C(x) * C(y);
+    }
+};
+
+auto _scalar_divide = [](const auto& x, const auto& y)
+{
+    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
+    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using C = common_type_t<XV, YV>;
+    if constexpr (is_complex_v<XV>)
+    {
+        if constexpr (is_complex_v<YV>)
+            return complex<C>(x) / complex<C>(y);
+        else
+            return complex<C>(x) / C(y);
+    }
+    else
+    {
+        if constexpr (is_complex_v<YV>)
+            return C(x) / complex<C>(y);
+        else if constexpr (is_integral_v<XV>&& is_integral_v<YV>)
+            return double(x) / double(y);
+        else
+            return C(x) / C(y);
+    }
+};
+
+template<typename X, typename Y>
+auto plus(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_plus,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
-#define WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(name, oper)             \
-template<typename X, typename Y>                                    \
-auto _scalar_##name(const complex<X>& x, const Y& y)                \
-{  return complex<common_type_t<X, Y>>(                             \
-    x.real() oper y, x.imag()); }                                   \
-template<typename X, typename Y>                                    \
-auto _scalar_##name(const X& x, const complex<Y>& y)                \
-{ return complex<common_type_t<X, Y>>(                              \
-    y.real() oper x, y.imag()); }                                   \
-template<typename X, typename Y>                                    \
-auto _scalar_##name(const complex<X>& x, const complex<Y>& y)       \
-{ return complex<common_type_t<X, Y>>(                              \
-    x.real() oper y.real(), x.imag() oper y.imag()); }
-
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(plus, +)
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(subtract, -)
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(times, *)
-WL_DEFINE_COMPLEX_SCALAR_OPERATIONS(divide, /)
-
-//=============================================================================
-// Arithmetic functions
-//=============================================================================
-
-#define WL_DEFINE_ARITHMETIC_FUNCTION(name)                                 \
-template<typename X, typename Y>                                            \
-auto _scalar_or_array_##name(const X& x, const Y& y)                        \
-{                                                                           \
-    static_assert(!is_string_v<X> && !is_string_v<Y>, "badargtype");        \
-    static_assert(!is_bool_v<X> && !is_bool_v<Y>, "badargtype");            \
-    constexpr auto x_rank = array_rank_v<X>;                                \
-    constexpr auto y_rank = array_rank_v<Y>;                                \
-    if constexpr (x_rank > 0)                                               \
-    {                                                                       \
-        if constexpr (y_rank > 0)                                           \
-        {                                                                   \
-            static_assert(x_rank == y_rank, "badrank");                     \
-            if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
-                throw std::logic_error("baddims");                          \
-            using XType = typename X::value_type;                           \
-            using YType = typename Y::value_type;                           \
-            using ValueType = decltype(_scalar_##name(XType{}, YType{}));   \
-            ndarray<ValueType, x_rank> z(x.dims());                         \
-            for (size_t i = 0; i < x.size(); ++i)                           \
-                z[i] = _scalar_##name(x[i], y[i]);                          \
-            return z;                                                       \
-        }                                                                   \
-        else                                                                \
-        {                                                                   \
-            using YType = typename Y::value_type;                           \
-            using ValueType = decltype(_scalar_##name(X{}, YType{}));       \
-            ndarray<ValueType, x_rank> z(x.dims());                         \
-            for (size_t i = 0; i < x.size(); ++i)                           \
-                z[i] = _scalar_##name(x[i], y);                             \
-            return z;                                                       \
-        }                                                                   \
-    }                                                                       \
-    else if constexpr (y_rank > 0)                                          \
-    {                                                                       \
-        return name(y, x);                                                  \
-    }                                                                       \
-    else                                                                    \
-    {                                                                       \
-        return _scalar_##name(x, y);                                        \
-    }                                                                       \
-}                                                                           \
-template<typename X, typename Y>                                            \
-auto name(X&& x, Y&& y)                                                     \
-{                                                                           \
-    return _scalar_or_array_##name(                                         \
-        val(std::forward<decltype(x)>(x)),                                  \
-        val(std::forward<decltype(y)>(y)));                                 \
+template<typename X, typename Y>
+auto subtract(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_subtract,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
-WL_DEFINE_ARITHMETIC_FUNCTION(plus)
-WL_DEFINE_ARITHMETIC_FUNCTION(subtract)
-WL_DEFINE_ARITHMETIC_FUNCTION(times)
-WL_DEFINE_ARITHMETIC_FUNCTION(divide)
+template<typename X, typename Y>
+auto times(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_times,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
 
+template<typename X, typename Y>
+auto divide(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_divide,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
 
-//=============================================================================
-// Mutable scalar arithmetic functions
-//=============================================================================
 
 #define WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(name, func)                 \
 template<typename X, typename Y>                                        \
@@ -151,9 +168,6 @@ WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(subtract_from, subtract)
 WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(times_by, times)
 WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(divide_by, divide)
 
-//=============================================================================
-// Mutable arithmetic functions
-//=============================================================================
 
 #define WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(name)                         \
 template<typename X, typename Y>                                            \

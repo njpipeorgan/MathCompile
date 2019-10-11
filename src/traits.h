@@ -79,11 +79,23 @@ template<> struct _index_to_type<8> { using type = int16_t; };
 template<> struct _index_to_type<9> { using type = uint8_t; };
 template<> struct _index_to_type<10> { using type = int8_t; };
 
-template<typename T, typename U>
-struct common_type : _index_to_type<std::min(_type_to_index<T>::value, _type_to_index<U>::value)> {};
+template<typename... Ts>
+struct common_type;
 
 template<typename T, typename U>
-using common_type_t = typename common_type<T, U>::type;
+struct common_type<T, U> :
+    _index_to_type<std::min(_type_to_index<T>::value,
+        _type_to_index<U>::value)> {};
+
+template<typename T1, typename T2, typename T3, typename... Ts>
+struct common_type<T1, T2, T3, Ts...>
+{
+    using type = typename common_type<
+        typename common_type<T1, T2>::type, T3, Ts...>::type;
+};
+
+template<typename... Ts>
+using common_type_t = typename common_type<Ts...>::type;
 
 template<typename T> struct make_signed { using type = T; };
 template<> struct make_signed<uint8_t> { using type = int8_t; };
@@ -169,28 +181,28 @@ template<typename T>
 constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
 
 template<typename T>
-constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> || 
-    is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> || 
-    std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
+constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||
+is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> ||
+std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
 
 
 template<typename T>
 struct array_rank : std::integral_constant<size_t, 0u> {};
 
 template<typename T, size_t R>
-struct array_rank<ndarray<T, R>> : 
+struct array_rank<ndarray<T, R>> :
     std::integral_constant<size_t, R> {};
 
 template<typename T, size_t A, size_t V, bool C>
-struct array_rank<simple_view<T, A, V, C>> : 
+struct array_rank<simple_view<T, A, V, C>> :
     std::integral_constant<size_t, V> {};
 
 template<typename T, size_t A, size_t V, size_t S, bool C>
-struct array_rank<regular_view<T, A, V, S, C>> : 
+struct array_rank<regular_view<T, A, V, S, C>> :
     std::integral_constant<size_t, V> {};
 
 template<typename T, size_t A, size_t V, size_t S, typename IT, bool C>
-struct array_rank<general_view<T, A, V, S, IT, C>> : 
+struct array_rank<general_view<T, A, V, S, IT, C>> :
     std::integral_constant<size_t, V> {};
 
 template<typename T>
@@ -231,7 +243,7 @@ template<>
 struct all_is_integral<> : std::true_type {};
 
 template<typename T1, typename... Ts>
-struct all_is_integral<T1, Ts...> : 
+struct all_is_integral<T1, Ts...> :
     std::bool_constant<is_integral_v<T1> && all_is_integral<Ts...>::value> {};
 
 }

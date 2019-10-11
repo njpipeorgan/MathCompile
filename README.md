@@ -116,10 +116,28 @@ Floor
 IntegerPart
 FractionalPart
 Mod
+Sign
+Clip
+Unitize
+UnitStep
 Greater
 Less
+GreaterEqual
+LessEqual
 Equal
 Unequal
+```
+**Logical functions**
+```
+Not
+And
+Or
+Xor
+Nand
+Nor
+Xnor
+Implies
+Boole
 ```
 **Complex numbers**
 ```

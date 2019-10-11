@@ -44,10 +44,10 @@ auto n(X&& x)
     }
     else
     {
-        using XVT = typename XT::value_type;
-        if constexpr (is_integral_v<XVT>)
+        using XV = value_type_t<XT>;
+        if constexpr (is_integral_v<XV>)
         {
-            ndarray<decltype(n(XVT{})), x_rank > ret(x.dims());
+            ndarray<decltype(n(XV{})), x_rank> ret(x.dims());
             x.for_each(
                 [](const auto& src, auto& dst) { dst = n(src); },
                 ret.begin());
@@ -56,6 +56,22 @@ auto n(X&& x)
         else
             return std::forward<decltype(x)>(x);
     }
+}
+
+template<typename T, typename X>
+auto cast(X&& x)
+{
+    static_assert(is_real_v<remove_cvref_t<X>>, "internal");
+    return static_cast<T>(x);
+}
+
+template<typename T, typename X>
+auto cast(const complex<X>& x)
+{
+    if constexpr (is_real_v<T>)
+        return std::real(x);
+    else
+        return std::complex<value_type_t<T>>(x);
 }
 
 #define WL_DEFINE_ROUNDING_FUNCTION(name, stdname)                      \
@@ -104,7 +120,7 @@ auto fractional_part(X&& x)
     {
         static_assert(is_arithmetic_v<XT>, "badargtype");
         if constexpr (is_integral_v<XT>)
-            return 0.;
+            return double(0);
         else if constexpr (is_float_v<XT>)
             return x - std::trunc(x);
         else
@@ -170,21 +186,35 @@ auto abs(X&& x)
 }
 
 template<typename X, typename Y>
-auto greater(const X& x, const Y& y)
+boolean greater(const X& x, const Y& y)
 {
     static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
     return boolean(x > y);
 }
 
 template<typename X, typename Y>
-auto less(const X& x, const Y& y)
+boolean less(const X& x, const Y& y)
 {
     static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
     return boolean(x < y);
 }
 
 template<typename X, typename Y>
-auto equal(const X& x, const Y& y)
+boolean greater_equal(const X& x, const Y& y)
+{
+    static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
+    return boolean(x >= y);
+}
+
+template<typename X, typename Y>
+boolean less_equal(const X& x, const Y& y)
+{
+    static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
+    return boolean(x <= y);
+}
+
+template<typename X, typename Y>
+boolean equal(const X& x, const Y& y)
 {
     constexpr auto x_rank = array_rank_v<X>;
     constexpr auto y_rank = array_rank_v<Y>;
@@ -207,7 +237,7 @@ auto equal(const X& x, const Y& y)
             return false;
         if constexpr (X::category != view_category::General)
         {
-            bool equal_flag = true;
+            boolean equal_flag = true;
             y.for_each([&](const auto& a, const auto& b)
                 {
                     equal_flag = equal(a, b);
@@ -231,7 +261,7 @@ auto equal(const X& x, const Y& y)
 }
 
 template<typename X, typename Y>
-auto unequal(const X& x, const Y& y)
+boolean unequal(const X& x, const Y& y)
 {
     return !equal(x, y);
 }
@@ -282,6 +312,165 @@ auto mod(X&& x, Y&& y)
     };
     return utils::listable_function(scalar_mod,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+
+template<typename Ret, typename X>
+auto sign(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_arithmetic_v<Ret>, "badrettype");
+    auto scalar_sign = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_complex_v<XV>)
+        {
+            return x / std::abs(x);
+        }
+        else
+        {
+            if (x == XV(0))
+                return Ret(0);
+            else if (x > XV(0))
+                return Ret(1);
+            else
+                return Ret(-1);
+        }
+    };
+    return utils::listable_function(scalar_sign,
+        std::forward<decltype(x)>(x));
+}
+
+template<typename X, typename L>
+auto clip(X&& x, const L& limit)
+{
+    static_assert(is_array_v<L> && array_rank_v<L> == 1, "badargtype");
+    if (limit.size() != 2u) throw std::logic_error("baddims");
+    std::array<value_type_t<L>, 2u> limit_pair;
+    limit.copy_to(limit_pair.data());
+    return clip(std::forward<decltype(x)>(x), varg_tag{},
+        limit_pair[0], limit_pair[1]);
+}
+
+template<typename X, typename L, typename VL>
+auto clip(X&& x, const L& limit, const VL& vlimit)
+{
+    static_assert(is_array_v<L> && array_rank_v<L> == 1, "badargtype");
+    static_assert(is_array_v<VL> && array_rank_v<VL> == 1, "badargtype");
+    if (limit.size() != 2u) throw std::logic_error("baddims");
+    if (vlimit.size() != 2u) throw std::logic_error("baddims");
+    std::array<value_type_t<L>, 2u> limit_pair;
+    std::array<value_type_t<VL>, 2u> vlimit_pair;
+    limit.copy_to(limit_pair.data());
+    vlimit.copy_to(vlimit_pair.data());
+    return clip(std::forward<decltype(x)>(x), varg_tag{},
+        limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
+}
+
+template<typename X>
+auto clip(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto scalar_clip = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        if (x < XV(0))
+            return XV(0);
+        else if (x > XV(1))
+            return XV(1);
+        else
+            return x;
+    };
+    return utils::listable_function(scalar_clip,
+        std::forward<decltype(x)>(x));
+}
+
+template<typename X, typename Min, typename Max>
+auto clip(X&& x, varg_tag, Min min, Max max)
+{
+    using XT = remove_cvref_t<X>;
+    static_assert(is_numerical_type_v<XT>, "badargtype");
+    static_assert(is_real_v<Min> && is_real_v<Max>, "badargtype");
+    using C = common_type_t<value_type<XT>, Min, Max>;
+
+    const auto cmin = cast<C>(min);
+    const auto cmax = cast<C>(max);
+    auto scalar_clip = [=](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        auto cx = cast<C>(x);
+        if (cx < cmin)
+            return cmin;
+        else if (cx > cmax)
+            return cmax;
+        else
+            return cx;
+    };
+    return utils::listable_function(scalar_clip,
+        std::forward<decltype(x)>(x));
+}
+
+template<typename X, typename Min, typename Max, typename VMin, typename VMax>
+auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
+{
+    using XT = remove_cvref_t<X>;
+    static_assert(is_numerical_type_v<XT>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_real_v<Min> && is_real_v<Max>, "badargtype");
+    static_assert(is_real_v<VMin> && is_real_v<VMax>, "badargtype");
+    using C = common_type_t<value_type_t<XT>, Min, Max, VMin, VMax>;
+
+    const auto cmin = cast<C>(min);
+    const auto cmax = cast<C>(max);
+    const auto cvmin = cast<C>(vmin);
+    const auto cvmax = cast<C>(vmax);
+    auto scalar_clip = [=](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        auto cx = cast<C>(x);
+        if (cx < cmin)
+            return cvmin;
+        else if (cx > cmax)
+            return cvmax;
+        else
+            return cx;
+    };
+    return utils::listable_function(scalar_clip,
+        std::forward<decltype(x)>(x));
+}
+
+template<typename Ret, typename X>
+auto unitize(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_arithmetic_v<Ret>, "badrettype");
+    auto scalar_unitize = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        return Ret(int8_t(x != XV(0)))
+    };
+    return utils::listable_function(scalar_unitize,
+        std::forward<decltype(x)>(x));
+}
+
+template<typename Ret, typename X>
+auto unit_step(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_arithmetic_v<Ret>, "badrettype");
+    auto scalar_sign = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        if (x >= XV(0))
+            return Ret(1);
+        else
+            return Ret(0);
+    };
+    return utils::listable_function(scalar_sign,
+        std::forward<decltype(x)>(x));
 }
 
 }

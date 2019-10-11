@@ -40,14 +40,14 @@ auto _scalar_plus = [](const auto& x, const auto& y)
             return complex<C>(std::real(x) + std::real(y),
                 std::imag(x) + std::imag(y));
         else
-            return complex<C>(std::real(x) + C(y), std::imag(x));
+            return complex<C>(std::real(x) + cast<C>(y), std::imag(x));
     }
     else
     {
         if constexpr (is_complex_v<YV>)
-            return complex<C>(C(x) + std::real(y), std::imag(y));
+            return complex<C>(utils::cast<C>(x) + std::real(y), std::imag(y));
         else
-            return C(x) + C(y);
+            return cast<C>(x) + cast<C>(y);
     }
 };
 
@@ -62,14 +62,14 @@ auto _scalar_subtract = [](const auto& x, const auto& y)
             return complex<C>(std::real(x) - std::real(y),
                 std::imag(x) - std::imag(y));
         else
-            return complex<C>(std::real(x) - C(y), std::imag(x));
+            return complex<C>(std::real(x) - cast<C>(y), std::imag(x));
     }
     else
     {
         if constexpr (is_complex_v<YV>)
-            return complex<C>(C(x) - std::real(y), -std::imag(y));
+            return complex<C>(cast<C>(x) - std::real(y), -std::imag(y));
         else
-            return C(x) - C(y);
+            return cast<C>(x) - cast<C>(y);
     }
 };
 
@@ -83,14 +83,16 @@ auto _scalar_times = [](const auto& x, const auto& y)
         if constexpr (is_complex_v<YV>)
             return complex<C>(x) * complex<C>(y);
         else
-            return complex<C>(std::real(x) * C(y), std::imag(x) * C(y));
+            return complex<C>(std::real(x) * cast<C>(y), 
+                std::imag(x) * cast<C>(y));
     }
     else
     {
         if constexpr (is_complex_v<YV>)
-            return complex<C>(C(x) * std::real(y), C(x) * std::imag(y));
+            return complex<C>(cast<C>(x) * std::real(y), 
+                cast<C>(x) * std::imag(y));
         else
-            return C(x) * C(y);
+            return cast<C>(x) * cast<C>(y);
     }
 };
 
@@ -104,16 +106,16 @@ auto _scalar_divide = [](const auto& x, const auto& y)
         if constexpr (is_complex_v<YV>)
             return complex<C>(x) / complex<C>(y);
         else
-            return complex<C>(x) / C(y);
+            return complex<C>(x) / cast<C>(y);
     }
     else
     {
         if constexpr (is_complex_v<YV>)
-            return C(x) / complex<C>(y);
+            return cast<C>(x) / complex<C>(y);
         else if constexpr (is_integral_v<XV>&& is_integral_v<YV>)
             return double(x) / double(y);
         else
-            return C(x) / C(y);
+            return cast<C>(x) / cast<C>(y);
     }
 };
 

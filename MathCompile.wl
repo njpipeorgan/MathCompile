@@ -49,7 +49,7 @@ compile[code_]:=
   Module[{precodegen,output,types,error},
     $variabletable=Association[];
     error=Catch[
-        precodegen=macro@semantics@allsyntax@parse[code];
+        precodegen=semantics@macro@allsyntax@parse[code];
         types=getargtypes[precodegen];
         If[MemberQ[types,nil],Message[codegen::notype];Throw["codegen"]];
         output=maincodegen@precodegen;
@@ -247,21 +247,20 @@ $builtinfunctions=native/@
   "Boole"           ->"boole",
   "Less"            ->"less",
   "Greater"         ->"greater",
+  "LessEqual"       ->"less_equal",
+  "GreaterEqual"    ->"greater_equal",
   "Equal"           ->"equal",
-  "Unequal"         ->"unequal",(*
+  "Unequal"         ->"unequal",
+  "Sign"            ->"sign<int64_t>",
+  "Clip"            ->"clip",
+  "Unitize"         ->"unitize<int64_t>",
+  "UnitStep"        ->"unit_step<int64_t>",(*
   "Min"             ->"min",
   "Max"             ->"max",
-  "Sign"            ->"sign",
-  "Clip"            ->"clip",
-  "Rescale"         ->"rescale",
   "Chop"            ->"chop",
   "Threshold"       ->"threshold",
   "LogisticSigmoid" ->"logistic_sigmoid",
-  "Unitize"         ->"unitize",
-  "UnitStep"        ->"unit_step",
   "Ramp"            ->"ramp",
-  "LessEqual"       ->"less_equal",
-  "GreaterEqual"    ->"greater_equal",
   "NumericalOrder"  ->"numerical_order",*)
 (* boolean functions *)
   "Not"             ->"bool_not",
@@ -392,7 +391,10 @@ macro[code_]:=code//.{
     id["Total"][array_]:>native["total"][array],
     id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
     id["Total"][array_,list[literal[i_Integer]]]:>native["total"][array,const[i],const[i]],
-    id["Total"][array_,list[literal[i1_Integer],literal[i2_Integer]]]:>native["total"][array,const[i1],const[i2]]
+    id["Total"][array_,list[literal[i1_Integer],literal[i2_Integer]]]:>native["total"][array,const[i1],const[i2]],
+    id["Clip"][any_]:>native["clip"][any],
+    id["Clip"][any_,list[min_,max_]]:>native["clip"][any,vargtag,min,max],
+    id["Clip"][any_,list[min_,max_],list[vmin_,vmax_]]:>native["clip"][any,vargtag,min,max,vmin,vmax]
   }
 
 

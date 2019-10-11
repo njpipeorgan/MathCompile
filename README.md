@@ -2,9 +2,9 @@
 
 MathCompile is a package that translates *Wolfram Language* functions into C++ code, and generate dynamic libraries that can be called in *Wolfram Language*.
 
-It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions. 
+It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions.
 
-**Note**: The project is in the progress of adding necessary components to the C++ library. 
+**Note**: The project is in the progress of adding more functions.
 
 ## Prerequisite
 
@@ -24,7 +24,7 @@ First, load the package:
 ```
 <<MathCompile`
 ```
-Compile a function using `CompileToLibrary`, make sure you have a C++ compiler installed:
+Compile a function using `CompileToLibrary`: (make sure you have a C++ compiler installed)
 ```
 cf=CompileToLibrary[
   Function[{Typed[x,"Integer"],Typed[y,"Integer"]},x+y]
@@ -128,6 +128,8 @@ Re
 Im
 Arg
 Conjugate
+ReIm
+AbsArg
 ```
 **Random numbers**
 ```

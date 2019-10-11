@@ -320,7 +320,7 @@ struct span
             {
                 step = step_;
                 if (step == 0)
-                    throw std::logic_error("badstep");
+                    throw std::logic_error("badvalue");
                 else if (step < 0)
                 {
                     if constexpr (default_begin)

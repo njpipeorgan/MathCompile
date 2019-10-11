@@ -263,7 +263,7 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {
@@ -285,7 +285,7 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
 }
 

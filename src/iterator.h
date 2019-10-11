@@ -78,7 +78,7 @@ auto make_step_iterator(Begin begin, End end, Step step)
         "badargtype");
     using T = common_type_t<Begin, Step>;
     if (step == Step(0))
-        throw std::logic_error("badargv");
+        throw std::logic_error("badvalue");
     if constexpr (is_integral_v<T>)
     {
         auto diff = ptrdiff_t(wl::integer_part(end - begin));

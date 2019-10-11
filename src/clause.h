@@ -86,7 +86,7 @@ auto clause_table(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return ndarray<InnerType, outer_rank>(outer_dims);
         else
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {
@@ -146,7 +146,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType{};
         else
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {
@@ -181,7 +181,7 @@ auto clause_product(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType(int8_t(1));
         else
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {

@@ -1,16 +1,25 @@
 (* ::Package:: *)
 
+Needs["CCompilerDriver`"];
+
+
 BeginPackage["MathCompile`"];
 
 
 CompileToCode::usage="\!\(\*RowBox[{\"CompileToCode\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) rewrites a Wolfram Language function in C++.";
+CompileToLibrary::usage="\!\(\*RowBox[{\"CompileToLibrary\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) generates a function compiled as C++.";
 
 
-SetAttributes[CompileToCode,HoldFirst];
 CompileToCode[Function[func___]]:=compile[Hold[Function[func]]]
+CompileToLibrary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],opts]
 
 
 Begin["`Private`"];
+
+
+$packagepath=DirectoryName[$InputFileName];
+$CppSource="";
+$CompilerOutput="";
 
 
 parse::unknown="`1` cannot be parsed.";
@@ -26,16 +35,27 @@ semantics::noinit="Variable `1` is declared but not initialized.";
 semantics::badinit="Variable `1` is initialized in a nested scope.";
 semantics::badref="Variable `1` is referenced before initialization.";
 codegen::bad="Cannot generate code for `1`."
+codegen::notype="One or more arguments of the main function is declared without types.";
+link::rettype="Failed to retrieve the return type of the compiled function.";
+link::bigrank="The rank of an argument exceeds the maximum rank."
+link::badtype="Cannot infer the type id \"`1`\"returned by the library."
+link::workdir="The working directory does not exist."
+link::libdir="The library directory does not exist."
+link::genfail="Failed to generate the library."
+link::noheader="The header file \"math_compile.h\" cannot be found."
 
 
 compile[code_]:=
-  Module[{output,error},
+  Module[{precodegen,output,types,error},
     $variabletable=Association[];
     error=Catch[
-        output=maincodegen@macro@semantics@allsyntax@parse[code];
+        precodegen=macro@semantics@allsyntax@parse[code];
+        types=getargtypes[precodegen];
+        If[MemberQ[types,nil],Message[codegen::notype];Throw["codegen"]];
+        output=maincodegen@precodegen;
       ];
     Clear[$variabletable];
-    If[error===Null,output,$Failed]
+    If[error===Null,<|"output"->output,"types"->types|>,$Failed]
   ]
 
 
@@ -65,8 +85,8 @@ $typenames={
   {"int32_t", "Integer32"},  {"uint32_t", "UnsignedInteger32"},
   {"int64_t", "Integer64"},  {"uint64_t", "UnsignedInteger64"},
   {"double",  "Real"},       {"wl::complex<double>", "Complex"},
-  {"float",   "Real32"},     {"wl::complex<float>",  "Complex64"},
-  {"double",  "Real64"},     {"wl::complex<double>", "Complex128"}
+  {"float",   "Real32"},     {"wl::complex<float>",  "ComplexReal32"},
+  {"double",  "Real64"},     {"wl::complex<double>", "ComplexReal64"}
 };
 
 Apply[(totypename[#1]:=#2)&,$typenames,{1}];
@@ -377,10 +397,11 @@ macro[code_]:=code//.{
 
 
 nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]
+getargtypes[function[_,_,types_,_]]:=types
 
 codegen[args[indices_,vars_,types_],___]:=
   If[Length[indices]==0,{},
-    Normal@SparseArray[indices->MapThread[#1<>" "<>#2&,{types/.nil->"auto",vars}],Max[indices],"auto"]]
+    Normal@SparseArray[indices->MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto",vars}],Max[indices],"auto"]]
 
 codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
   {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto..."],", "],")",codegen[sequence[exprs],"Return"]}
@@ -405,8 +426,9 @@ codegen[clause[type_][func_,{iters___}],___]:={"wl::clause_"<>nativename[type],"
 codegen[iter[expr___],___]:=codegen[native["iterator"][expr]]
 codegen[variter[expr___],___]:=codegen[native["var_iterator"][expr]]
 
-codegen[typed[type_String],___]:=type<>"{}"
-codegen[typed["array"[type_,rank_]],___]:="wl::ndarray<"<>type<>", "<>ToString[rank]<>">{}"
+codegen[type[t_String],___]:=t
+codegen[type["array"[t_,r_]],___]:="wl::ndarray<"<>t<>", "<>ToString[r]<>">"
+codegen[typed[any_],___]:=codegen[type[any]]<>"{}"
 
 codegen[var[name_],___]:=name
 codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
@@ -438,6 +460,143 @@ codeformat[segments_List]:=
       0,StringJoin/@SplitBy[segments/.{"{"->Sequence[" {","\n"],";"->Sequence[";","\n"]},#=="\n"&][[;;;;2]]
     ]
 maincodegen[code_]:=codeformat@initcodegen[code]
+
+
+$numerictypes={"Undefined",
+"Integer8","UnsignedInteger8",
+"Integer16","UnsignedInteger16",
+"Integer32","UnsignedInteger32",
+"Integer64","UnsignedInteger64",
+"Real32","Real64",
+"ComplexReal32","ComplexReal64"};
+
+symboltype[type_]:=Which[StringContainsQ[type,"Integer"],Integer,
+  StringContainsQ[type,"Complex"],Complex,StringContainsQ[type,"Real"],Real,True,type];
+
+loadfunction[libpath_String,funcid_String,args_]:=
+  Module[{typefunc,libfunc,rank,type,commontype,returntype,argtypes,maxrank=1024,maxtypecount=256},
+    typefunc=LibraryFunctionLoad[libpath,funcid<>"_type",{},Integer];
+    If[typefunc===$Failed,Message[link::rettype];Return[$Failed]];
+    {rank,type}=QuotientRemainder[typefunc[],maxtypecount];
+    LibraryFunctionUnload[typefunc];
+    If[0<=rank<=maxrank,Null,Message[link::bigrank];Return[$Failed]];
+    If[2<=type+1<=Length[$numerictypes],type=$numerictypes[[type+1]],
+      Message[link::badtype,type];Return[$Failed]];
+    commontype=symboltype[type];
+    returntype=If[rank==0,commontype,
+      If[MemberQ[{"Integer64","Real64","ComplexReal64"},type],
+        {commontype,rank},LibraryDataType[NumericArray,type,rank]]];
+    argtypes=Replace[totypename[#],{
+        "Array"[t_,r_]:>If[MemberQ[{"Integer64","Real64","ComplexReal64"},t],
+          {symboltype[t],r,"Constant"},{LibraryDataType[NumericArray,t,r],"Constant"}],
+        t_String:>symboltype[t]}]&/@args;
+    LibraryFunctionLoad[libpath,funcid<>"_func",argtypes,returntype]
+  ]
+
+
+$template=
+"
+#include \"librarylink.h\"
+
+using namespace wl::literal;
+std::default_random_engine wl::global_random_engine;
+WolframLibraryData wl::librarylink::lib_data;
+
+EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {
+    return WolframLibraryVersion;
+}
+
+EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
+    std::random_device rd;
+    wl::global_random_engine.seed(rd());
+    wl::librarylink::lib_data = lib_data;
+    return LIBRARY_NO_ERROR;
+}
+
+EXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData) {
+    return;
+}
+
+inline `funcbody`
+EXTERN_C DLLEXPORT int `funcid`_type(WolframLibraryData lib_data,
+    mint argc, MArgument *argv, MArgument res) {
+    using ReturnType = wl::remove_cvref_t<
+        decltype(main_function(`argsv`))>;
+    using ValueType = std::conditional_t<
+        wl::is_array_v<ReturnType>, wl::value_type_t<ReturnType>, ReturnType>;
+    mint rank = mint(wl::array_rank_v<ReturnType>);
+    mint type = wl::librarylink::get_numeric_array_type<ValueType>();
+    mint max_type_count = 256;
+    MArgument_setInteger(res, rank * max_type_count + type);
+    return LIBRARY_NO_ERROR;
+}
+
+EXTERN_C DLLEXPORT int `funcid`_func(WolframLibraryData lib_data,
+    mint argc, MArgument *argv, MArgument res) {
+    try {
+        auto val = main_function(
+`args`
+        );
+        wl::librarylink::set(res, val);
+    } catch (int library_error) {
+        return library_error;
+    } catch (const std::logic_error& error) {
+        return LIBRARY_FUNCTION_ERROR;
+    } catch (const std::bad_alloc& error) {
+        return LIBRARY_MEMORY_ERROR;
+    } catch (...) {
+        return LIBRARY_FUNCTION_ERROR;
+    }
+    return LIBRARY_NO_ERROR;
+}
+";
+
+
+Options[compilelink]={
+  LibraryDirectory->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],
+  WorkingDirectory->Automatic
+};
+
+compilelink[$Failed,___]:=$Failed;
+
+compilelink[f_,OptionsPattern[]]:=
+  Module[{output,types,funcid,src,lib,workdir,libdir},
+    $CppSource="";
+    $CompilerOutput="";
+    output=f["output"];
+    types=codegen@*type/@f["types"];
+    funcid="f"<>ToString@RandomInteger[{10^8,10^9-1}];
+    workdir=OptionValue[WorkingDirectory];
+    libdir=OptionValue[LibraryDirectory];
+    If[workdir=!=Automatic&&!(StringQ[workdir]&&DirectoryQ[workdir]),
+      Message[link::workdir];Return[$Failed]];
+    If[!(StringQ[libdir]&&DirectoryQ[libdir]),
+      Message[link::libdir];Return[$Failed]];
+    MathCompile`$CppSource=
+      TemplateApply[$template,<|
+        "funcbody"->output,
+        "argsv"->StringRiffle[types,{"","{}, ","{}"}],
+        "args"->StringRiffle[
+          MapThread[StringTemplate["wl::librarylink::get<``>(argv[``])"],
+            {types,Range[Length@types]-1}],
+          {"            ",",\n            ",""}],
+        "funcid"->funcid
+        |>];
+    If[FileExistsQ[$packagepath<>"/src/math_compile.h"]=!=True,
+      Message[link::noheader];Return[$Failed]];
+    lib=CCompilerDriver`CreateLibrary[
+      MathCompile`$CppSource,funcid,
+      "Language"->"C++",
+      "CompileOptions"->"/W3 /std:c++17 /EHsc",
+      "CleanIntermediate"->True,
+      "IncludeDirectories"->{$packagepath<>"/src"},
+      "WorkingDirectory"->workdir,
+      "TargetDirectory"->libdir,
+      "ShellOutputFunction"->((MathCompile`$CompilerOutput=#)&)
+    ];
+    If[lib===$Failed,Message[link::genfail];Return[$Failed]];
+    loadfunction[lib,funcid,f["types"]]
+  ]
 
 
 print[id["Set"][x_,y_]]:=RowBox[{print@x,"=",print@y}]

@@ -173,14 +173,14 @@ template<typename X, typename Y>
 auto greater(const X& x, const Y& y)
 {
     static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
-    return x > y;
+    return boolean(x > y);
 }
 
 template<typename X, typename Y>
 auto less(const X& x, const Y& y)
 {
     static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
-    return x < y;
+    return boolean(x < y);
 }
 
 template<typename X, typename Y>
@@ -195,11 +195,11 @@ auto equal(const X& x, const Y& y)
         static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
             (is_value_type_v<X>, std::is_same_v<X, Y>), "badargtype");
         if constexpr (is_complex_v<X>)
-            return x == X(y);
+            return boolean(x == X(y));
         else if constexpr (is_complex_v<Y>)
-            return Y(x) == y;
+            return boolean(Y(x) == y);
         else
-            return x == y;
+            return boolean(x == y);
     }
     else
     {

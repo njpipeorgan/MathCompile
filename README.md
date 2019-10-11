@@ -153,7 +153,7 @@ RandomComplex
 | `"Real32"`              | `float`                   |
 | `"Real64"`              | `double`                  |
 | `"Complex"`             | `std::complex<double>`    |
-| `"Complex64"`           | `std::complex<float>`     |
-| `"Complex128"`          | `std::complex<double>`    |
+| `"ComplexReal32"`       | `std::complex<float>`     |
+| `"ComplexReal64"`       | `std::complex<double>`    |
 | `"String"`              | `std::string`             |
 | `"Array"[type_, rank_]` | `wl::ndarray<type, rank>` |

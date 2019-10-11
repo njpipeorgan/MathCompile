@@ -34,7 +34,7 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray
 {
-    static_assert(R > 0, "internal");
+    static_assert(1u <= R && R <= 1024u, "badrank");
     static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
     static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>, 
         "badargtype");

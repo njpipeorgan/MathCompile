@@ -1,50 +1,53 @@
 # MathCompile
 
-MathCompile is a package that translates *Wolfram Language* functions into C++ code. It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions. 
+MathCompile is a package that translates *Wolfram Language* functions into C++ code, and generate dynamic libraries that can be called in *Wolfram Language*.
+
+It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions. 
 
 **Note**: The project is in the progress of adding necessary components to the C++ library. 
 
 ## Prerequisite
 
 - *Wolfram Mathematica* 11+
+
+  - The support for more array types requires version 12.
+
 - C++ compiler supporting C++17 features
 
-  - clang 5+, with `-std=c++1z` flag
   - g++ 7+, with `-std=c++1z` flag
-  - icc 19+, with `-std=c++1z` flag
+  - icc 19+, with `-std=c++17` flag
   - msvc 19.20+ (VS 2019 16.0), with `/std:c++17` flag
 
 ## In a nutshell
 
-Load the package:
+First, load the package:
 ```
 <<MathCompile`
 ```
-Compile a function using `CompileToCode`:
+Compile a function using `CompileToLibrary`, make sure you have a C++ compiler installed:
 ```
-CompileToCode[
-  Function[{Typed[p, "Integer"]},
-    Module[{f=If[p>0,#+p&,#-p&]},
-      f[42]
-    ]
-  ]
+cf=CompileToLibrary[
+  Function[{Typed[x,"Integer"],Typed[y,"Integer"]},x+y]
 ]
 ```
-The output is a C++ function, and you can see it compiles by this Compiler Explorer [link](https://godbolt.org/z/HEMhmS).
+Use this compiled function just like a normal Wolfram Language funcion:
+```
+cf[2,3]    (* gives 5 *)
+```
+
+You can also check the C++ code using `CompileToCode`:
+```
+CompileToCode[
+  Function[{Typed[x,"Integer"],Typed[y,"Integer"]},x+y]
+]
+```
+The result is a C++ function named `main_function`:
 ```c++
-auto main_function(int64_t v49) {
-    auto v48 = wl::val(wl::branch_if(wl::greater(v49, 0_i), [&] {
-        return wl::val([&](auto v47, auto...) {
-            return wl::val(wl::plus(v47, v49));
-        });
-    }, [&] {
-        return wl::val([&](auto v46, auto...) {
-            return wl::val(wl::plus(v46, wl::times(-1_i, v49)));
-        });
-    }));
-    return wl::val(v48(42_i));
+auto main_function(int64_t v37, int64_t v38) {
+    return wl::val(wl::plus(v37, v38));
 }
 ```
+You can see the C++ code compiled from this Compiler Explorer [link](https://godbolt.org/z/iT7usM).
 
 ## Supported constants and functions
 
@@ -155,5 +158,4 @@ RandomComplex
 | `"Complex"`             | `std::complex<double>`    |
 | `"ComplexReal32"`       | `std::complex<float>`     |
 | `"ComplexReal64"`       | `std::complex<double>`    |
-| `"String"`              | `std::string`             |
 | `"Array"[type_, rank_]` | `wl::ndarray<type, rank>` |

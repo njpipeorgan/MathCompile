@@ -10,7 +10,7 @@ CompileToCode::usage="\!\(\*RowBox[{\"CompileToCode\", \"[\", StyleBox[\"func\",
 CompileToLibrary::usage="\!\(\*RowBox[{\"CompileToLibrary\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) generates a function compiled as C++.";
 
 
-CompileToCode[Function[func___]]:=compile[Hold[Function[func]]]
+CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,#["output"]]&@compile[Hold[Function[func]]]
 CompileToLibrary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],opts]
 
 
@@ -232,6 +232,7 @@ $builtinfunctions=native/@
   "Re"              ->"re",
   "Im"              ->"im",
   "ReIm"            ->"re_im",
+  "Abs"             ->"abs",
   "Arg"             ->"arg",
   "AbsArg"          ->"abs_arg",
   "Conjugate"       ->"conjugate",
@@ -243,9 +244,13 @@ $builtinfunctions=native/@
   "IntegerPart"     ->"integer_part",
   "FractionalPart"  ->"fractional_part",
   "Mod"             ->"mod",
+  "Boole"           ->"boole",
+  "Less"            ->"less",
+  "Greater"         ->"greater",
+  "Equal"           ->"equal",
+  "Unequal"         ->"unequal",(*
   "Min"             ->"min",
   "Max"             ->"max",
-  "Abs"             ->"abs",
   "Sign"            ->"sign",
   "Clip"            ->"clip",
   "Rescale"         ->"rescale",
@@ -255,14 +260,9 @@ $builtinfunctions=native/@
   "Unitize"         ->"unitize",
   "UnitStep"        ->"unit_step",
   "Ramp"            ->"ramp",
-  "Boole"           ->"boole",
-  "Less"            ->"less",
-  "Greater"         ->"greater",
   "LessEqual"       ->"less_equal",
   "GreaterEqual"    ->"greater_equal",
-  "Equal"           ->"equal",
-  "Unequal"         ->"unequal",
-  "NumericalOrder"  ->"numerical_order",
+  "NumericalOrder"  ->"numerical_order",*)
 (* boolean functions *)
   "Not"             ->"bool_not",
   "And"             ->"bool_and",
@@ -272,7 +272,7 @@ $builtinfunctions=native/@
   "Nor"             ->"bool_nor",
   "Xnor"            ->"bool_xnor",
   "Implies"         ->"implies",
-(* elementary functions *)
+(* elementary functions *)(*
   "Log"             ->"log",
   "Log10"           ->"log10",
   "Log2"            ->"log2",
@@ -298,14 +298,14 @@ $builtinfunctions=native/@
   "ArcTanh"         ->"arctanh",
   "ArcCsch"         ->"arccsch",
   "ArcSech"         ->"arcsech",
-  "ArcCoth"         ->"arccoth",
+  "ArcCoth"         ->"arccoth",*)
 (* random number *)
     (*"RandomInteger"*)
     (*"RandomReal"*)
     (*"RandomComplex"*)
-    (*"RandomVariate"*)
+    (*"RandomVariate"*)(*
   "RandomChoice"    ->"random_choice",
-  "SandomSample"    ->"random_sample",
+  "SandomSample"    ->"random_sample",*)
 (* array operation *)
     (*"ConstantArray"*)
   "Set"             ->"set",
@@ -570,7 +570,7 @@ compilelink[f_,OptionsPattern[]]:=
     libdir=OptionValue[LibraryDirectory];
     If[workdir=!=Automatic&&!(StringQ[workdir]&&DirectoryQ[workdir]),
       Message[link::workdir];Return[$Failed]];
-    If[!(StringQ[libdir]&&DirectoryQ[libdir]),
+    If[!StringQ[libdir],
       Message[link::libdir];Return[$Failed]];
     MathCompile`$CppSource=
       TemplateApply[$template,<|
@@ -587,16 +587,24 @@ compilelink[f_,OptionsPattern[]]:=
     lib=CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
       "Language"->"C++",
-      "CompileOptions"->"/W3 /std:c++17 /EHsc",
+      "CompileOptions"->$compileroptions[CCompilerDriver`DefaultCCompiler[]],
       "CleanIntermediate"->True,
       "IncludeDirectories"->{$packagepath<>"/src"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
+      "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),
       "ShellOutputFunction"->((MathCompile`$CompilerOutput=#)&)
     ];
     If[lib===$Failed,Message[link::genfail];Return[$Failed]];
     loadfunction[lib,funcid,f["types"]]
   ]
+
+
+$compileroptions=<|
+  CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O3",
+  CCompilerDriver`IntelCompiler`IntelCompiler->"-std=c++17 -O3 -Kc++",
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Ox"
+|>;
 
 
 print[id["Set"][x_,y_]]:=RowBox[{print@x,"=",print@y}]

@@ -209,13 +209,16 @@ struct const_int
 };
 namespace literal
 {
-inline auto operator ""_i(unsigned long long i) {
+inline auto operator ""_i(unsigned long long i)
+{
     return int64_t(i);
 }
-inline auto operator ""_r(long double r) {
+inline auto operator ""_r(long double r)
+{
     return double(r);
 }
-inline auto operator ""_s(const char* x, size_t) {
+inline auto operator ""_s(const char* x, size_t)
+{
     return std::string(x);
 }
 }
@@ -850,7 +853,7 @@ struct span
             {
                 step = step_;
                 if (step == 0)
-                    throw std::logic_error("badstep");
+                    throw std::logic_error("badvalue");
                 else if (step < 0)
                 {
                     if constexpr (default_begin)
@@ -1474,7 +1477,7 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray
 {
-    static_assert(R > 0, "internal");
+    static_assert(1u <= R && R <= 1024u, "badrank");
     static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
     static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>, 
         "badargtype");
@@ -1839,13 +1842,13 @@ template<typename X, typename Y>
 auto greater(const X& x, const Y& y)
 {
     static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
-    return x > y;
+    return boolean(x > y);
 }
 template<typename X, typename Y>
 auto less(const X& x, const Y& y)
 {
     static_assert(is_real_v<X> && is_real_v<Y>, "badargtype");
-    return x < y;
+    return boolean(x < y);
 }
 template<typename X, typename Y>
 auto equal(const X& x, const Y& y)
@@ -1858,11 +1861,11 @@ auto equal(const X& x, const Y& y)
         static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
             (is_value_type_v<X>, std::is_same_v<X, Y>), "badargtype");
         if constexpr (is_complex_v<X>)
-            return x == X(y);
+            return boolean(x == X(y));
         else if constexpr (is_complex_v<Y>)
-            return Y(x) == y;
+            return boolean(Y(x) == y);
         else
-            return x == y;
+            return boolean(x == y);
     }
     else
     {
@@ -1991,7 +1994,7 @@ auto make_step_iterator(Begin begin, End end, Step step)
         "badargtype");
     using T = common_type_t<Begin, Step>;
     if (step == Step(0))
-        throw std::logic_error("badargv");
+        throw std::logic_error("badvalue");
     if constexpr (is_integral_v<T>)
     {
         auto diff = ptrdiff_t(wl::integer_part(end - begin));
@@ -2326,7 +2329,7 @@ auto clause_table(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return ndarray<InnerType, outer_rank>(outer_dims);
         else
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {
@@ -2382,7 +2385,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType{};
         else
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {
@@ -2415,7 +2418,7 @@ auto clause_product(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType(int8_t(1));
         else
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {
@@ -2992,7 +2995,7 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
     else
     {
@@ -3014,7 +3017,7 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badargv");
+            throw std::logic_error("badvalue");
     }
 }
 template<typename Begin, typename End>

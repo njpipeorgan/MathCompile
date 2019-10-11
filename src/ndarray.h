@@ -180,7 +180,8 @@ struct ndarray
         if constexpr (Level == R)
             return this->end();
         else
-            return this->view_begin().apply_pointer_offset(this->size());
+            return this->view_begin<Level>().apply_pointer_offset(
+                this->size());
     }
 
     template<size_t Level>
@@ -190,7 +191,7 @@ struct ndarray
         if constexpr (Level == R)
             return this->begin();
         else
-            return simple_view<T, R, R - Level, true>(
+            return simple_view<T, R, R - Level, true>(level_iter_tag{}, 
                 *this, 0, this->dims_.data() + Level);
     }
 
@@ -200,7 +201,8 @@ struct ndarray
         if constexpr (Level == R)
             return this->end();
         else
-            return this->view_begin().apply_pointer_offset(this->size());
+            return this->view_begin<Level>().apply_pointer_offset(
+                this->size());
     }
 
     void resize(size_t new_dim0, ptrdiff_t size_diff)

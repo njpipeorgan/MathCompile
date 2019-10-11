@@ -82,6 +82,7 @@ DivideBy
 ```
 **Functional programming**
 ```
+Map
 Select
 Count
 ```

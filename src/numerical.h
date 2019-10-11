@@ -343,7 +343,7 @@ auto sign(X&& x)
 template<typename X, typename L>
 auto clip(X&& x, const L& limit)
 {
-    static_assert(is_array_v<L> && array_rank_v<L> == 1, "badargtype");
+    static_assert(array_rank_v<L> == 1, "badargtype");
     if (limit.size() != 2u) throw std::logic_error("baddims");
     std::array<value_type_t<L>, 2u> limit_pair;
     limit.copy_to(limit_pair.data());
@@ -354,8 +354,8 @@ auto clip(X&& x, const L& limit)
 template<typename X, typename L, typename VL>
 auto clip(X&& x, const L& limit, const VL& vlimit)
 {
-    static_assert(is_array_v<L> && array_rank_v<L> == 1, "badargtype");
-    static_assert(is_array_v<VL> && array_rank_v<VL> == 1, "badargtype");
+    static_assert(array_rank_v<L> == 1, "badargtype");
+    static_assert(array_rank_v<VL> == 1, "badargtype");
     if (limit.size() != 2u) throw std::logic_error("baddims");
     if (vlimit.size() != 2u) throw std::logic_error("baddims");
     std::array<value_type_t<L>, 2u> limit_pair;

@@ -541,12 +541,33 @@ struct simple_view
 
     auto step_forward()
     {
-        return apply_pointer_offset(this->size_);
+        return this->apply_pointer_offset(this->size_);
     }
 
     bool view_pos_equal(const simple_view& other) const
     {
         return this->data_ == other.data_;
+    }
+
+    simple_view& operator++()
+    {
+        this->step_forward();
+        return *this;
+    }
+
+    const simple_view& operator*() const
+    {
+        return *this;
+    }
+
+    bool operator==(const simple_view& other) const
+    {
+        return this->view_pos_equal(other);
+    }
+
+    bool operator!=(const simple_view& other) const
+    {
+        return !(*this == other);
     }
 };
 

@@ -129,7 +129,10 @@ auto var_iterator(Any&& any)
 
     if constexpr (is_real_v<Type>)
     {
-        return make_step_iterator<true>(int8_t(1), any, int8_t(1));
+        if constexpr (is_integral_v<Type>)
+            return make_step_iterator<true>(Type(1), any, Type(1));
+        else
+            return make_step_iterator<true>(int64_t(1), any, int64_t(1));
     }
     else
     {

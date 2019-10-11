@@ -316,6 +316,7 @@ $builtinfunctions=native/@
   "Range"           ->"range",
 (*functional*)
   "Select"          ->"select"
+    (*"Map"*)
     (*"Count"*)
 |>;
 
@@ -394,7 +395,9 @@ macro[code_]:=code//.{
     id["Total"][array_,list[literal[i1_Integer],literal[i2_Integer]]]:>native["total"][array,const[i1],const[i2]],
     id["Clip"][any_]:>native["clip"][any],
     id["Clip"][any_,list[min_,max_]]:>native["clip"][any,vargtag,min,max],
-    id["Clip"][any_,list[min_,max_],list[vmin_,vmax_]]:>native["clip"][any,vargtag,min,max,vmin,vmax]
+    id["Clip"][any_,list[min_,max_],list[vmin_,vmax_]]:>native["clip"][any,vargtag,min,max,vmin,vmax],
+    id["Map"][func_,array_]:>native["map"][func,array],
+    id["Map"][func_,array_,list[literal[i_Integer]]]:>native["map"][func,array,const[i]]
   }
 
 

@@ -57,24 +57,34 @@ auto set(Dst&& dst, Src&& src)
     else
     {
         static_assert(dst_rank == src_rank, "badrank");
-        static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
-        if (!utils::check_dims<src_rank>(src.dims_ptr(), dst.dims_ptr()))
-            throw std::logic_error("baddims");
-
-        if (!has_aliasing(src, dst))
+        if constexpr (is_array_v<DstType>)
         {
-            if constexpr (SrcType::category != view_category::General)
-                std::forward<decltype(dst)>(dst).copy_from(src.begin());
-            else if (DstType::category != view_category::General)
-                src.copy_to(dst.begin());
-            else // general_view -> general_view
-                indirect_view_copy(dst, src);
-            return std::forward<decltype(src)>(src);
+            static_assert(std::is_same_v<SrcValue, DstValue>, "badargtype");
+            if (!has_aliasing(src, dst))
+                dst = std::forward<decltype(src)>(src).to_array();
+            else
+                dst = std::forward<decltype(src)>(src);
         }
-        else // has aliasing
+        else
         {
-            indirect_view_copy(dst, src);
-            return std::forward<decltype(src)>(src);
+            static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
+            if (!utils::check_dims(src.dims(), dst.dims()))
+                throw std::logic_error("baddims");
+            if (!has_aliasing(src, dst))
+            {
+                if constexpr (SrcType::category != view_category::General)
+                    std::forward<decltype(dst)>(dst).copy_from(src.begin());
+                else if (DstType::category != view_category::General)
+                    src.copy_to(dst.begin());
+                else // general_view -> general_view
+                    indirect_view_copy(dst, src);
+                return std::forward<decltype(src)>(src);
+            }
+            else // has aliasing
+            {
+                indirect_view_copy(dst, src);
+                return std::forward<decltype(src)>(src);
+            }
         }
     }
 }
@@ -308,7 +318,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
 {
     constexpr auto rank = array_rank_v<Array>;
     static_assert(rank >= 1, "badargtype");
-    using ValueType = typename Array::value_type;
+    using ValueType = value_type_t<Array>;
     constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + rank + 1;
     constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + rank + 1;
     static_assert(1 <= L1 && L1 <= L2 && L2 <= rank, "badlevel");

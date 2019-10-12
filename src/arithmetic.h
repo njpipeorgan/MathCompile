@@ -47,7 +47,7 @@ auto _scalar_plus = [](const auto& x, const auto& y)
     else
     {
         if constexpr (is_complex_v<YT>)
-            return complex<C>(utils::cast<C>(x) + std::real(y), std::imag(y));
+            return complex<C>(cast<C>(x) + std::real(y), std::imag(y));
         else
             return cast<C>(x) + cast<C>(y);
     }
@@ -147,7 +147,7 @@ auto plus(X&& x, Y&& y)
 template<typename X>
 auto plus(X&& x)
 {
-    return std::forward<decltype(x)>(x)
+    return std::forward<decltype(x)>(x);
 }
 
 template<typename X1, typename X2, typename X3, typename... Xs>
@@ -180,7 +180,7 @@ auto times(X&& x, Y&& y)
 template<typename X>
 auto times(X&& x)
 {
-    return std::forward<decltype(x)>(x)
+    return std::forward<decltype(x)>(x);
 }
 
 template<typename X1, typename X2, typename X3, typename... Xs>

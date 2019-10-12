@@ -2140,7 +2140,7 @@ auto unitize(X&& x)
     auto scalar_unitize = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
-        return Ret(int8_t(x != XV(0)))
+        return Ret(int8_t(x != XV(0)));
     };
     return utils::listable_function(scalar_unitize,
         std::forward<decltype(x)>(x));
@@ -2300,7 +2300,7 @@ auto _scalar_plus = [](const auto& x, const auto& y)
     else
     {
         if constexpr (is_complex_v<YT>)
-            return complex<C>(utils::cast<C>(x) + std::real(y), std::imag(y));
+            return complex<C>(cast<C>(x) + std::real(y), std::imag(y));
         else
             return cast<C>(x) + cast<C>(y);
     }
@@ -2394,7 +2394,7 @@ auto plus(X&& x, Y&& y)
 template<typename X>
 auto plus(X&& x)
 {
-    return std::forward<decltype(x)>(x)
+    return std::forward<decltype(x)>(x);
 }
 template<typename X1, typename X2, typename X3, typename... Xs>
 auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
@@ -2423,7 +2423,7 @@ auto times(X&& x, Y&& y)
 template<typename X>
 auto times(X&& x)
 {
-    return std::forward<decltype(x)>(x)
+    return std::forward<decltype(x)>(x);
 }
 template<typename X1, typename X2, typename X3, typename... Xs>
 auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
@@ -3093,7 +3093,7 @@ struct normal
 template<typename Dist, typename... Dims>
 auto _random_variate_impl(Dist dist, const Dims&... dims)
 {
-    static_assert(all_is_integral<Dims...>, "badargtype");
+    static_assert(all_is_integral_v<Dims...>, "badargtype");
     using T = typename Dist::value_type;
     constexpr size_t R1 = Dist::rank;
     constexpr size_t R2 = sizeof...(dims);
@@ -3581,7 +3581,6 @@ auto reverse(X&& x, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto rank = array_rank_v<XT>;
-    using XV = value_type_t<XT>;
     static_assert(rank >= 1, "badargtype");
     constexpr int64_t Level = I >= 0 ? I : I + rank + 1;
     static_assert(1 <= Level && Level <= rank, "badlevel");

@@ -449,7 +449,7 @@ auto unitize(X&& x)
     auto scalar_unitize = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
-        return Ret(int8_t(x != XV(0)))
+        return Ret(int8_t(x != XV(0)));
     };
     return utils::listable_function(scalar_unitize,
         std::forward<decltype(x)>(x));

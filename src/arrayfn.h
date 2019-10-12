@@ -451,7 +451,6 @@ auto reverse(X&& x, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto rank = array_rank_v<XT>;
-    using XV = value_type_t<XT>;
     static_assert(rank >= 1, "badargtype");
     constexpr int64_t Level = I >= 0 ? I : I + rank + 1;
     static_assert(1 <= Level && Level <= rank, "badlevel");

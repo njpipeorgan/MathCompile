@@ -34,15 +34,15 @@ semantics::undef="Identifier `1` is not found.";
 semantics::noinit="Variable `1` is declared but not initialized.";
 semantics::badinit="Variable `1` is initialized in a nested scope.";
 semantics::badref="Variable `1` is referenced before initialization.";
-codegen::bad="Cannot generate code for `1`."
+codegen::bad="Cannot generate code for `1`.";
 codegen::notype="One or more arguments of the main function is declared without types.";
 link::rettype="Failed to retrieve the return type of the compiled function.";
-link::bigrank="The rank of an argument exceeds the maximum rank."
-link::badtype="Cannot infer the type id \"`1`\"returned by the library."
-link::workdir="The working directory does not exist."
-link::libdir="The library directory does not exist."
-link::genfail="Failed to generate the library."
-link::noheader="The header file \"math_compile.h\" cannot be found."
+link::bigrank="The rank of an argument exceeds the maximum rank.";
+link::badtype="Cannot infer the type id \"`1`\"returned by the library.";
+link::workdir="The working directory does not exist.";
+link::libdir="The library directory does not exist.";
+link::genfail="Failed to generate the library.";
+link::noheader="The header file \"math_compile.h\" cannot be found.";
 
 
 compile[code_]:=
@@ -223,6 +223,7 @@ $builtinfunctions=native/@
   "Subtract"        ->"subtract",
   "Times"           ->"times",
   "Divide"          ->"divide",
+  "Minus"           ->"minus",
     (*"AddTo"*)
     (*"SubtractFrom"*)
     (*"TimesBy"*)
@@ -271,33 +272,38 @@ $builtinfunctions=native/@
   "Nor"             ->"bool_nor",
   "Xnor"            ->"bool_xnor",
   "Implies"         ->"implies",
-(* elementary functions *)(*
+(* elementary functions *)
   "Log"             ->"log",
   "Log10"           ->"log10",
   "Log2"            ->"log2",
   "Exp"             ->"exp",
   "Power"           ->"power",
   "Sqrt"            ->"sqrt",
-  "CubeRoot"        ->"cube_root",
   "Sin"             ->"sin",
+  "Sinc"            ->"sinc",
   "Cos"             ->"cos",
   "Tan"             ->"tan",
   "Csc"             ->"csc",
   "Sec"             ->"sec",
   "Cot"             ->"cot",
-  "Sinc"            ->"sinc",
+  "Sinh"            ->"sinh",
+  "Cosh"            ->"cosh",
+  "Tanh"            ->"tanh",
+  "Csch"            ->"csch",
+  "Sech"            ->"sech",
+  "Coth"            ->"coth",
   "ArcSin"          ->"arcsin",
   "ArcCos"          ->"arccos",
   "ArcTan"          ->"arctan",
   "ArcCsc"          ->"arccsc",
   "ArcSec"          ->"arcsec",
   "ArcCot"          ->"arccot",
-  "ArcSin"          ->"arcsin",
+  "ArcSinh"         ->"arcsinh",
   "ArcCosh"         ->"arccosh",
   "ArcTanh"         ->"arctanh",
   "ArcCsch"         ->"arccsch",
   "ArcSech"         ->"arcsech",
-  "ArcCoth"         ->"arccoth",*)
+  "ArcCoth"         ->"arccoth",
 (* random number *)
     (*"RandomInteger"*)
     (*"RandomReal"*)
@@ -342,7 +348,7 @@ variablerename[code_]:=
 
 listtoseq[expr_]:=Replace[expr,list[any___]:>Sequence[any]]
 
-macro[code_]:=code//.{
+functionmacro[code_]:=code//.{
     id["ConstantArray"][val_,dims_]:>native["constant_array"][val,vargtag,listtoseq[dims]],
     id["RandomInteger"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
     id["RandomInteger"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
@@ -362,6 +368,16 @@ macro[code_]:=code//.{
     id["Reverse"][array_,literal[i_Integer]]:>native["reverse"][array,const[i]],
     id["ArrayReshape"][array_,dims_]:>native["array_reshape"][array,vargtag,listtoseq[dims]],
     id["ArrayReshape"][array_,dims_,padding_]:>native["array_reshape"][array,padding,vargtag,listtoseq[dims]]
+  }
+
+arithmeticmacro[code_]:=code//.{
+    id["Plus"][x1_,x2_,xs__]:>id["Plus"][id["Plus"][x1,x2],xs],
+    id["Plus"][x1_,id["Times"][literal[-1],x2_]]:>id["Subtract"][x1,x2]
+  }//.{
+    id["Times"][literal[-1],x_]:>id["Minus"][x]
+  }//.{
+    id["Times"][x1_,x2_,xs__]:>id["Times"][id["Times"][x1,x2],xs],
+    id["Times"][x1_,id["Power"][x2_,literal[-1]]]:>id["Divide"][x1,x2]
   }
 
 resolvesymbols[code_]:=code//.{
@@ -398,7 +414,7 @@ findinit[code_]:=
     ReplacePart[code,Append[#,0]->initialize&/@DeleteMissing[initpos/@scopevar]]
   ]
 
-semantics[code_]:=findinit@resolvesymbols@macro@variablerename[code]
+semantics[code_]:=findinit@resolvesymbols@arithmeticmacro@functionmacro@variablerename[code]
 
 
 nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]

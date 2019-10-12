@@ -49,119 +49,14 @@ auto main_function(int64_t v37, int64_t v38) {
 ```
 You can see the C++ code compiled from this Compiler Explorer [link](https://godbolt.org/z/iT7usM).
 
-## Supported constants and functions
+## Compilable constants and functions
 
-**Constants**
-```
-Null
-All
-Pi
-E
-Degree
-EulerGamma
-I
-True
-False
-```
-**Arithmetic functions**
-```
-Plus
-Subtract
-Times
-Divide
-```
-**Procedual programming**
-```
-Set
-Module
-If
-AddTo
-SubtractFrom
-TimesBy
-DivideBy
-```
-**Functional programming**
-```
-Map
-Select
-Count
-```
-**Loops**
-```
-Do
-Sum
-Product
-```
-**List construction**
-```
-List
-Dimensions
-Table
-ConstantArray
-Range
-```
-**List manipulation**
-```
-Part
-Span
-Total
-Mean
-```
-**Numerical functions**
-```
-N
-Abs
-Round
-Ceiling
-Floor
-IntegerPart
-FractionalPart
-Mod
-Sign
-Clip
-Unitize
-UnitStep
-Greater
-Less
-GreaterEqual
-LessEqual
-Equal
-Unequal
-```
-**Logical functions**
-```
-Not
-And
-Or
-Xor
-Nand
-Nor
-Xnor
-Implies
-Boole
-```
-**Complex numbers**
-```
-Complex
-Re
-Im
-Arg
-Conjugate
-ReIm
-AbsArg
-```
-**Random numbers**
-```
-RandomInteger
-RandomReal
-RandomComplex
-```
+Currently, 9 constants and over 100 functions are supported by MathCompile. See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Constants-and-Functions) for the full list. They include common procedual and functional programming function like `Module` and `Map`, and many numerical functions like `Sin` and `Log`. 
 
 ## Supported types
 
 | *Wolfram Laguage*       | C++                       |
 | ----------------------- | ------------------------- |
-| `"Void"`                | `wl::void_type`           |
 | `"Boolean"`             | `bool`                    |
 | `"Integer"`             | `int64_t`                 |
 | `"Integer8"`            | `int8_t`                  |

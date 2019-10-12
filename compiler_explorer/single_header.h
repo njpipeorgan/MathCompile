@@ -2284,12 +2284,14 @@ namespace wl
 {
 auto _scalar_plus = [](const auto& x, const auto& y)
 {
-    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
-    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using XT = remove_cvref_t<decltype(x)>;
+    using YT = remove_cvref_t<decltype(y)>;
+    using XV = value_type_t<XT>;
+    using YV = value_type_t<YT>;
     using C = common_type_t<XV, YV>;
-    if constexpr (is_complex_v<XV>)
+    if constexpr (is_complex_v<XT>)
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return complex<C>(std::real(x) + std::real(y),
                 std::imag(x) + std::imag(y));
         else
@@ -2297,7 +2299,7 @@ auto _scalar_plus = [](const auto& x, const auto& y)
     }
     else
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return complex<C>(utils::cast<C>(x) + std::real(y), std::imag(y));
         else
             return cast<C>(x) + cast<C>(y);
@@ -2305,12 +2307,14 @@ auto _scalar_plus = [](const auto& x, const auto& y)
 };
 auto _scalar_subtract = [](const auto& x, const auto& y)
 {
-    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
-    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using XT = remove_cvref_t<decltype(x)>;
+    using YT = remove_cvref_t<decltype(y)>;
+    using XV = value_type_t<XT>;
+    using YV = value_type_t<YT>;
     using C = common_type_t<XV, YV>;
-    if constexpr (is_complex_v<XV>)
+    if constexpr (is_complex_v<XT>)
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return complex<C>(std::real(x) - std::real(y),
                 std::imag(x) - std::imag(y));
         else
@@ -2318,7 +2322,7 @@ auto _scalar_subtract = [](const auto& x, const auto& y)
     }
     else
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return complex<C>(cast<C>(x) - std::real(y), -std::imag(y));
         else
             return cast<C>(x) - cast<C>(y);
@@ -2326,12 +2330,14 @@ auto _scalar_subtract = [](const auto& x, const auto& y)
 };
 auto _scalar_times = [](const auto& x, const auto& y)
 {
-    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
-    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using XT = remove_cvref_t<decltype(x)>;
+    using YT = remove_cvref_t<decltype(y)>;
+    using XV = value_type_t<XT>;
+    using YV = value_type_t<YT>;
     using C = common_type_t<XV, YV>;
-    if constexpr (is_complex_v<XV>)
+    if constexpr (is_complex_v<XT>)
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return complex<C>(x) * complex<C>(y);
         else
             return complex<C>(std::real(x) * cast<C>(y), 
@@ -2339,7 +2345,7 @@ auto _scalar_times = [](const auto& x, const auto& y)
     }
     else
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return complex<C>(cast<C>(x) * std::real(y), 
                 cast<C>(x) * std::imag(y));
         else
@@ -2348,26 +2354,35 @@ auto _scalar_times = [](const auto& x, const auto& y)
 };
 auto _scalar_divide = [](const auto& x, const auto& y)
 {
-    using XV = value_type_t<remove_cvref_t<decltype(x)>>;
-    using YV = value_type_t<remove_cvref_t<decltype(y)>>;
+    using XT = remove_cvref_t<decltype(x)>;
+    using YT = remove_cvref_t<decltype(y)>;
+    using XV = value_type_t<XT>;
+    using YV = value_type_t<YT>;
     using C = common_type_t<XV, YV>;
-    if constexpr (is_complex_v<XV>)
+    if constexpr (is_complex_v<XT>)
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return complex<C>(x) / complex<C>(y);
         else
             return complex<C>(x) / cast<C>(y);
     }
     else
     {
-        if constexpr (is_complex_v<YV>)
+        if constexpr (is_complex_v<YT>)
             return cast<C>(x) / complex<C>(y);
-        else if constexpr (is_integral_v<XV>&& is_integral_v<YV>)
+        else if constexpr (is_integral_v<XT>&& is_integral_v<YT>)
             return double(x) / double(y);
         else
             return cast<C>(x) / cast<C>(y);
     }
 };
+template<typename X>
+auto minus(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    return utils::listable_function([](const auto& x) { return -x; },
+        std::forward<decltype(x)>(x));
+}
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
 {
@@ -2375,6 +2390,19 @@ auto plus(X&& x, Y&& y)
     static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
     return utils::listable_function(_scalar_plus,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+template<typename X>
+auto plus(X&& x)
+{
+    return std::forward<decltype(x)>(x)
+}
+template<typename X1, typename X2, typename X3, typename... Xs>
+auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
+{
+    return plus(plus(std::forward<decltype(x1)>(x1),
+        std::forward<decltype(x2)>(x2)),
+        std::forward<decltype(x3)>(x3),
+        std::forward<decltype(xs)>(xs)...);
 }
 template<typename X, typename Y>
 auto subtract(X&& x, Y&& y)
@@ -2391,6 +2419,19 @@ auto times(X&& x, Y&& y)
     static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
     return utils::listable_function(_scalar_times,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+template<typename X>
+auto times(X&& x)
+{
+    return std::forward<decltype(x)>(x)
+}
+template<typename X1, typename X2, typename X3, typename... Xs>
+auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
+{
+    return times(times(std::forward<decltype(x1)>(x1),
+        std::forward<decltype(x2)>(x2)),
+        std::forward<decltype(x3)>(x3),
+        std::forward<decltype(xs)>(xs)...);
 }
 template<typename X, typename Y>
 auto divide(X&& x, Y&& y)
@@ -2806,6 +2847,127 @@ auto abs_arg(X&& x)
 }
 namespace wl
 {
+#define WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(name, expr)                     \
+template<typename X>                                                        \
+auto name(X&& x)                                                            \
+{                                                                           \
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
+    return utils::listable_function([](const auto& x) { return expr; },     \
+        std::forward<decltype(x)>(x));                                      \
+}
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(log, std::log(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(exp, std::exp(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sqrt, std::sqrt(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sin, std::sin(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(cos, std::cos(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(tan, std::tan(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(cot, divide(int8_t(1), std::tan(x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sec, divide(int8_t(1), std::cos(x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(csc, divide(int8_t(1), std::sin(x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsin, std::asin(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccos, std::acos(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arctan, std::atan(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccot, std::atan(divide(int8_t(1), x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsec, std::acos(divide(int8_t(1), x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccsc, std::asin(divide(int8_t(1), x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sinh, std::sinh(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(cosh, std::cosh(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(tanh, std::tanh(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(coth, divide(int8_t(1), std::tanh(x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sech, divide(int8_t(1), std::cosh(x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(csch, divide(int8_t(1), std::sinh(x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsinh, std::asinh(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccosh, std::acosh(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arctanh, std::atanh(x))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccoth, std::atanh(divide(int8_t(1), x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsech, std::acosh(divide(int8_t(1), x)))
+WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccsch, std::asinh(divide(int8_t(1), x)))
+template<typename Base, typename X>
+auto log(Base&& b, X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<Base>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto scalar_log = [](const auto& b, const auto& x)
+    {
+        return divide(std::log(x), std::log(b));
+    };
+    return utils::listable_function(scalar_log, 
+        std::forward<decltype(b)>(b), std::forward<decltype(x)>(x));
+}
+template<typename X>
+auto log2(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    constexpr auto log2_inv = double(1.4426950408889634074);
+    auto scalar_log2 = [=](const auto& x)
+    {
+        if constexpr (is_complex_v<remove_cvref_t<decltype(x)>>)
+            return log2_inv * std::log(x);
+        else
+            return std::log2(x);
+    };
+    return utils::listable_function(scalar_log2, 
+        std::forward<decltype(x)>(x));
+}
+template<typename X>
+auto log10(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    constexpr auto log10_inv = double(0.43429448190325182765);
+    auto scalar_log10 = [=](const auto& x)
+    {
+        if constexpr (is_complex_v<remove_cvref_t<decltype(x)>>)
+            return log10_inv * std::log(x);
+        else
+            return std::log10(x);
+    };
+    return utils::listable_function(scalar_log10, 
+        std::forward<decltype(x)>(x));
+}
+template<typename X, typename Power>
+auto power(X&& x, Power&& p)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Power>>, "badargtype");
+    auto scalar_power = [](const auto& x, const auto& p)
+    {
+        return std::pow(x, p);
+    };
+    return utils::listable_function(scalar_power,
+        std::forward<decltype(x)>(x), std::forward<decltype(p)>(p));
+}
+template<typename X, typename Y>
+auto arctan(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    auto scalar_arctan = [](const auto& x, const auto& y)
+    {
+        using XT = remove_cvref_t<decltype(x)>;
+        using YT = remove_cvref_t<decltype(y)>;
+        static_assert(is_real_v<XT> && is_real_v<YT>, "badargtype");
+        return std::atan2(x, y);
+    };
+    return utils::listable_function(scalar_arctan,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+template<typename X>
+auto sinc(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    constexpr auto log2_inv = double(1.4426950408889634074);
+    auto scalar_sinc = [=](const auto& x)
+    {
+        using XT = remove_cvref_t<decltype(x)>;
+        using RT = decltype(divide(std::sin(x), x));
+        if (x == XT(0))
+            return RT(1.0);
+        else
+            return divide(std::sin(x), x);
+    };
+    return utils::listable_function(scalar_sinc,
+        std::forward<decltype(x)>(x));
+}
 }
 namespace wl
 {
@@ -3262,7 +3424,7 @@ auto range(Begin begin, End end, Step step)
                 return ndarray<T, 1u>(std::array<size_t, 1>{0u});
             else
             {
-                size_t length = wl::integer_part(diff / ptrdiff_t(step)) + 1u;
+                size_t length = wl::integer_part(diff / step) + 1u;
                 auto remain = T(begin + (length - 1u) * step) - T(end);
                 if (step * remain > T(0))
                     --length;

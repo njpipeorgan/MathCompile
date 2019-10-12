@@ -284,7 +284,7 @@ auto range(Begin begin, End end, Step step)
                 return ndarray<T, 1u>(std::array<size_t, 1>{0u});
             else
             {
-                size_t length = wl::integer_part(diff / ptrdiff_t(step)) + 1u;
+                size_t length = wl::integer_part(diff / step) + 1u;
                 auto remain = T(begin + (length - 1u) * step) - T(end);
                 if (step * remain > T(0))
                     --length;

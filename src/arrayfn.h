@@ -217,7 +217,7 @@ template<typename Array, size_t... Is, typename... Specs>
 auto _part_impl2(Array&& a, std::index_sequence<Is...>,
     Specs&&... specs) -> decltype(auto)
 {
-    return _part_impl3(std::forward<decltype(a)>(a), 
+    return _part_impl3(std::forward<decltype(a)>(a),
         make_indexer(std::forward<decltype(specs)>(specs), a.dims_[Is])...);
 }
 
@@ -226,8 +226,8 @@ auto _part_impl1(Array&& a, std::index_sequence<Is...>,
     Specs&&... specs) -> decltype(auto)
 {
     return _part_impl2(std::forward<decltype(a)>(a),
-        std::make_index_sequence<R>{}, 
-        std::forward<decltype(specs)>(specs)..., 
+        std::make_index_sequence<R>{},
+        std::forward<decltype(specs)>(specs)...,
         make_all_type<Is>{}...);
 }
 
@@ -410,8 +410,115 @@ auto dimensions(const Array& a)
     if constexpr (rank == 0)
         return ndarray<int64_t, 1>();
     else
-        return ndarray<int64_t, 1>(std::array<size_t, 1>{rank}, 
+        return ndarray<int64_t, 1>(std::array<size_t, 1>{rank},
             a.dims_ptr(), a.dims_ptr() + rank);
+}
+
+template<typename T, size_t R>
+void _reverse_inplace(ndarray<T, R>& a,
+    size_t outer_size, size_t inter_size, size_t inner_size)
+{
+    if (inner_size == 1u)
+    {
+        auto base = a.data();
+        for (size_t i = 0u; i < outer_size; ++i, base += inter_size)
+        {
+            auto forward = base;
+            auto reverse = base + inter_size;
+            for (; forward != reverse && forward != --reverse; ++forward)
+                std::iter_swap(forward, reverse);
+        }
+    }
+    else
+    {
+        auto base = a.data();
+        auto outer_step = inter_size * inner_size;
+        for (size_t i = 0u; i < outer_size; ++i, base += outer_step)
+        {
+            size_t forward = 0u;
+            size_t reverse = inter_size;
+            for (; forward != reverse && forward != --reverse; ++forward)
+                std::swap_ranges(
+                    base + forward * inner_size,
+                    base + forward * inner_size + inner_size,
+                    base + reverse * inner_size);
+        }
+    }
+}
+
+template<typename X, int64_t I>
+auto reverse(X&& x, const_int<I>)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto rank = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
+    static_assert(rank >= 1, "badargtype");
+    constexpr int64_t Level = I >= 0 ? I : I + rank + 1;
+    static_assert(1 <= Level && Level <= rank, "badlevel");
+
+    size_t outer_size = utils::size_of_dims(
+        utils::dims_take<1u, Level - 1u>(x.dims()));
+    size_t inter_size = utils::size_of_dims(
+        utils::dims_take<Level, Level>(x.dims()));
+    size_t inner_size = utils::size_of_dims(
+        utils::dims_take<Level + 1u, rank>(x.dims()));
+    if constexpr (is_movable_v<X&&>)
+    {
+        _reverse_inplace(x, outer_size, inter_size, inner_size);
+        return std::move(x);
+    }
+    else
+    {
+        auto x2 = x.to_array();
+        _reverse_inplace(x2, outer_size, inter_size, inner_size);
+        return std::move(x2);
+    }
+}
+
+template<typename X>
+auto reverse(X&& x)
+{
+    return reverse(std::forward<decltype(x)>(x), const_int<1>{});
+}
+
+template<typename X, typename Pad, typename... Dims>
+auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    static_assert(array_rank_v<XT> >= 1, "badargtype");
+    static_assert(all_is_integral_v<Dims...>, "badargtype");
+    constexpr auto rank = sizeof...(dims);
+    static_assert(rank >= 1, "badrank");
+    ndarray<XV, rank> ret(std::array<int64_t, rank>{int64_t(dims)...});
+
+    const size_t x_size = x.size();
+    const size_t ret_size = ret.size();
+    if (x_size <= ret_size)
+    {
+        x.copy_to(ret.begin());
+        if constexpr (!std::is_same_v<Pad, void_type>)
+        {
+            static_assert(is_convertible_v<Pad, XV>, "badargtype");
+            std::fill(ret.begin() + x_size, ret.end(), cast<XV>(padding));
+        }
+    }
+    else
+    {
+        auto ret_iter = ret.begin();
+        auto ret_end = ret.end();
+        x.for_each([&](const auto& src)
+            { *ret_iter++ = src; return (ret_iter == ret_end); });
+    }
+    return ret;
+}
+
+template<typename X, typename... Dims>
+auto array_reshape(X&& x, varg_tag, const Dims&... dims)
+{
+    static_assert(array_rank_v<remove_cvref_t<X>> >= 1, "badargtype");
+    return array_reshape(std::forward<decltype(x)>(x),
+        void_type{}, varg_tag{}, dims...);
 }
 
 }

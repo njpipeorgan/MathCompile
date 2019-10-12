@@ -28,9 +28,11 @@ namespace wl
 namespace utils
 {
 
+#define WL_FUNCTION(name) ([](auto&&... args) { return name(std::forward<decltype(args)>(args)...); })
+
 template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
 auto _dims_join_impl(
-    const std::array<size_t, R1>& dims1, std::index_sequence<Is1...>, 
+    const std::array<size_t, R1>& dims1, std::index_sequence<Is1...>,
     const std::array<size_t, R2>& dims2, std::index_sequence<Is2...>)
 {
     return std::array<size_t, R1 + R2>{dims1[Is1]..., dims2[Is2]...};
@@ -40,7 +42,7 @@ template<size_t R1, size_t R2>
 auto dims_join(const std::array<size_t, R1>& dims1,
     const std::array<size_t, R2>& dims2)
 {
-    return _dims_join_impl(dims1, std::make_index_sequence<R1>{}, 
+    return _dims_join_impl(dims1, std::make_index_sequence<R1>{},
         dims2, std::make_index_sequence<R2>{});
 }
 
@@ -54,17 +56,25 @@ auto _dims_take_impl(const size_t* dims, std::index_sequence<Is...>)
 template<size_t I1, size_t I2>
 auto dims_take(const size_t* dims)
 {
-    static_assert(1 <= I1 && I1 <= I2, "internal");
-    return _dims_take_impl(dims + I1 - 1, 
-        std::make_index_sequence<I2 - I1 + 1>{});
+    static_assert(1u <= I1 && 1u <= I2, "internal");
+    if constexpr (I1 <= I2)
+        return _dims_take_impl(dims + I1 - 1,
+            std::make_index_sequence<I2 - I1 + 1>{});
+    else
+        return std::array<size_t, 0u>{};
 }
 
 // uses one-based indexing, inclusive on both ends
 template<size_t I1, size_t I2, size_t R>
 auto dims_take(const std::array<size_t, R>& dims)
 {
-    static_assert(1 <= I1 && I1 <= I2 && I2 <= R, "internal");
-    return dims_take<I1, I2>(dims.data());
+    if constexpr (I1 > I2)
+        return std::array<size_t, 0u>{};
+    else
+    {
+        static_assert(1u <= I1 && I1 <= R && 1u <= I2 && I2 <= R, "internal");
+        return dims_take<I1, I2>(dims.data());
+    }
 }
 
 template<size_t... Is>
@@ -76,20 +86,26 @@ auto _size_of_dims_impl(const size_t* dims, std::index_sequence<Is...>)
 template<size_t R>
 auto size_of_dims(const size_t* dims)
 {
-    return _size_of_dims_impl(dims, std::make_index_sequence<R>{});
+    if constexpr (R == 0u)
+        return size_t(1);
+    else
+        return _size_of_dims_impl(dims, std::make_index_sequence<R>{});
 }
 
 template<size_t R>
 auto size_of_dims(const std::array<size_t, R>& dims)
 {
-    return _size_of_dims_impl(dims.data(), std::make_index_sequence<R>{});
+    if constexpr (R == 0u)
+        return size_t(1);
+    else
+        return _size_of_dims_impl(dims.data(), std::make_index_sequence<R>{});
 }
 
 template<size_t... Is>
-bool check_dims_impl(const size_t* dims1, const size_t* dims2, 
+bool check_dims_impl(const size_t* dims1, const size_t* dims2,
     std::index_sequence<Is...>)
 {
-    return ((dims1[Is] == dims2[Is]) && ... );
+    return ((dims1[Is] == dims2[Is]) && ...);
 }
 
 template<size_t R>
@@ -100,11 +116,11 @@ auto check_dims(const size_t* dims1, const size_t* dims2)
 }
 
 template<size_t R>
-auto check_dims(const std::array<size_t, R>& dims1, 
+auto check_dims(const std::array<size_t, R>& dims1,
     const std::array<size_t, R>& dims2)
 {
     static_assert(R >= 1u, "internal");
-    return check_dims_impl(dims1.data(), dims2.data(), 
+    return check_dims_impl(dims1.data(), dims2.data(),
         std::make_index_sequence<R>{});
 }
 

@@ -67,9 +67,7 @@ auto select(X&& x, Function f)
             std::array<size_t, 1u>{ret.size()}, std::move(ret));
     }
     else
-    {
         return _select_impl(std::forward<decltype(x)>(x).to_array(), f);
-    }
 }
 
 template<typename T, size_t R, typename Function>
@@ -105,9 +103,7 @@ auto count(X&& x, Function f)
         return item_count;
     }
     else
-    {
         return _count_impl(std::forward<decltype(x)>(x).to_array(), f);
-    }
 }
 
 
@@ -134,14 +130,13 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
         first_item.copy_to(ret_iter.begin());
         ++a_iter;
         ++ret_iter;
-        for (size_t i = 0; i < utils::size_of_dims(map_dims); ++i)
+        for (size_t i = 0; i < utils::size_of_dims(map_dims);
+            ++i, ++a_iter, ++ret_iter)
         {
             auto item = f(*a_iter);
             if (!utils::check_dims(item.dims(), item_dims))
                 throw std::logic_error("baddims");
             item.copy_to(ret_iter.begin());
-            ++a_iter;
-            ++ret_iter;
         }
         return ret;
     }

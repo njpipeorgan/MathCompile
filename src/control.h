@@ -53,4 +53,29 @@ auto branch_if(bool cond, A&& a, B&& b)
     }
 }
 
+template<typename X, typename Y>
+auto native_if(boolean cond, X&& x, Y&& y)
+{
+    using XT = remove_cvref_t<X>;
+    using YT = remove_cvref_t<Y>;
+    if constexpr (std::is_same_v<XT, YT>)
+    {
+        if (cond)
+            return std::forward<decltype(x)>(x);
+        else
+            return std::forward<decltype(y)>(y);
+    }
+    else
+    {
+        constexpr auto XR = array_rank_v<XT>;
+        constexpr auto YR = array_rank_v<YT>;
+        static_assert(XR == YR && XR >= 1u && 
+            std::is_same_v<value_type_t<XT>, value_type_t<YT>>, "badargtype");
+        if (cond)
+            return std::forward<decltype(x)>(x).to_array();
+        else
+            return std::forward<decltype(y)>(y).to_array();
+    }
+}
+
 }

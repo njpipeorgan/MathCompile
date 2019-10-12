@@ -171,7 +171,7 @@ auto get(MArgument arg)
 }
 
 template<typename T, size_t R>
-int set_array(MArgument& res, const wl::ndarray<T, R>& val)
+int set_array(MArgument& res, const ndarray<T, R>& val)
 {
     const numericarray_data_t type = get_numeric_array_type<T>();
     bool pass_by_tensor = false;

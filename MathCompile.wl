@@ -49,7 +49,7 @@ compile[code_]:=
   Module[{precodegen,output,types,error},
     $variabletable=Association[];
     error=Catch[
-        precodegen=semantics@macro@allsyntax@parse[code];
+        precodegen=semantics@allsyntax@parse[code];
         types=getargtypes[precodegen];
         If[MemberQ[types,nil],Message[codegen::notype];Throw["codegen"]];
         output=maincodegen@precodegen;
@@ -314,9 +314,10 @@ $builtinfunctions=native/@
     (*"Total"*)
   "Mean"            ->"mean",
   "Range"           ->"range",
+  "Reverse"         ->"reverse",
 (*functional*)
-  "Select"          ->"select"
-    (*"Map"*)
+  "Select"          ->"select",
+  "Map"             ->"map"
     (*"Count"*)
 |>;
 
@@ -338,6 +339,30 @@ variablerename[code_]:=
     Fold[If[#2=={},Replace[#,renamerules],ReplacePart[#,#2->Replace[Extract[##],renamerules]]]&,
       code,Most/@Reverse@SortBy[Length]@Position[code,function|scope]]
   ]
+
+listtoseq[expr_]:=Replace[expr,list[any___]:>Sequence[any]]
+
+macro[code_]:=code//.{
+    id["ConstantArray"][val_,dims_]:>native["constant_array"][val,vargtag,listtoseq[dims]],
+    id["RandomInteger"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomInteger"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomReal"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomReal"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomComplex"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomComplex"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
+    id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
+    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func],
+    id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
+    id["Total"][array_,list[literal[i_Integer]]]:>native["total"][array,const[i],const[i]],
+    id["Total"][array_,list[literal[i1_Integer],literal[i2_Integer]]]:>native["total"][array,const[i1],const[i2]],
+    id["Clip"][any_,list[min_,max_]]:>native["clip"][any,vargtag,min,max],
+    id["Clip"][any_,list[min_,max_],list[vmin_,vmax_]]:>native["clip"][any,vargtag,min,max,vmin,vmax],
+    id["Map"][func_,array_,list[literal[i_Integer]]]:>native["map"][func,array,const[i]],
+    id["Reverse"][array_,literal[i_Integer]]:>native["reverse"][array,const[i]],
+    id["ArrayReshape"][array_,dims_]:>native["array_reshape"][array,vargtag,listtoseq[dims]],
+    id["ArrayReshape"][array_,dims_,padding_]:>native["array_reshape"][array,padding,vargtag,listtoseq[dims]]
+  }
 
 resolvesymbols[code_]:=code//.{
     id[func_][args___]:>Lookup[$builtinfunctions,func,id[func]][args]
@@ -373,32 +398,7 @@ findinit[code_]:=
     ReplacePart[code,Append[#,0]->initialize&/@DeleteMissing[initpos/@scopevar]]
   ]
 
-semantics[code_]:=findinit@resolvesymbols@variablerename[code]
-
-
-listtoseq[expr_]:=Replace[expr,list[any___]:>Sequence[any]]
-
-macro[code_]:=code//.{
-    id["ConstantArray"][val_,dims_]:>native["constant_array"][val,vargtag,listtoseq[dims]],
-    id["RandomInteger"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomInteger"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
-    id["RandomReal"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomReal"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
-    id["RandomComplex"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomComplex"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
-    id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
-    id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
-    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func],
-    id["Total"][array_]:>native["total"][array],
-    id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
-    id["Total"][array_,list[literal[i_Integer]]]:>native["total"][array,const[i],const[i]],
-    id["Total"][array_,list[literal[i1_Integer],literal[i2_Integer]]]:>native["total"][array,const[i1],const[i2]],
-    id["Clip"][any_]:>native["clip"][any],
-    id["Clip"][any_,list[min_,max_]]:>native["clip"][any,vargtag,min,max],
-    id["Clip"][any_,list[min_,max_],list[vmin_,vmax_]]:>native["clip"][any,vargtag,min,max,vmin,vmax],
-    id["Map"][func_,array_]:>native["map"][func,array],
-    id["Map"][func_,array_,list[literal[i_Integer]]]:>native["map"][func,array,const[i]]
-  }
+semantics[code_]:=findinit@resolvesymbols@macro@variablerename[code]
 
 
 nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]
@@ -422,7 +422,8 @@ codegen[literal[i_Integer],___]:=ToString@CForm[i]<>"_i"
 codegen[literal[r_Real],___]:=ToString@CForm[r]<>"_r"
 codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
 
-codegen[native[name_],___]:="wl::"<>name
+codegen[native[name_],"Function"]:="wl::"<>name
+codegen[native[name_],___]:="WL_FUNCTION(wl::"<>name<>")"
 
 codegen[vargtag,___]:="wl::varg_tag{}"
 codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"
@@ -451,6 +452,7 @@ codegen[branch[cond_,expr1_,expr2_],___]:=
 codegen[list[any___],___]:=codegen[native["list"][any]]
 
 codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
+codegen[native[name_][args___],any___]:={codegen[native[name],"Function"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
 
 codegen[any_,rest___]:=(Message[codegen::bad,tostring[any]];Throw["codegen"])
 

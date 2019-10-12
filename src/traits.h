@@ -246,4 +246,7 @@ template<typename T1, typename... Ts>
 struct all_is_integral<T1, Ts...> :
     std::bool_constant<is_integral_v<T1> && all_is_integral<Ts...>::value> {};
 
+template<typename... Ts>
+constexpr auto all_is_integral_v = all_is_integral<Ts...>::value;
+
 }

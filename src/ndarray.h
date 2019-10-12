@@ -81,19 +81,13 @@ struct ndarray
     {
         static_assert(is_integral_v<typename Dims::value_type>, "badargtype");
         if (dims.size() != rank)
-        {
             throw std::logic_error("baddims");
-        }
         size_t size = 1u;
         for (const auto& d : dims)
         {
             if constexpr (std::is_signed_v<typename Dims::value_type>)
-            {
                 if (d < 0)
-                {
                     throw std::logic_error("baddims");
-                }
-            }
             size *= d;
         }
         return size;

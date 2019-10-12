@@ -24,9 +24,9 @@ First, load the package:
 ```
 <<MathCompile`
 ```
-Compile a function using `CompileToLibrary`: (make sure you have a C++ compiler installed)
+Compile a function using `CompileToBinary`: (make sure you have a C++ compiler installed)
 ```
-cf=CompileToLibrary[
+cf=CompileToBinary[
   Function[{Typed[x,"Integer"],Typed[y,"Integer"]},x+y]
 ]
 ```

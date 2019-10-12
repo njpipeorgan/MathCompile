@@ -7,11 +7,11 @@ BeginPackage["MathCompile`"];
 
 
 CompileToCode::usage="\!\(\*RowBox[{\"CompileToCode\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) rewrites a Wolfram Language function in C++.";
-CompileToLibrary::usage="\!\(\*RowBox[{\"CompileToLibrary\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) generates a function compiled as C++.";
+CompileToBinary::usage="\!\(\*RowBox[{\"CompileToBinary\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) generates a function compiled as C++.";
 
 
 CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,#["output"]]&@compile[Hold[Function[func]]]
-CompileToLibrary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],opts]
+CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],opts]
 
 
 Begin["`Private`"];

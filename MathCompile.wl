@@ -65,7 +65,7 @@ newvar:=SymbolName@Unique["v"]
 
 parse[Hold[head_[args___]]]:=parse[Hold[head]]@@(parse/@Hold/@Hold[args])
 
-parse[Hold[s_Symbol]]:=id[SymbolName[s]];
+parse[Hold[s_Symbol]]:=id[SymbolName[Unevaluated@s]];
 parse[Hold[I]]:=id["I"];
 
 parse[Hold[i_Integer]]:=literal[i];
@@ -138,10 +138,9 @@ syntax[mutable][code_]:=code//.{
 syntax[function][code_]:=
   Module[{
     functionrules={
-      id["Function"][arg:Except[list[___]],expr_]:>id["Function"][list[arg],sequence[expr]],
-      id["Function"][list[args___],expr_]:>(
+      id["Function"][args_,expr_]:>(
         function[Range[Length@#],#[[;;,1]],#[[;;,2]],sequence[expr]]&@
-          Replace[{args},{
+          Replace[If[Head[args]===list,List@@args,{args}],{
               id[arg_]:>{arg,nil},
               id["Typed"][id[arg_],literal[type_]/;istypename[type]]:>{arg,totypespec[type]},
               id["Typed"][id[arg_],literal["Array"][literal[t_],literal[r_]]/;istypename["Array"[t,r]]]:>{arg,totypespec["Array"[t,r]]},
@@ -149,7 +148,7 @@ syntax[function][code_]:=
             },{1}]),
       id["Function"][pure_]:>If[FreeQ[pure,id["Function"][___]],
         function[#1,#2[[;;,2,1]],Table[nil,Length@#1],sequence[pure/.#2]]&[#,id["Slot"][literal[#]]->id[newid]&/@#]&@
-          Union@Cases[pure,id["Slot"][literal[i_Integer/;i>0]]:>i,{0,Infinity}],
+          Union@Cases[pure,id["Slot"][literal[i_Integer/;i>0]]:>i,Infinity,Heads->True],
         (Message[syntax::fpure,tostring[id["Function"][pure]]];Throw["syntax"])],
       any:id["Function"][___]:>(Message[syntax::bad,tostring[any],"Function"];Throw["syntax"])
     }},
@@ -434,7 +433,7 @@ getargtypes[function[_,_,types_,_]]:=types
 
 codegen[args[indices_,vars_,types_],___]:=
   If[Length[indices]==0,{},
-    Normal@SparseArray[indices->MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}],Max[indices],"auto"]]
+    Normal@SparseArray[indices->MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}],Max[indices],"auto&&"]]
 
 codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
   {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Return"]}
@@ -656,6 +655,7 @@ print[id["Slot"][x_]]:=RowBox[{"#",print@x}]
 print[head_[args___]]:=RowBox[Join[{print@head,"["},Riffle[print/@{args},","],{"]"}]]
 print[id[id_String]]:=id
 print[var[var_String]]:=var
+print[movvar[var_String]]:=var
 print[literal[literal_]]:=ToString@CForm@literal
 print[list[args___]]:=RowBox[Join[{"{"},Riffle[print/@{args},","],{"}"}]]
 print[iter[spec__]]:=RowBox[Join[{"Iterator","["},Riffle[print/@{spec},","],{"]"}]]

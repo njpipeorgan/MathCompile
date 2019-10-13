@@ -136,6 +136,21 @@ struct ndarray
         return this->data_.data();
     }
 
+    auto data_vector() const & -> const std::vector<T>&
+    {
+        return this->data_;
+    }
+
+    auto data_vector() & -> std::vector<T>&
+    {
+        return this->data_;
+    }
+
+    auto data_vector() && -> std::vector<T>&&
+    {
+        return std::move(this->data_);
+    }
+
     auto identifier() const
     {
         return this->data();

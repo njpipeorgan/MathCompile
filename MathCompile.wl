@@ -198,14 +198,17 @@ $syntaxpasses={list,clause,mutable,function,scope,branch,sequence,assign};
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
-$builtinconstants=native/@
+$builtinconstants=const/@
 <|
-  "Null"       ->"const_null",
-  "Pi"         ->"const_pi",
-  "E"          ->"const_e",
-  "Degree"     ->"const_degree",
-  "EulerGamma" ->"const_euler_gamma",
-  "I"          ->"const_i"
+  "Null"       ->"null",
+  "Pi"         ->"pi",
+  "E"          ->"e",
+  "Degree"     ->"degree",
+  "EulerGamma" ->"euler_gamma",
+  "I"          ->"i",
+  "All"        ->"all",
+  "True"       ->"true",
+  "False"      ->"false"
 |>;
 
 $builtinfunctions=native/@
@@ -323,7 +326,11 @@ $builtinfunctions=native/@
   "Reverse"         ->"reverse",
 (*functional*)
   "Select"          ->"select",
-  "Map"             ->"map"
+  "Map"             ->"map",
+  "Nest"            ->"nest",
+  "NestList"        ->"nest_list",
+  "Fold"            ->"fold",
+  "FoldList"        ->"fold_list"
     (*"Count"*)
 |>;
 
@@ -338,7 +345,8 @@ variablerename[code_]:=
       function[indices_,ids_,types_,expr_]:>
         Module[{vars=Table[newvar,Length@ids]},
           AppendTo[$variabletable,AssociationThread[vars->ids]];
-          function[indices,vars,types,expr/.Thread[(id/@ids)->(var/@vars)]]
+          function[indices,vars,types,expr/.
+            MapThread[id[#1]->If[Length@Position[expr,id[#1]]==1,movvar,var][#2]&,{ids,vars}]]
         ],
       any_:>(Message[semantics::bad,tostring@any];Throw["semantics"])
     }},
@@ -367,7 +375,8 @@ functionmacro[code_]:=code//.{
     id["Map"][func_,array_,list[literal[i_Integer]]]:>native["map"][func,array,const[i]],
     id["Reverse"][array_,literal[i_Integer]]:>native["reverse"][array,const[i]],
     id["ArrayReshape"][array_,dims_]:>native["array_reshape"][array,vargtag,listtoseq[dims]],
-    id["ArrayReshape"][array_,dims_,padding_]:>native["array_reshape"][array,padding,vargtag,listtoseq[dims]]
+    id["ArrayReshape"][array_,dims_,padding_]:>native["array_reshape"][array,padding,vargtag,listtoseq[dims]],
+    id["Fold"][func_,x_,id["Reverse"][y_]]:>native["foldr"][func,x,y]
   }
 
 arithmeticmacro[code_]:=code//.{
@@ -422,10 +431,10 @@ getargtypes[function[_,_,types_,_]]:=types
 
 codegen[args[indices_,vars_,types_],___]:=
   If[Length[indices]==0,{},
-    Normal@SparseArray[indices->MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto",vars}],Max[indices],"auto"]]
+    Normal@SparseArray[indices->MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}],Max[indices],"auto"]]
 
 codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
-  {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto..."],", "],")",codegen[sequence[exprs],"Return"]}
+  {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Return"]}
 
 codegen[scope[_,sequence[exprs___]],any___]:=codegen[sequence[exprs],any]
 
@@ -437,6 +446,7 @@ codegen[literal[s_String],___]:=ToString@CForm[s]<>"_s"
 codegen[literal[i_Integer],___]:=ToString@CForm[i]<>"_i"
 codegen[literal[r_Real],___]:=ToString@CForm[r]<>"_r"
 codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
+codegen[const[s_String],___]:="wl::const_"<>s
 
 codegen[native[name_],"Function"]:="wl::"<>name
 codegen[native[name_],___]:="WL_FUNCTION(wl::"<>name<>")"
@@ -453,6 +463,7 @@ codegen[type["array"[t_,r_]],___]:="wl::ndarray<"<>t<>", "<>ToString[r]<>">"
 codegen[typed[any_],___]:=codegen[type[any]]<>"{}"
 
 codegen[var[name_],___]:=name
+codegen[movvar[name_],___]:="WL_PASS("<>name<>")"
 codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
 
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]

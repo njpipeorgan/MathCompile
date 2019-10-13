@@ -319,9 +319,9 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
     constexpr auto rank = array_rank_v<Array>;
     static_assert(rank >= 1, "badargtype");
     using ValueType = value_type_t<Array>;
-    constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + rank + 1;
-    constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + rank + 1;
-    static_assert(1 <= L1 && L1 <= L2 && L2 <= rank, "badlevel");
+    constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + int64_t(rank) + 1;
+    constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + int64_t(rank) + 1;
+    static_assert(1 <= L1 && L1 <= L2 && L2 <= int64_t(rank), "badlevel");
 
     if constexpr (Array::category == view_category::General)
         return total(a.to_array(), const_int<I1>{}, const_int<I2>{});
@@ -452,8 +452,8 @@ auto reverse(X&& x, const_int<I>)
     using XT = remove_cvref_t<X>;
     constexpr auto rank = array_rank_v<XT>;
     static_assert(rank >= 1, "badargtype");
-    constexpr int64_t Level = I >= 0 ? I : I + rank + 1;
-    static_assert(1 <= Level && Level <= rank, "badlevel");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(rank) + 1;
+    static_assert(1 <= Level && Level <= int64_t(rank), "badlevel");
 
     size_t outer_size = utils::size_of_dims(
         utils::dims_take<1u, Level - 1u>(x.dims()));

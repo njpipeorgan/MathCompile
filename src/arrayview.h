@@ -539,19 +539,15 @@ struct simple_view
         return *this;
     }
 
-    auto step_forward()
-    {
-        return this->apply_pointer_offset(this->size_);
-    }
-
-    bool view_pos_equal(const simple_view& other) const
-    {
-        return this->data_ == other.data_;
-    }
-
     simple_view& operator++()
     {
-        this->step_forward();
+        this->apply_pointer_offset(ptrdiff_t(this->size_));
+        return *this;
+    }
+
+    simple_view& operator--()
+    {
+        this->apply_pointer_offset(-ptrdiff_t(this->size_));
         return *this;
     }
 
@@ -562,7 +558,7 @@ struct simple_view
 
     bool operator==(const simple_view& other) const
     {
-        return this->view_pos_equal(other);
+        return this->data_ == other.data_;
     }
 
     bool operator!=(const simple_view& other) const
@@ -878,14 +874,16 @@ struct general_view
             if constexpr (std::is_same_v<Indexer, list_indexer>)
                 for (const auto& i : indexer.indices())
                 {
-                    _for_each_impl<ViewLevel + 1u>(index + i, f, iters...);
+                    _for_each_impl<ViewLevel + 1u>(
+                        index + i, break_flag, f, iters...);
                     if (check_break && break_flag)
                         break;
                 }
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
                 {
-                    _for_each_impl<ViewLevel + 1u>(index + i, f, iters...);
+                    _for_each_impl<ViewLevel + 1u>(
+                        index + i, break_flag, f, iters...);
                     if (check_break && break_flag)
                         break;
                 }
@@ -945,12 +943,6 @@ struct general_view
         return ret;
     }
 };
-
-template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
-auto val(const simple_view<T, ArrayRank, ViewRank, Const>& view)
-{
-    return view.to_array();
-}
 
 template<typename Any>
 auto val(Any&& any)

@@ -74,6 +74,15 @@ auto cast(const complex<X>& x)
         return std::complex<value_type_t<T>>(x);
 }
 
+template<typename T, typename X>
+auto cast(complex<X>&& x)
+{
+    if constexpr (is_real_v<T>)
+        return std::real(x);
+    else
+        return std::complex<value_type_t<T>>(x);
+}
+
 #define WL_DEFINE_ROUNDING_FUNCTION(name, stdname)                      \
 template<typename X>                                                    \
 auto name(X&& x)                                                        \

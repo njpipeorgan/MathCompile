@@ -243,7 +243,7 @@ constexpr auto const_pi          = double(3.1415926535897932385e+0);
 constexpr auto const_e           = double(2.7182818284590452354e+0);
 constexpr auto const_degree      = double(1.7453292519943295769e-2);
 constexpr auto const_euler_gamma = double(5.7721566490153286061e-1);
-constexpr auto const_i           = complex<float>(0.f, 1.f);
+constexpr auto const_i           = complex<double>(0.f, 1.f);
 constexpr auto const_true        = boolean(true);
 constexpr auto const_false       = boolean(false);
 }
@@ -426,6 +426,7 @@ namespace wl
 namespace utils
 {
 #define WL_FUNCTION(name) ([](auto&&... args) { return name(std::forward<decltype(args)>(args)...); })
+#define WL_PASS(var) std::forward<decltype(var)>(var)
 template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
 auto _dims_join_impl(
     const std::array<size_t, R1>& dims1, std::index_sequence<Is1...>,
@@ -1073,17 +1074,14 @@ struct simple_view
         this->data_ += diff;
         return *this;
     }
-    auto step_forward()
-    {
-        return this->apply_pointer_offset(this->size_);
-    }
-    bool view_pos_equal(const simple_view& other) const
-    {
-        return this->data_ == other.data_;
-    }
     simple_view& operator++()
     {
-        this->step_forward();
+        this->apply_pointer_offset(ptrdiff_t(this->size_));
+        return *this;
+    }
+    simple_view& operator--()
+    {
+        this->apply_pointer_offset(-ptrdiff_t(this->size_));
         return *this;
     }
     const simple_view& operator*() const
@@ -1092,7 +1090,7 @@ struct simple_view
     }
     bool operator==(const simple_view& other) const
     {
-        return this->view_pos_equal(other);
+        return this->data_ == other.data_;
     }
     bool operator!=(const simple_view& other) const
     {
@@ -1365,14 +1363,16 @@ struct general_view
             if constexpr (std::is_same_v<Indexer, list_indexer>)
                 for (const auto& i : indexer.indices())
                 {
-                    _for_each_impl<ViewLevel + 1u>(index + i, f, iters...);
+                    _for_each_impl<ViewLevel + 1u>(
+                        index + i, break_flag, f, iters...);
                     if (check_break && break_flag)
                         break;
                 }
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
                 {
-                    _for_each_impl<ViewLevel + 1u>(index + i, f, iters...);
+                    _for_each_impl<ViewLevel + 1u>(
+                        index + i, break_flag, f, iters...);
                     if (check_break && break_flag)
                         break;
                 }
@@ -1428,11 +1428,6 @@ struct general_view
         return ret;
     }
 };
-template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
-auto val(const simple_view<T, ArrayRank, ViewRank, Const>& view)
-{
-    return view.to_array();
-}
 template<typename Any>
 auto val(Any&& any)
 {
@@ -1607,6 +1602,18 @@ struct ndarray
     {
         return this->data_.data();
     }
+    auto data_vector() const & -> const std::vector<T>&
+    {
+        return this->data_;
+    }
+    auto data_vector() & -> std::vector<T>&
+    {
+        return this->data_;
+    }
+    auto data_vector() && -> std::vector<T>&&
+    {
+        return std::move(this->data_);
+    }
     auto identifier() const
     {
         return this->data();
@@ -1779,6 +1786,14 @@ auto cast(X&& x)
 }
 template<typename T, typename X>
 auto cast(const complex<X>& x)
+{
+    if constexpr (is_real_v<T>)
+        return std::real(x);
+    else
+        return std::complex<value_type_t<T>>(x);
+}
+template<typename T, typename X>
+auto cast(complex<X>&& x)
 {
     if constexpr (is_real_v<T>)
         return std::real(x);
@@ -3456,9 +3471,9 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
     constexpr auto rank = array_rank_v<Array>;
     static_assert(rank >= 1, "badargtype");
     using ValueType = value_type_t<Array>;
-    constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + rank + 1;
-    constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + rank + 1;
-    static_assert(1 <= L1 && L1 <= L2 && L2 <= rank, "badlevel");
+    constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + int64_t(rank) + 1;
+    constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + int64_t(rank) + 1;
+    static_assert(1 <= L1 && L1 <= L2 && L2 <= int64_t(rank), "badlevel");
     if constexpr (Array::category == view_category::General)
         return total(a.to_array(), const_int<I1>{}, const_int<I2>{});
     else
@@ -3582,8 +3597,8 @@ auto reverse(X&& x, const_int<I>)
     using XT = remove_cvref_t<X>;
     constexpr auto rank = array_rank_v<XT>;
     static_assert(rank >= 1, "badargtype");
-    constexpr int64_t Level = I >= 0 ? I : I + rank + 1;
-    static_assert(1 <= Level && Level <= rank, "badlevel");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(rank) + 1;
+    static_assert(1 <= Level && Level <= int64_t(rank), "badlevel");
     size_t outer_size = utils::size_of_dims(
         utils::dims_take<1u, Level - 1u>(x.dims()));
     size_t inter_size = utils::size_of_dims(
@@ -3764,8 +3779,8 @@ auto map(Function f, X&& x, const_int<I>)
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 1, "badrank");
-    constexpr int64_t Level = I >= 0 ? I : I + R + 1;
-    static_assert(1 <= Level && Level <= R, "badlevel");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(1 <= Level && Level <= int64_t(R), "badlevel");
     if constexpr (R == size_t(Level))
     {
         using RT = remove_cvref_t<decltype(f(value_type_t<XT>{}))>;
@@ -3781,6 +3796,275 @@ template<typename Function, typename X>
 auto map(Function f, X&& x)
 {
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
+}
+template<typename Function, typename X>
+auto nest(Function f, X&& x, const int64_t n)
+{
+    using XT0 = remove_cvref_t<X>;
+    constexpr auto rank0 = array_rank_v<XT0>;
+    if (n < 0) throw std::logic_error("badargv");
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    if constexpr (rank0 == 0)
+    {
+        static_assert(is_convertible_v<XT0, XT2> &&
+            is_convertible_v<XT1, XT2>, "badargtype");
+        if (n == 0)
+            return cast<XT2>(x);
+        else // n >= 1
+        {
+            auto ret = cast<XT2>(f(std::forward<decltype(x)>(x)));
+            for (size_t i = 1u; i < size_t(n); ++i)
+                ret = cast<XT2>(f(ret));
+            return ret;
+        }
+    }
+    else
+    {
+        constexpr auto rank1 = array_rank_v<XT1>;
+        constexpr auto rank2 = array_rank_v<XT2>;
+        using XV0 = value_type_t<XT0>;
+        using XV1 = value_type_t<XT1>;
+        using XV2 = value_type_t<XT2>;
+        static_assert(rank0 == rank2 && rank1 == rank2, "badargtype");
+        static_assert(is_convertible_v<XV0, XV2> &&
+            is_convertible_v<XV1, XV2>, "badargtype");
+        if (n == 0)
+        {
+            if constexpr (rank0 == rank2 && std::is_same_v<XV0, XV2>)
+                return val(std::forward<decltype(x)>(x));
+            else
+            {
+                ndarray<XV2, rank2> ret(x.dims());
+                x.copy_to(ret.begin());
+                return ret;
+            }
+        }
+        else // n >= 1
+        {
+            auto ret = val(f(std::forward<decltype(x)>(x)));
+            for (size_t i = 1u; i < size_t(n); ++i)
+            {
+                auto temp = val(f(std::move(ret)));
+                set(ret, std::move(temp));
+            }
+            return ret;
+        }
+    }
+}
+template<typename Function, typename X>
+auto nest_list(Function f, X&& x, const int64_t n)
+{
+    using XT0 = remove_cvref_t<X>;
+    constexpr auto rank0 = array_rank_v<XT0>;
+    if (n < 0) throw std::logic_error("badargv");
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    if constexpr (rank0 == 0)
+    {
+        static_assert(is_convertible_v<XT0, XT2> &&
+            is_convertible_v<XT1, XT2>, "badargtype");
+        ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
+        ret[0] = cast<XT2>(x);
+        for (size_t i = 1; i <= size_t(n); ++i)
+            ret[i] = cast<XT2>(f(ret[i - 1]));
+        return ret;
+    }
+    else
+    {
+        constexpr auto rank1 = array_rank_v<XT1>;
+        constexpr auto rank2 = array_rank_v<XT2>;
+        using XV0 = value_type_t<XT0>;
+        using XV1 = value_type_t<XT1>;
+        using XV2 = value_type_t<XT2>;
+        static_assert(rank0 == rank2 && rank1 == rank2, "badargtype");
+        static_assert(is_convertible_v<XV0, XV2> &&
+            is_convertible_v<XV1, XV2>, "badargtype");
+        auto item_dims = x.dims();
+        auto ret_dims = utils::dims_join(
+            std::array<size_t, 1u>{size_t(n) + 1u}, item_dims);
+        if (n == 0)
+        {
+            if constexpr (std::is_same_v<XT0, XT2>)
+            {
+                return ndarray<XV2, rank2 + 1u>(ret_dims,
+                    std::forward<decltype(x)>(x).data_vector());
+            }
+            else
+            {
+                ndarray<XV2, rank2 + 1u> ret(ret_dims);
+                x.copy_to(ret.begin());
+                return ret;
+            }
+        }
+        else // n >= 1
+        {
+            ndarray<XV2, rank2 + 1u> ret(ret_dims);
+            auto view_iter = ret.template view_begin<1u>();
+            x.copy_to(view_iter.begin());
+            ++view_iter;
+            auto item = val(f(std::forward<decltype(x)>(x)));
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error("baddims");
+            item.copy_to(view_iter.begin());
+            ++view_iter;
+            for (int64_t i = 1; i < n; ++i, ++view_iter)
+            {
+                auto temp = val(f(std::move(item)));
+                set(item, std::move(temp));
+                if (!utils::check_dims(item.dims(), item_dims))
+                    throw std::logic_error("baddims");
+                item.copy_to(view_iter.begin());
+            }
+            return ret;
+        }
+    }
+}
+template<bool FoldL, typename Function, typename X, typename YIter>
+auto _fold_impl(Function f, X&& x, YIter y_iter, const size_t n)
+{
+    using XT0 = remove_cvref_t<X>;
+    using XV0 = value_type_t<XT0>;
+    constexpr auto rank0 = array_rank_v<XT0>;
+    using XT1 = remove_cvref_t<decltype(f(std::declval<X&&>(), *y_iter))>;
+    using XT2 = remove_cvref_t<decltype(f(std::declval<XT1&&>(), *y_iter))>;
+    if constexpr (rank0 == 0)
+    {
+        static_assert(is_convertible_v<XT0, XT2> && 
+            is_convertible_v<XT1, XT2>, "badargtype");
+        if (n == 0)
+            return cast<XT2>(std::forward<decltype(x)>(x));
+        else // n >= 1
+        {
+            auto ret = cast<XT2>(
+                f(std::forward<decltype(x)>(x), *y_iter));
+            for (size_t i = 1u; i < n; ++i)
+            {
+                if constexpr (FoldL)
+                    ++y_iter;
+                else
+                    --y_iter;
+                ret = cast<XT2>(f(ret, *y_iter));
+            }
+            return ret;
+        }
+    }
+    else
+    {
+        constexpr auto rank1 = array_rank_v<XT1>;
+        constexpr auto rank2 = array_rank_v<XT2>;
+        using XV0 = value_type_t<XT0>;
+        using XV1 = value_type_t<XT1>;
+        using XV2 = value_type_t<XT2>;
+        static_assert(rank0 == rank2 && rank1 == rank2, "badargtype");
+        static_assert(is_convertible_v<XV0, XV2> &&
+            is_convertible_v<XV1, XV2>, "badargtype");
+        if (n == 0)
+        {
+            if constexpr (rank0 == rank2 && std::is_same_v<XV0, XV2>)
+                return val(std::forward<decltype(x)>(x));
+            else
+            {
+                ndarray<XV2, rank2> ret(x.dims());
+                x.copy_to(ret.begin());
+                return ret;
+            }
+        }
+        else // n >= 1
+        {
+            auto ret = val(f(std::forward<decltype(x)>(x), *y_iter));
+            for (size_t i = 1u; i < n; ++i)
+            {
+                if constexpr (FoldL)
+                    ++y_iter;
+                else
+                    --y_iter;
+                auto temp = val(f(std::move(ret), *y_iter));
+                set(ret, std::move(temp));
+            }
+            return ret;
+        }
+    }
+}
+template<typename Function, typename X, typename Y>
+auto fold(Function f, X&& x, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    static_assert(array_rank_v<Y> >= 1u, "badargtype");
+    const size_t n = y.dims()[0];
+    if constexpr (is_array_v<YT>)
+    {
+        return _fold_impl<true>(f, std::forward<decltype(x)>(x),
+            y.template view_begin<1u>(), y.dims()[0]);
+    }
+    else
+    {
+        auto valy = val(std::forward<decltype(y)>(y));
+        return _fold_impl<true>(f, std::forward<decltype(x)>(x),
+            valy.template view_begin<1u>(), valy.dims()[0]);
+    }
+}
+template<typename Function, typename X, typename Y>
+auto foldr(Function f, X&& x, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    static_assert(array_rank_v<Y> >= 1u, "badargtype");
+    const size_t n = y.dims()[0];
+    if constexpr (is_array_v<YT>)
+    {
+        return _fold_impl<false>(f, std::forward<decltype(x)>(x),
+            --(y.template view_end<1u>()), y.dims()[0]);
+    }
+    else
+    {
+        auto valy = val(std::forward<decltype(y)>(y));
+        return _fold_impl<false>(f, std::forward<decltype(x)>(x),
+            --(valy.template view_end<1u>()), valy.dims()[0]);
+    }
+}
+template<typename Function, typename Y>
+auto fold(Function f, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    static_assert(array_rank_v<Y> >= 1u, "badargtype");
+    const size_t n = y.dims()[0];
+    if (n < 1u)
+        throw std::logic_error("baddims");
+    if constexpr (is_array_v<YT>)
+    {
+        auto y_first = y.template view_begin<1u>();
+        auto y_rest = y.template view_begin<1u>();
+        return _fold_impl<true>(f, *y_first, ++y_rest, n - 1u);
+    }
+    else
+    {
+        auto valy = val(std::forward<decltype(y)>(y));
+        auto y_first = valy.template view_begin<1u>();
+        auto y_rest = valy.template view_begin<1u>();
+        return _fold_impl<true>(f, *y_first, ++y_rest, n - 1u);
+    }
+}
+template<typename Function, typename Y>
+auto foldr(Function f, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    static_assert(array_rank_v<Y> >= 1u, "badargtype");
+    const size_t n = y.dims()[0];
+    if (n < 1u)
+        throw std::logic_error("baddims");
+    if constexpr (is_array_v<YT>)
+    {
+        auto y_first = --(y.template view_end<1u>());
+        auto y_rest = --(y.template view_end<1u>());
+        return _fold_impl<false>(f, *y_first, --y_rest, n - 1u);
+    }
+    else
+    {
+        auto valy = val(std::forward<decltype(y)>(y));
+        auto y_first = --(valy.template view_end<1u>());
+        auto y_rest = --(valy.template view_end<1u>());
+        return _fold_impl<false>(f, *y_first, --y_rest, n - 1u);
+    }
 }
 }
 namespace wl

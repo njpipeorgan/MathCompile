@@ -29,6 +29,7 @@ namespace utils
 {
 
 #define WL_FUNCTION(name) ([](auto&&... args) { return name(std::forward<decltype(args)>(args)...); })
+#define WL_PASS(var) std::forward<decltype(var)>(var)
 
 template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
 auto _dims_join_impl(

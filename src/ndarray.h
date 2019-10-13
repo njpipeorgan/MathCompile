@@ -27,6 +27,7 @@
 
 #include "types.h"
 #include "arrayview.h"
+#include "utils.h"
 
 namespace wl
 {

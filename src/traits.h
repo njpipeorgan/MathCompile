@@ -221,12 +221,23 @@ template<typename T>
 constexpr auto array_is_const_v = std::is_const_v<
     std::remove_pointer_t<decltype(std::declval<T>().data())>>;
 
+template<typename T, typename U>
+struct _is_convertible_impl
+{
+    static constexpr bool value =
+        (is_arithmetic_v<T> && is_complex_v<U>) ||
+        (is_integral_v<T> && is_arithmetic_v<U>) ||
+        (is_float_v<T> && is_float_v<U>);
+};
 
 template<typename T, typename U>
 struct is_convertible
 {
-    static constexpr bool value = is_complex_v<U> || is_integral_v<T> ||
-        (is_float_v<T> && is_float_v<U>);
+    static constexpr bool value =
+        _is_convertible_impl<T, U>::value || 
+        (is_array_v<T> && is_array_v<U> &&
+            array_rank_v<T> == array_rank_v<U> && 
+            _is_convertible_impl<value_type_t<T>, value_type_t<U>>::value);
 };
 
 template<typename T>

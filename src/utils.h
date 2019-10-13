@@ -25,6 +25,67 @@
 namespace wl
 {
 
+template<typename Y, typename XV, size_t XR>
+auto cast(ndarray<XV, XR>&& x) -> decltype(auto)
+{
+    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
+    using YV = value_type_t<Y>;
+    if constexpr (std::is_same_v<XV, YV>)
+        return std::move(x);
+    else
+    {
+        ndarray<YV, XR> ret(x.dims());
+        x.copy_to(ret.begin());
+        return ret;
+    }
+}
+
+template<typename Y, typename XV, size_t XR>
+auto cast(const ndarray<XV, XR>& x) -> decltype(auto)
+{
+    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
+    using YV = value_type_t<Y>;
+    if constexpr (std::is_same_v<XV, YV>)
+        return x;
+    else
+    {
+        ndarray<YV, XR> ret(x.dims());
+        x.copy_to(ret.begin());
+        return ret;
+    }
+}
+
+template<typename Y, typename X>
+auto cast(const X& x) -> std::enable_if_t<is_array_view_v<X>, Y>
+{
+    constexpr auto XR = array_rank_v<X>;
+    using XV = value_type_t<X>;
+    using YV = value_type_t<Y>;
+    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
+    if constexpr (std::is_same_v<XV, YV>)
+        return x.to_array();
+    else
+    {
+        ndarray<YV, XR> ret(x.dims());
+        x.copy_to(ret.begin());
+        return ret;
+    }
+}
+
+template<typename Y, typename X>
+auto cast(const X& x) -> std::enable_if_t<is_real_v<X>, Y>
+{
+    static_assert(is_convertible_v<X, Y>, "badcast");
+    return Y(value_type_t<Y>(x));
+}
+
+template<typename Y, typename X>
+auto cast(const complex<X>& x)
+{
+    static_assert(is_complex_v<Y>, "badcast");
+    return std::complex<value_type_t<Y>>(x);
+}
+
 namespace utils
 {
 

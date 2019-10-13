@@ -376,7 +376,10 @@ functionmacro[code_]:=code//.{
     id["Reverse"][array_,literal[i_Integer]]:>native["reverse"][array,const[i]],
     id["ArrayReshape"][array_,dims_]:>native["array_reshape"][array,vargtag,listtoseq[dims]],
     id["ArrayReshape"][array_,dims_,padding_]:>native["array_reshape"][array,padding,vargtag,listtoseq[dims]],
-    id["Fold"][func_,x_,id["Reverse"][y_]]:>native["foldr"][func,x,y]
+    id["Fold"][func_,x_,id["Reverse"][y_]]:>native["foldr"][func,x,y],
+    id["Fold"][func_,id["Reverse"][y_]]:>native["foldr"][func,y],
+    id["FoldList"][func_,x_,id["Reverse"][y_]]:>native["foldr_list"][func,x,y],
+    id["FoldList"][func_,id["Reverse"][y_]]:>native["foldr_list"][func,y]
   }
 
 arithmeticmacro[code_]:=code//.{

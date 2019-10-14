@@ -458,6 +458,8 @@ codegen[args[indices_,vars_,types_],___]:=
 
 codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
   {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Return"]}
+codegen[function[indices_,vars_,types_,sequence[exprs___]],"Scope"]:=
+  {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Scope"]}
 
 codegen[scope[_,sequence[exprs___]],any___]:=codegen[sequence[exprs],any]
 
@@ -477,7 +479,10 @@ codegen[native[name_],___]:="WL_FUNCTION(wl::"<>name<>")"
 codegen[vargtag,___]:="wl::varg_tag{}"
 codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"
 
-codegen[clause[type_][func_,{iters___}],___]:={"wl::clause_"<>nativename[type],"(",codegen[func,"Return"],",",Riffle[codegen[#,"Return"]&/@{iters},", "],")"}
+codegen[clause[type_][func_,{iters___}],___]:={
+    "wl::clause_"<>nativename[type],"(",
+    codegen[func,If[type=="Do"||type=="BreakDo","Scope","Return"]],",",
+    Riffle[codegen[#,"Return"]&/@{iters},", "],")"}
 codegen[iter[expr___],___]:=codegen[native["iterator"][expr]]
 codegen[variter[expr___],___]:=codegen[native["var_iterator"][expr]]
 

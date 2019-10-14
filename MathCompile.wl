@@ -150,7 +150,7 @@ syntax[function][code_]:=
             },{1}]),
       id["Function"][pure_]:>If[FreeQ[pure,id["Function"][___]],
         function[#1,#2[[;;,2,1]],Table[nil,Length@#1],sequence[pure/.#2]]&[#,id["Slot"][literal[#]]->id[newid]&/@#]&@
-          Union@Cases[pure,id["Slot"][literal[i_Integer/;i>0]]:>i,Infinity,Heads->True],
+          Union@Cases[pure,id["Slot"][literal[i_Integer/;i>0]]:>i,{0,Infinity},Heads->True],
         (Message[syntax::fpure,tostring[id["Function"][pure]]];Throw["syntax"])],
       any:id["Function"][___]:>(Message[syntax::bad,tostring[any],"Function"];Throw["syntax"])
     }},
@@ -380,10 +380,10 @@ functionmacro[code_]:=code//.{
     id["ConstantArray"][val_,dims_]:>native["constant_array"][val,vargtag,listtoseq[dims]],
     id["RandomInteger"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
     id["RandomInteger"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
-    id["RandomReal"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomReal"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
-    id["RandomComplex"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomComplex"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomReal"][spec_,dims_]:>native["random_real"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomReal"][spec_]:>native["random_real"][listtoseq[spec],vargtag],
+    id["RandomComplex"][spec_,dims_]:>native["random_complex"][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomComplex"][spec_]:>native["random_complex"][listtoseq[spec],vargtag],
     id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
     id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
     id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func],

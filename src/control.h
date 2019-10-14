@@ -25,6 +25,35 @@
 namespace wl
 {
 
+struct _returns_function_tag {};
+struct _returns_value_tag {};
+
+template<typename A, typename B>
+auto _branch_if_impl(bool cond, A&& a, B&& b, _returns_value_tag)
+{
+    using AType = remove_cvref_t<decltype(a())>;
+    using BType = remove_cvref_t<decltype(b())>;
+    if (cond)
+        return std::forward<decltype(a)>(a)();
+    else
+        return std::forward<decltype(b)>(b)();
+}
+
+template<typename A, typename B>
+auto _branch_if_impl(bool cond, A&& a, B&& b, _returns_function_tag)
+{
+    return
+        [cond,
+        a = std::forward<decltype(a)>(a)(),
+        b = std::forward<decltype(b)>(b)()](auto&&... args)
+    {
+        if (cond)
+            return a(std::forward<decltype(args)>(args)...);
+        else
+            return b(std::forward<decltype(args)>(args)...);
+    };
+}
+
 template<typename A, typename B>
 auto branch_if(bool cond, A&& a, B&& b)
 {
@@ -33,23 +62,16 @@ auto branch_if(bool cond, A&& a, B&& b)
     if constexpr (is_value_type_v<AType>)
     {
         static_assert(std::is_same_v<AType, BType>, "badargtype");
-        if (cond)
-            return std::forward<decltype(a)>(a)();
-        else
-            return std::forward<decltype(b)>(b)();
+        return _branch_if_impl(cond, 
+            std::forward<decltype(a)>(a), std::forward<decltype(b)>(b), 
+            _returns_value_tag{});
     }
-    else // "if" returns a function
+    else
     {
-        return
-            [cond,
-            a = std::forward<decltype(a)>(a)(),
-            b = std::forward<decltype(b)>(b)()](auto&&... args)
-        {
-            if (cond)
-                return a(std::forward<decltype(args)>(args)...);
-            else
-                return b(std::forward<decltype(args)>(args)...);
-        };
+        static_assert(!is_value_type_v<BType>, "badargtype");
+        return _branch_if_impl(cond,
+            std::forward<decltype(a)>(a), std::forward<decltype(b)>(b),
+            _returns_function_tag{});
     }
 }
 

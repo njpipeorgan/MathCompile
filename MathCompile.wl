@@ -29,6 +29,8 @@ syntax::badtype="`1` is not a valid type.";
 syntax::farg="`1` does not have a correct syntax for a function argument.";
 syntax::fpure="`1` does not have a correct syntax for a pure function.";
 syntax::scopevar="`1` does not have a correct syntax for a local variable.";
+syntax::badbreak="Break[] cannot be called in `1`.";
+syntax::breakloc="Break[] in `1` is not correctly enclosed by a loop.";
 semantics::bad="`1` does not have correct semantics.";
 semantics::undef="Identifier `1` is not found.";
 semantics::noinit="Variable `1` is declared but not initialized.";
@@ -193,7 +195,26 @@ syntax[assign][code_]:=code//.{
     any:id["Set"][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
   }
 
-$syntaxpasses={list,clause,mutable,function,scope,branch,sequence,assign};
+syntax[loopbreak][code_]:=Module[{heads,headspos,dopos},
+    Do[
+      headspos=Table[Append[p[[;;i]],0],{i,Length@p-1}];
+      heads=Extract[code,headspos];
+      If[Last@heads=!=sequence,
+        Message[syntax::badbreak,tostring@Extract[code,Most@p]];Throw["syntax"],
+        dopos=Select[
+          Extract[headspos,Position[heads,clause["Do"]]],
+          ReplacePart[#,-1->1]==p[[;;Length@#]]&];
+        If[Length@dopos==0,
+          Message[syntax::breakloc,tostring@Extract[code,Most@p]];Throw["syntax"],
+          code=ReplacePart[code,{Last[dopos]->clause["BreakDo"],p->break[]}];
+      ]]
+    ,{p,Position[code,id["Break"][]]}];
+    code//.{
+        sequence[any___,break[]]:>sequence[any,break[],id["Null"]]
+      }
+  ]
+
+$syntaxpasses={list,clause,mutable,function,scope,branch,sequence,assign,loopbreak};
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
@@ -477,6 +498,7 @@ codegen[sequence[expr___],___]:={codegen[sequence[expr],"Hold"],"()"}
 
 codegen[branch[cond_,expr1_,expr2_],___]:=
   codegen[native["branch_if"][cond,expr1,expr2],"Hold"]
+codegen[break[]]:="throw wl::loop_break{}"
 
 codegen[list[any___],___]:=codegen[native["list"][any]]
 

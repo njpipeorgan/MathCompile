@@ -95,7 +95,7 @@ auto make_step_iterator(Begin begin, End end, Step step)
             return step_iterator<T, HasVariable>(begin, step, 0u);
         else
         {
-            size_t length = wl::integer_part(diff / ptrdiff_t(step)) + 1u;
+            size_t length = wl::integer_part(diff / step) + 1u;
             auto remain = T(begin + (length - 1u) * step) - T(end);
             if (step * remain > T(0))
                 --length;

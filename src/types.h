@@ -39,6 +39,10 @@ struct varg_tag
 {
 };
 
+struct loop_break
+{
+};
+
 struct boolean
 {
     bool val_ = false;

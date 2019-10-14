@@ -24,9 +24,9 @@
 namespace wl
 {
 
-template<typename Skip, typename Break, typename Fn, typename First, typename... Rest>
-auto _clause_impl(Skip& skip_flag, Break& break_flag, Fn fn,
-    const First& first, const Rest&... rest)
+template<typename Skip, typename Fn, typename First, typename... Rest>
+auto _clause_impl(Skip& skip_flag,
+    Fn fn, const First& first, const Rest&... rest)
 {
     if constexpr (sizeof...(Rest) == 0)
     {
@@ -51,12 +51,12 @@ auto _clause_impl(Skip& skip_flag, Break& break_flag, Fn fn,
             if constexpr (First::has_variable)
             {
                 const auto& arg1 = first[i];
-                _clause_impl(skip_flag, break_flag,
+                _clause_impl(skip_flag,
                     [&](const auto&... args) { return fn(arg1, args...); },
                     rest...);
             }
             else
-                _clause_impl(skip_flag, break_flag, fn, rest...);
+                _clause_impl(skip_flag, fn, rest...);
         }
     }
 }
@@ -66,8 +66,22 @@ auto clause_do(Fn fn, const Iters&... iters)
 {
     static_assert(sizeof...(Iters) >= 1, "internal");
     wl::void_type skip_flag;    // skip flag is not used
-    wl::void_type break_flag;   // break flag is not used
-    _clause_impl(skip_flag, break_flag, fn, iters...);
+    _clause_impl(skip_flag, fn, iters...);
+    return wl::void_type{};
+}
+
+template<typename Fn, typename... Iters>
+auto clause_break_do(Fn fn, const Iters&... iters)
+{
+    static_assert(sizeof...(Iters) >= 1, "internal");
+    wl::void_type skip_flag;    // skip flag is not used
+    try
+    {
+        _clause_impl(skip_flag, fn, iters...);
+    }
+    catch (const loop_break&)
+    {
+    }
     return wl::void_type{};
 }
 
@@ -95,8 +109,7 @@ auto clause_table(Fn fn, const Iters&... iters)
             ndarray<InnerType, outer_rank> ret(outer_dims);
             auto ret_iter = ret.begin();
             wl::void_type skip_flag;    // skip flag is not used
-            wl::void_type break_flag;   // break flag is not used
-            _clause_impl(skip_flag, break_flag,
+            _clause_impl(skip_flag,
                 [&](const auto&... args) { *ret_iter++ = fn(args...); },
                 iters...);
             return ret;
@@ -114,9 +127,8 @@ auto clause_table(Fn fn, const Iters&... iters)
             first_item.copy_to(ret_iter.begin());
             ret_iter.step_forward();
 
-            bool skip_flag = true;
-            wl::void_type break_flag;   // break flag is not used
-            _clause_impl(skip_flag, break_flag,
+            bool skip_flag = true;      // skip flag is used
+            _clause_impl(skip_flag,
                 [&](const auto&... args)
                 {
                     auto item = fn(args...);
@@ -151,9 +163,8 @@ auto clause_sum(Fn fn, const Iters&... iters)
     else
     {
         auto ret = fn(iters[0]...);
-        bool skip_flag = true;
-        wl::void_type break_flag;   // break flag is not used
-        _clause_impl(skip_flag, break_flag,
+        bool skip_flag = true;      // skip flag is not used
+        _clause_impl(skip_flag,
             [&](const auto&... args)
             {
                 auto item = fn(args...);
@@ -187,9 +198,8 @@ auto clause_product(Fn fn, const Iters&... iters)
     {
         auto ret = fn(iters[0]...);
 
-        bool skip_flag = true;
-        wl::void_type break_flag;   // break flag is not used
-        _clause_impl(skip_flag, break_flag,
+        bool skip_flag = true;      // skip flag is not used
+        _clause_impl(skip_flag,
             [&](const auto&... args)
             {
                 auto item = fn(args...);

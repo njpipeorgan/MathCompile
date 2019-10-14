@@ -93,8 +93,8 @@ $typenames={
 
 Apply[(totypename[#1]:=#2)&,$typenames,{1}];
 Apply[(totypespec[#2]:=#1)&,$typenames,{1}];
-totypename["array"[type:Except["void"|"array"[___]],rank_Integer/;rank>=1]]:="Array"[totypename[type],rank]
-totypespec["Array"[type:Except["Void"|"Array"[___]],rank_Integer/;rank>=1]]:="array"[totypespec[type],rank]
+totypename["array"[type:Except["void"|"array"[___]],rank_Integer/;rank>=1]]:={totypename[type],rank}
+totypespec[{type_String/;type!="Void",rank_Integer/;rank>=1}]:="array"[totypespec[type],rank]
 
 totypename[any___]:=Missing[]
 totypespec[any___]:=Missing[]
@@ -145,7 +145,7 @@ syntax[function][code_]:=
           Replace[If[Head[args]===list,List@@args,{args}],{
               id[arg_]:>{arg,nil},
               id["Typed"][id[arg_],literal[type_]/;istypename[type]]:>{arg,totypespec[type]},
-              id["Typed"][id[arg_],literal["Array"][literal[t_],literal[r_]]/;istypename["Array"[t,r]]]:>{arg,totypespec["Array"[t,r]]},
+              id["Typed"][id[arg_],list[literal[t_],literal[r_]]/;istypename[{t,r}]]:>{arg,totypespec[{t,r}]},
               any_:>(Message[syntax::farg,tostring[any]];Throw["syntax"])
             },{1}]),
       id["Function"][pure_]:>If[FreeQ[pure,id["Function"][___]],
@@ -168,7 +168,7 @@ syntax[scope][code_]:=code//.{
           id[var_]:>{var,nil},
           id["Set"][id[var_],init_/;(Head[init]=!=id["Typed"])]:>{var,init},
           id["Set"][id[var_],id["Typed"][literal[type_]/;istypename[type]]]:>{var,typed[totypespec[type]]},
-          id["Set"][id[var_],id["Typed"][literal["Array"][literal[t_],literal[r_]]/;istypename["Array"[t,r]]]]:>{var,typed[totypespec["Array"[t,r]]]},
+          id["Set"][id[var_],id["Typed"][list[literal[t_],literal[r_]]/;istypename[{t,r}]]]:>{var,typed[totypespec[{t,r}]]},
           id["Set"][id[var_],id["Typed"][t___]]:>(Message[syntax::badtype,tostring@id["Typed"][t]];Throw["syntax"]),
           any_:>(Message[syntax::scopevar,tostring[any]];Throw["syntax"])
         },{1}])
@@ -345,6 +345,7 @@ $builtinfunctions=native/@
   "Range"           ->"range",
   "Reverse"         ->"reverse",
 (*functional*)
+  "Apply"           ->"apply",
   "Select"          ->"select",
   "Map"             ->"map",
   "Nest"            ->"nest",
@@ -403,7 +404,8 @@ functionmacro[code_]:=code//.{
     id["Fold"][func_,x_,id["Reverse"][y_]]:>native["foldr"][func,x,y],
     id["Fold"][func_,id["Reverse"][y_]]:>native["foldr"][func,y],
     id["FoldList"][func_,x_,id["Reverse"][y_]]:>native["foldr_list"][func,x,y],
-    id["FoldList"][func_,id["Reverse"][y_]]:>native["foldr_list"][func,y]
+    id["FoldList"][func_,id["Reverse"][y_]]:>native["foldr_list"][func,y],
+    id["Apply"][func_,list[args___]]:>func[args]
   }
 
 arithmeticmacro[code_]:=code//.{
@@ -554,7 +556,7 @@ loadfunction[libpath_String,funcid_String,args_]:=
       If[MemberQ[{"Integer64","Real64","ComplexReal64"},type],
         {commontype,rank},LibraryDataType[NumericArray,type,rank]]];
     argtypes=Replace[totypename[#],{
-        "Array"[t_,r_]:>If[MemberQ[{"Integer64","Real64","ComplexReal64"},t],
+        {t_,r_}:>If[MemberQ[{"Integer64","Real64","ComplexReal64"},t],
           {symboltype[t],r,"Constant"},{LibraryDataType[NumericArray,t,r],"Constant"}],
         t_String:>symboltype[t]}]&/@args;
     LibraryFunctionLoad[libpath,funcid<>"_func",argtypes,returntype]

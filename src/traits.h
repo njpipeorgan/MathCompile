@@ -260,4 +260,47 @@ struct all_is_integral<T1, Ts...> :
 template<typename... Ts>
 constexpr auto all_is_integral_v = all_is_integral<Ts...>::value;
 
+template<typename Fn, typename ArgsTuple>
+struct tuple_invoke_result;
+
+template<typename Fn, typename... Args>
+struct tuple_invoke_result<Fn, std::tuple<Args...>> : 
+    std::invoke_result<Fn, Args...> {};
+
+template<typename Fn, typename ArgsTuple>
+using tuple_invoke_result_t = typename tuple_invoke_result<Fn, ArgsTuple>::type;
+
+template<typename Fn, typename ArgsTuple, typename = void>
+struct _can_be_invoked_impl : std::false_type {};
+
+template<typename Fn, typename ArgsTuple>
+struct _can_be_invoked_impl<Fn, ArgsTuple, std::void_t<tuple_invoke_result_t<Fn, ArgsTuple>>> : std::true_type {};
+
+template<typename Fn, typename... Args>
+struct can_be_invoked : _can_be_invoked_impl<Fn, std::tuple<Args...>> {};
+
+template<typename Fn, typename... Args>
+constexpr auto can_be_invoked_v = can_be_invoked<Fn, Args...>::value;
+
+template<typename Fn, typename T, typename... Ts>
+struct _argc_can_be_invoked_impl
+{
+    static constexpr auto value = 
+        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) : 
+        _argc_can_be_invoked_impl<Fn, T, T, Ts...>::value;
+};
+
+constexpr size_t invalid_apply_argc = 8u;
+
+template<typename Fn, typename T>
+struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> : 
+    std::integral_constant<size_t, invalid_apply_argc> {};
+
+template<typename Fn, typename T>
+struct argc_can_be_invoked : _argc_can_be_invoked_impl<Fn, T> {};
+
+template<typename Fn, typename T>
+constexpr auto argc_can_be_invoked_v = argc_can_be_invoked<Fn, T>::value;
+
+
 }

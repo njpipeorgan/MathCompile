@@ -31,8 +31,6 @@ struct _returns_value_tag {};
 template<typename A, typename B>
 auto _branch_if_impl(bool cond, A&& a, B&& b, _returns_value_tag)
 {
-    using AType = remove_cvref_t<decltype(a())>;
-    using BType = remove_cvref_t<decltype(b())>;
     if (cond)
         return std::forward<decltype(a)>(a)();
     else

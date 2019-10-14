@@ -533,10 +533,9 @@ struct simple_view
             this->begin(), this->begin() + this->size());
     }
 
-    auto apply_pointer_offset(ptrdiff_t diff)
+    void apply_pointer_offset(ptrdiff_t diff)
     {
         this->data_ += diff;
-        return *this;
     }
 
     simple_view& operator++()
@@ -549,6 +548,20 @@ struct simple_view
     {
         this->apply_pointer_offset(-ptrdiff_t(this->size_));
         return *this;
+    }
+
+    simple_view operator+(ptrdiff_t diff) const
+    {
+        auto copy = *this;
+        copy.apply_pointer_offset(ptrdiff_t(this->size_) * diff);
+        return copy;
+    }
+
+    simple_view operator-(ptrdiff_t diff) const
+    {
+        auto copy = *this;
+        copy.apply_pointer_offset(ptrdiff_t(this->size_) * (-diff));
+        return copy;
     }
 
     const simple_view& operator*() const

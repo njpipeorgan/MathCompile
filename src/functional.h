@@ -25,6 +25,26 @@
 namespace wl
 {
 
+template<typename Function, typename Iter, size_t... Is>
+auto _apply_impl(Function f, Iter iter, std::index_sequence<Is...>)
+{
+    return f(*(iter + Is)...);
+}
+
+template<typename Function, typename Args>
+auto apply(Function f, Args&& args)
+{
+    static_assert(array_rank_v<remove_cvref_t<Args>> >= 1, "badargtype");
+    const auto& valargs = val(std::forward<decltype(args)>(args));
+    const auto iter = valargs.template view_begin<1u>();
+    using ArgType = remove_cvref_t<decltype(*iter)>;
+    constexpr auto argc = argc_can_be_invoked_v<Function, ArgType>;
+    static_assert(argc != invalid_apply_argc, "badapply");
+    if (argc > valargs.dims()[0])
+        throw std::logic_error("baddims");
+    return _apply_impl(f, iter, std::make_index_sequence<argc>{});
+}
+
 template<typename T, size_t R, typename Function>
 auto _select_impl(const ndarray<T, R>& a, Function f)
 {

@@ -355,6 +355,8 @@ $builtinfunctions=native/@
 |>;
 
 
+headerseries[expr_,pos_]:=Table[Extract[expr,ReplacePart[Take[pos,n],-1->0]],{n,Length@pos}]
+
 variablerename[code_]:=
   Module[{renamerules={
       scope[ids_,expr_]:>
@@ -366,7 +368,9 @@ variablerename[code_]:=
         Module[{vars=Table[newvar,Length@ids]},
           AppendTo[$variabletable,AssociationThread[vars->ids]];
           function[indices,vars,types,expr/.
-            MapThread[id[#1]->If[Length@Position[expr,id[#1]]==1,movvar,var][#2]&,{ids,vars}]]
+            MapThread[id[#1]->If[
+              (Length[#]==1&&Count[headerseries[expr,#[[1]]],function]==0)&@
+                Position[expr,id[#1]],movvar,var][#2]&,{ids,vars}]]
         ],
       any_:>(Message[semantics::bad,tostring@any];Throw["semantics"])
     }},

@@ -25,7 +25,7 @@ $CompilerOutput="";
 parse::unknown="`1` cannot be parsed.";
 syntax::iter="`1` does not have a correct syntax for an iterator.";
 syntax::bad="`1` does not have a correct syntax for `2`.";
-syntax::badtype="`1` is not a valid type.";
+syntax::badtype="`1` dies not specify a correct type.";
 syntax::farg="`1` does not have a correct syntax for a function argument.";
 syntax::fpure="`1` does not have a correct syntax for a pure function.";
 syntax::scopevar="`1` does not have a correct syntax for a local variable.";
@@ -78,6 +78,9 @@ parse[Hold[any_]]:=(Message[parse::unknown,ToString[Unevaluated[any]]];Throw["le
 
 
 $typenames={
+  (*informal names*)
+  {"inte64_t","MachineInteger"},
+  (*formal names*)
   {"void", "Void"},
   {"wl::boolean", "Boolean"},
   {"wl::string", "String"},
@@ -94,7 +97,7 @@ $typenames={
 Apply[(totypename[#1]:=#2)&,$typenames,{1}];
 Apply[(totypespec[#2]:=#1)&,$typenames,{1}];
 totypename["array"[type:Except["void"|"array"[___]],rank_Integer/;rank>=1]]:={totypename[type],rank}
-totypespec[{type_String/;type!="Void",rank_Integer/;rank>=1}]:="array"[totypespec[type],rank]
+totypespec[{type_/;(type!="Void"&&istypename[type]),rank_Integer/;rank>=1}]:="array"[totypespec[type],rank]
 
 totypename[any___]:=Missing[]
 totypespec[any___]:=Missing[]
@@ -105,6 +108,15 @@ istypespec[spec_]:=!MissingQ@totypename[spec]
 
 syntax[list][code_]:=code//.{
     id["List"][exprs___]:>list[exprs]
+  }
+
+syntax[type][code_]:=code//.{
+    id["Typed"][id[arg_],(literal|id)[type_]/;istypename[type]]:>typed[id[arg],totypespec[type]],
+    id["Typed"][id[arg_],list[(literal|id)[t_],literal[r_]]/;istypename[{t,r}]]:>typed[id[arg],totypespec[{t,r}]],
+    id["Typed"][(literal|id)[type_]/;istypename[type]]:>typed[totypespec[type]],
+    id["Typed"][list[(literal|id)[t_],literal[r_]]/;istypename[{t,r}]]:>typed[totypespec[{t,r}]]
+  }/.{
+    id["Typed"][any___]:>(Message[syntax::badtype,tostring@id["Typed"][any]];Throw["syntax"])
   }
 
 syntax[clause][code_]:=code//.{
@@ -144,8 +156,7 @@ syntax[function][code_]:=
         function[Range[Length@#],#[[;;,1]],#[[;;,2]],sequence[expr]]&@
           Replace[If[Head[args]===list,List@@args,{args}],{
               id[arg_]:>{arg,nil},
-              id["Typed"][id[arg_],literal[type_]/;istypename[type]]:>{arg,totypespec[type]},
-              id["Typed"][id[arg_],list[literal[t_],literal[r_]]/;istypename[{t,r}]]:>{arg,totypespec[{t,r}]},
+              typed[id[arg_],type_]:>{arg,type},
               any_:>(Message[syntax::farg,tostring[any]];Throw["syntax"])
             },{1}]),
       id["Function"][pure_]:>If[FreeQ[pure,id["Function"][___]],
@@ -166,10 +177,7 @@ syntax[scope][code_]:=code//.{
       scope[#[[;;,1]],sequence[sequence@@Cases[#,{var_,init:Except[nil]}:>id["Set"][id[var],init],{1}],expr]]&@
         Replace[{vars},{
           id[var_]:>{var,nil},
-          id["Set"][id[var_],init_/;(Head[init]=!=id["Typed"])]:>{var,init},
-          id["Set"][id[var_],id["Typed"][literal[type_]/;istypename[type]]]:>{var,typed[totypespec[type]]},
-          id["Set"][id[var_],id["Typed"][list[literal[t_],literal[r_]]/;istypename[{t,r}]]]:>{var,typed[totypespec[{t,r}]]},
-          id["Set"][id[var_],id["Typed"][t___]]:>(Message[syntax::badtype,tostring@id["Typed"][t]];Throw["syntax"]),
+          id["Set"][id[var_],init_]:>{var,init},
           any_:>(Message[syntax::scopevar,tostring[any]];Throw["syntax"])
         },{1}])
   }/.{
@@ -214,7 +222,7 @@ syntax[loopbreak][code_]:=Module[{heads,headspos,dopos},
       }
   ]
 
-$syntaxpasses={list,clause,mutable,function,scope,branch,sequence,assign,loopbreak};
+$syntaxpasses={list,type,clause,mutable,function,scope,branch,sequence,assign,loopbreak};
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
@@ -385,10 +393,13 @@ functionmacro[code_]:=code//.{
     id["ConstantArray"][val_,dims_]:>native["constant_array"][val,vargtag,listtoseq[dims]],
     id["RandomInteger"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
     id["RandomInteger"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
+    id["RandomInteger"][]:>native["random_integer"][literal[1],vargtag],
     id["RandomReal"][spec_,dims_]:>native["random_real"][listtoseq[spec],vargtag,listtoseq[dims]],
     id["RandomReal"][spec_]:>native["random_real"][listtoseq[spec],vargtag],
+    id["RandomReal"][]:>native["random_real"][literal[1],vargtag],
     id["RandomComplex"][spec_,dims_]:>native["random_complex"][listtoseq[spec],vargtag,listtoseq[dims]],
     id["RandomComplex"][spec_]:>native["random_complex"][listtoseq[spec],vargtag],
+    id["RandomComplex"][]:>native["random_complex"][id["Complex"][literal[1],literal[1]],vargtag],
     id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
     id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
     id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func],
@@ -622,8 +633,9 @@ EXTERN_C DLLEXPORT int `funcid`_func(WolframLibraryData lib_data,
 
 
 Options[compilelink]={
-  LibraryDirectory->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],
-  WorkingDirectory->Automatic
+  "LibraryDirectory"->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],
+  "WorkingDirectory"->Automatic,
+  "Debug"->False
 };
 
 compilelink[$Failed,___]:=$Failed;
@@ -635,8 +647,8 @@ compilelink[f_,OptionsPattern[]]:=
     output=f["output"];
     types=codegen@*type/@f["types"];
     funcid="f"<>ToString@RandomInteger[{10^8,10^9-1}];
-    workdir=OptionValue[WorkingDirectory];
-    libdir=OptionValue[LibraryDirectory];
+    workdir=OptionValue["WorkingDirectory"];
+    libdir=OptionValue["LibraryDirectory"];
     If[workdir=!=Automatic&&!(StringQ[workdir]&&DirectoryQ[workdir]),
       Message[link::workdir];Return[$Failed]];
     If[!StringQ[libdir],
@@ -656,8 +668,10 @@ compilelink[f_,OptionsPattern[]]:=
     lib=CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
       "Language"->"C++",
-      "CompileOptions"->$compileroptions[CCompilerDriver`DefaultCCompiler[]],
-      "CleanIntermediate"->True,
+      "CompileOptions"->
+        If[OptionValue["Debug"],$debugcompileroptions,$compileroptions][
+          CCompilerDriver`DefaultCCompiler[]],
+      "CleanIntermediate"->False,
       "IncludeDirectories"->{$packagepath<>"/src"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
@@ -672,8 +686,14 @@ compilelink[f_,OptionsPattern[]]:=
 $compileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O3",
   CCompilerDriver`IntelCompiler`IntelCompiler->"-std=c++17 -O3 -Kc++",
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Ox"
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Ox /Oi /Gy"
 |>;
+$debugcompileroptions=<|
+  CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O0 -g3",
+  CCompilerDriver`IntelCompiler`IntelCompiler->
+    "-std=c++17 -Kc++ -O0 -g -debug all -traceback -check-uninit",
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Od"
+|>
 
 
 print[id["Set"][x_,y_]]:=RowBox[{print@x,"=",print@y}]

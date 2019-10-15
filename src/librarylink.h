@@ -197,7 +197,8 @@ int set_array(MArgument& res, const ndarray<T, R>& val)
             int error = lib_data->MTensor_new(
                 MType_Integer, R, output_dims.data(), &tensor);
             if (error) throw error;
-            int64_t* ptr = lib_data->MTensor_getIntegerData(tensor);
+            T* ptr = reinterpret_cast<T*>(
+                lib_data->MTensor_getIntegerData(tensor));
             std::copy_n(val.data(), val.size(), ptr);
         }
         else if (type == MNumericArray_Type_Real64)
@@ -205,7 +206,8 @@ int set_array(MArgument& res, const ndarray<T, R>& val)
             int error = lib_data->MTensor_new(
                 MType_Real, R, output_dims.data(), &tensor);
             if (error) throw error;
-            double* ptr = lib_data->MTensor_getRealData(tensor);
+            T* ptr = reinterpret_cast<T*>(
+                lib_data->MTensor_getRealData(tensor));
             std::copy_n(val.data(), val.size(), ptr);
         }
         else // type == MNumericArray_Type_Complex_Real64
@@ -213,8 +215,8 @@ int set_array(MArgument& res, const ndarray<T, R>& val)
             int error = lib_data->MTensor_new(
                 MType_Complex, R, output_dims.data(), &tensor);
             if (error) throw error;
-            complex<double>* ptr = reinterpret_cast<complex<double>*>(
-                lib_data->MTensor_getRealData(tensor));
+            T* ptr = reinterpret_cast<T*>(
+                lib_data->MTensor_getComplexData(tensor));
             std::copy_n(val.data(), val.size(), ptr);
         }
         MArgument_setMTensor(res, tensor);

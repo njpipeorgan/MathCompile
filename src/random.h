@@ -60,12 +60,6 @@ struct uniform
     {
         return dist_(global_random_engine);
     }
-
-    template<typename Ptr>
-    void operator()(Ptr ptr)
-    {
-        *ptr = dist_(global_random_engine);
-    }
 };
 
 template<typename T>
@@ -95,13 +89,6 @@ struct uniform<complex<T>>
             dist_re_(global_random_engine),
             dist_im_(global_random_engine));
     }
-
-    template<typename Ptr>
-    void operator()(Ptr ptr)
-    {
-        ptr->real() = dist_re_(global_random_engine);
-        ptr->imag() = dist_im_(global_random_engine);
-    }
 };
 
 template<typename T>
@@ -127,12 +114,6 @@ struct normal
     {
         return dist_(global_random_engine);
     }
-
-    template<typename Ptr>
-    void operator()(Ptr ptr)
-    {
-        *ptr = dist_(global_random_engine);
-    }
 };
 
 }
@@ -145,42 +126,14 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
     constexpr size_t R1 = Dist::rank;
     constexpr size_t R2 = sizeof...(dims);
     constexpr size_t R = R1 + R2;
-    static_assert(R1 <= 1, "internal");
+    static_assert(R1 == 0u, "internal");
 
-    if constexpr (R1 == 0u)
-    {
-        if constexpr (R2 == 0u)
-        {
-            return dist();
-        }
-        else
-        {
-            wl::ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)...});
-            for (auto& val : x)
-            {
-                val = dist();
-            }
-            return x;
-        }
-    }
-    else if constexpr (R2 == 0u)
-    {
-        size_t dimN = dist.size();
-        ndarray<T, 1u> x(std::array<int64_t, 1u>{int64_t(dimN)});
-        dist(x.begin());
-        return x;
-    }
+    if constexpr (R2 == 0u)
+        return dist();
     else
     {
-        size_t dimN = dist.size();
-        ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)..., int64_t(dimN)});
-
-        auto x_iter = x.begin();
-        auto x_end = x.end();
-        for (; x_iter += dimN; x_iter != x_end)
-        {
-            dist(x_iter);
-        }
+        wl::ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)...});
+        x.for_each([&](auto& v) { v = dist(); });
         return x;
     }
 }
@@ -188,9 +141,8 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
 template<typename Min, typename Max, typename... Dims>
 auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(is_integral_v<Min> && is_integral_v<Max>, "badargtype");
-    using T = decltype(plus(min, max));
-
+    static_assert(all_is_integral_v<Min, Max>, "badargtype");
+    using T = common_type_t<Min, Max>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
 }
@@ -199,15 +151,15 @@ template<typename Max, typename... Dims>
 auto random_integer(const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_integral_v<Max>, "badargtype");
-    return random_integer(Max(0), max, varg_tag{}, dims...);
+    return random_integer(Max{}, max, varg_tag{}, dims...);
 }
 
 template<typename Min, typename Max, typename... Dims>
 auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_real_v<Min> && is_real_v<Max>, "badargtype");
-    using T = decltype(plus(plus(min, max), float{}));
-
+    using C = common_type_t<Min, Max>;
+    using T = std::conditional_t<is_integral_v<C>, double, C>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
 }
@@ -216,17 +168,17 @@ template<typename Max, typename... Dims>
 auto random_real(const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_real_v<Max>, "badargtype");
-    return random_real(Max(0), max, varg_tag{}, dims...);
+    return random_real(Max{}, max, varg_tag{}, dims...);
 }
 
 template<typename Min, typename Max, typename... Dims>
 auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>, "badargtype");
-    using C = decltype(plus(min, max));
-    using T = std::conditional_t<std::is_same_v<C, complex<float>>, complex<float>, complex<double>>;
-
-    auto dist = distribution::uniform<T>(T(min), T(max));
+    using C = common_type_t<value_type_t<Min>, value_type_t<Max>>;
+    using T = std::conditional_t<std::is_same_v<C, float>,
+        complex<float>, complex<double>>;
+    auto dist = distribution::uniform<T>(cast<T>(min), cast<T>(max));
     return _random_variate_impl(dist, dims...);
 }
 

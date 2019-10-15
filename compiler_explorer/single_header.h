@@ -185,6 +185,36 @@ struct all_is_integral<T1, Ts...> :
     std::bool_constant<is_integral_v<T1> && all_is_integral<Ts...>::value> {};
 template<typename... Ts>
 constexpr auto all_is_integral_v = all_is_integral<Ts...>::value;
+template<typename Fn, typename ArgsTuple>
+struct tuple_invoke_result;
+template<typename Fn, typename... Args>
+struct tuple_invoke_result<Fn, std::tuple<Args...>> : 
+    std::invoke_result<Fn, Args...> {};
+template<typename Fn, typename ArgsTuple>
+using tuple_invoke_result_t = typename tuple_invoke_result<Fn, ArgsTuple>::type;
+template<typename Fn, typename ArgsTuple, typename = void>
+struct _can_be_invoked_impl : std::false_type {};
+template<typename Fn, typename ArgsTuple>
+struct _can_be_invoked_impl<Fn, ArgsTuple, std::void_t<tuple_invoke_result_t<Fn, ArgsTuple>>> : std::true_type {};
+template<typename Fn, typename... Args>
+struct can_be_invoked : _can_be_invoked_impl<Fn, std::tuple<Args...>> {};
+template<typename Fn, typename... Args>
+constexpr auto can_be_invoked_v = can_be_invoked<Fn, Args...>::value;
+template<typename Fn, typename T, typename... Ts>
+struct _argc_can_be_invoked_impl
+{
+    static constexpr auto value = 
+        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) : 
+        _argc_can_be_invoked_impl<Fn, T, T, Ts...>::value;
+};
+constexpr size_t invalid_apply_argc = 8u;
+template<typename Fn, typename T>
+struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> : 
+    std::integral_constant<size_t, invalid_apply_argc> {};
+template<typename Fn, typename T>
+struct argc_can_be_invoked : _argc_can_be_invoked_impl<Fn, T> {};
+template<typename Fn, typename T>
+constexpr auto argc_can_be_invoked_v = argc_can_be_invoked<Fn, T>::value;
 }
 namespace wl
 {
@@ -195,6 +225,9 @@ struct all_type
 {
 };
 struct varg_tag
+{
+};
+struct loop_break
 {
 };
 struct boolean
@@ -1136,10 +1169,9 @@ struct simple_view
         return ndarray<T, ViewRank>(this->dims_,
             this->begin(), this->begin() + this->size());
     }
-    auto apply_pointer_offset(ptrdiff_t diff)
+    void apply_pointer_offset(ptrdiff_t diff)
     {
         this->data_ += diff;
-        return *this;
     }
     simple_view& operator++()
     {
@@ -1150,6 +1182,18 @@ struct simple_view
     {
         this->apply_pointer_offset(-ptrdiff_t(this->size_));
         return *this;
+    }
+    simple_view operator+(ptrdiff_t diff) const
+    {
+        auto copy = *this;
+        copy.apply_pointer_offset(ptrdiff_t(this->size_) * diff);
+        return copy;
+    }
+    simple_view operator-(ptrdiff_t diff) const
+    {
+        auto copy = *this;
+        copy.apply_pointer_offset(ptrdiff_t(this->size_) * (-diff));
+        return copy;
     }
     const simple_view& operator*() const
     {
@@ -2286,7 +2330,7 @@ auto make_step_iterator(Begin begin, End end, Step step)
             return step_iterator<T, HasVariable>(begin, step, 0u);
         else
         {
-            size_t length = wl::integer_part(diff / ptrdiff_t(step)) + 1u;
+            size_t length = wl::integer_part(diff / step) + 1u;
             auto remain = T(begin + (length - 1u) * step) - T(end);
             if (step * remain > T(0))
                 --length;
@@ -2561,6 +2605,30 @@ WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
 }
 namespace wl
 {
+struct _returns_function_tag {};
+struct _returns_value_tag {};
+template<typename A, typename B>
+auto _branch_if_impl(bool cond, A&& a, B&& b, _returns_value_tag)
+{
+    if (cond)
+        return std::forward<decltype(a)>(a)();
+    else
+        return std::forward<decltype(b)>(b)();
+}
+template<typename A, typename B>
+auto _branch_if_impl(bool cond, A&& a, B&& b, _returns_function_tag)
+{
+    return
+        [cond,
+        a = std::forward<decltype(a)>(a)(),
+        b = std::forward<decltype(b)>(b)()](auto&&... args)
+    {
+        if (cond)
+            return a(std::forward<decltype(args)>(args)...);
+        else
+            return b(std::forward<decltype(args)>(args)...);
+    };
+}
 template<typename A, typename B>
 auto branch_if(bool cond, A&& a, B&& b)
 {
@@ -2569,23 +2637,16 @@ auto branch_if(bool cond, A&& a, B&& b)
     if constexpr (is_value_type_v<AType>)
     {
         static_assert(std::is_same_v<AType, BType>, "badargtype");
-        if (cond)
-            return std::forward<decltype(a)>(a)();
-        else
-            return std::forward<decltype(b)>(b)();
+        return _branch_if_impl(cond, 
+            std::forward<decltype(a)>(a), std::forward<decltype(b)>(b), 
+            _returns_value_tag{});
     }
-    else // "if" returns a function
+    else
     {
-        return
-            [cond,
-            a = std::forward<decltype(a)>(a)(),
-            b = std::forward<decltype(b)>(b)()](auto&&... args)
-        {
-            if (cond)
-                return a(std::forward<decltype(args)>(args)...);
-            else
-                return b(std::forward<decltype(args)>(args)...);
-        };
+        static_assert(!is_value_type_v<BType>, "badargtype");
+        return _branch_if_impl(cond,
+            std::forward<decltype(a)>(a), std::forward<decltype(b)>(b),
+            _returns_function_tag{});
     }
 }
 template<typename X, typename Y>
@@ -2615,9 +2676,9 @@ auto native_if(boolean cond, X&& x, Y&& y)
 }
 namespace wl
 {
-template<typename Skip, typename Break, typename Fn, typename First, typename... Rest>
-auto _clause_impl(Skip& skip_flag, Break& break_flag, Fn fn,
-    const First& first, const Rest&... rest)
+template<typename Skip, typename Fn, typename First, typename... Rest>
+auto _clause_impl(Skip& skip_flag,
+    Fn fn, const First& first, const Rest&... rest)
 {
     if constexpr (sizeof...(Rest) == 0)
     {
@@ -2642,12 +2703,12 @@ auto _clause_impl(Skip& skip_flag, Break& break_flag, Fn fn,
             if constexpr (First::has_variable)
             {
                 const auto& arg1 = first[i];
-                _clause_impl(skip_flag, break_flag,
+                _clause_impl(skip_flag,
                     [&](const auto&... args) { return fn(arg1, args...); },
                     rest...);
             }
             else
-                _clause_impl(skip_flag, break_flag, fn, rest...);
+                _clause_impl(skip_flag, fn, rest...);
         }
     }
 }
@@ -2656,8 +2717,21 @@ auto clause_do(Fn fn, const Iters&... iters)
 {
     static_assert(sizeof...(Iters) >= 1, "internal");
     wl::void_type skip_flag;    // skip flag is not used
-    wl::void_type break_flag;   // break flag is not used
-    _clause_impl(skip_flag, break_flag, fn, iters...);
+    _clause_impl(skip_flag, fn, iters...);
+    return wl::void_type{};
+}
+template<typename Fn, typename... Iters>
+auto clause_break_do(Fn fn, const Iters&... iters)
+{
+    static_assert(sizeof...(Iters) >= 1, "internal");
+    wl::void_type skip_flag;    // skip flag is not used
+    try
+    {
+        _clause_impl(skip_flag, fn, iters...);
+    }
+    catch (const loop_break&)
+    {
+    }
     return wl::void_type{};
 }
 template<typename Fn, typename... Iters>
@@ -2683,8 +2757,7 @@ auto clause_table(Fn fn, const Iters&... iters)
             ndarray<InnerType, outer_rank> ret(outer_dims);
             auto ret_iter = ret.begin();
             wl::void_type skip_flag;    // skip flag is not used
-            wl::void_type break_flag;   // break flag is not used
-            _clause_impl(skip_flag, break_flag,
+            _clause_impl(skip_flag,
                 [&](const auto&... args) { *ret_iter++ = fn(args...); },
                 iters...);
             return ret;
@@ -2700,9 +2773,8 @@ auto clause_table(Fn fn, const Iters&... iters)
             auto ret_iter = ret.template view_begin<outer_rank>();
             first_item.copy_to(ret_iter.begin());
             ret_iter.step_forward();
-            bool skip_flag = true;
-            wl::void_type break_flag;   // break flag is not used
-            _clause_impl(skip_flag, break_flag,
+            bool skip_flag = true;      // skip flag is used
+            _clause_impl(skip_flag,
                 [&](const auto&... args)
                 {
                     auto item = fn(args...);
@@ -2735,9 +2807,8 @@ auto clause_sum(Fn fn, const Iters&... iters)
     else
     {
         auto ret = fn(iters[0]...);
-        bool skip_flag = true;
-        wl::void_type break_flag;   // break flag is not used
-        _clause_impl(skip_flag, break_flag,
+        bool skip_flag = true;      // skip flag is not used
+        _clause_impl(skip_flag,
             [&](const auto&... args)
             {
                 auto item = fn(args...);
@@ -2768,9 +2839,8 @@ auto clause_product(Fn fn, const Iters&... iters)
     else
     {
         auto ret = fn(iters[0]...);
-        bool skip_flag = true;
-        wl::void_type break_flag;   // break flag is not used
-        _clause_impl(skip_flag, break_flag,
+        bool skip_flag = true;      // skip flag is not used
+        _clause_impl(skip_flag,
             [&](const auto&... args)
             {
                 auto item = fn(args...);
@@ -3088,11 +3158,6 @@ struct uniform
     {
         return dist_(global_random_engine);
     }
-    template<typename Ptr>
-    void operator()(Ptr ptr)
-    {
-        *ptr = dist_(global_random_engine);
-    }
 };
 template<typename T>
 struct uniform<complex<T>>
@@ -3117,12 +3182,6 @@ struct uniform<complex<T>>
             dist_re_(global_random_engine),
             dist_im_(global_random_engine));
     }
-    template<typename Ptr>
-    void operator()(Ptr ptr)
-    {
-        ptr->real() = dist_re_(global_random_engine);
-        ptr->imag() = dist_im_(global_random_engine);
-    }
 };
 template<typename T>
 struct normal
@@ -3143,11 +3202,6 @@ struct normal
     {
         return dist_(global_random_engine);
     }
-    template<typename Ptr>
-    void operator()(Ptr ptr)
-    {
-        *ptr = dist_(global_random_engine);
-    }
 };
 }
 template<typename Dist, typename... Dims>
@@ -3158,48 +3212,21 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
     constexpr size_t R1 = Dist::rank;
     constexpr size_t R2 = sizeof...(dims);
     constexpr size_t R = R1 + R2;
-    static_assert(R1 <= 1, "internal");
-    if constexpr (R1 == 0u)
-    {
-        if constexpr (R2 == 0u)
-        {
-            return dist();
-        }
-        else
-        {
-            wl::ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)...});
-            for (auto& val : x)
-            {
-                val = dist();
-            }
-            return x;
-        }
-    }
-    else if constexpr (R2 == 0u)
-    {
-        size_t dimN = dist.size();
-        ndarray<T, 1u> x(std::array<int64_t, 1u>{int64_t(dimN)});
-        dist(x.begin());
-        return x;
-    }
+    static_assert(R1 == 0u, "internal");
+    if constexpr (R2 == 0u)
+        return dist();
     else
     {
-        size_t dimN = dist.size();
-        ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)..., int64_t(dimN)});
-        auto x_iter = x.begin();
-        auto x_end = x.end();
-        for (; x_iter += dimN; x_iter != x_end)
-        {
-            dist(x_iter);
-        }
+        wl::ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)...});
+        x.for_each([&](auto& v) { v = dist(); });
         return x;
     }
 }
 template<typename Min, typename Max, typename... Dims>
 auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(is_integral_v<Min> && is_integral_v<Max>, "badargtype");
-    using T = decltype(plus(min, max));
+    static_assert(all_is_integral_v<Min, Max>, "badargtype");
+    using T = common_type_t<Min, Max>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
 }
@@ -3207,13 +3234,14 @@ template<typename Max, typename... Dims>
 auto random_integer(const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_integral_v<Max>, "badargtype");
-    return random_integer(Max(0), max, varg_tag{}, dims...);
+    return random_integer(Max{}, max, varg_tag{}, dims...);
 }
 template<typename Min, typename Max, typename... Dims>
 auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_real_v<Min> && is_real_v<Max>, "badargtype");
-    using T = decltype(plus(plus(min, max), float{}));
+    using C = common_type_t<Min, Max>;
+    using T = std::conditional_t<is_integral_v<C>, double, C>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
 }
@@ -3221,15 +3249,16 @@ template<typename Max, typename... Dims>
 auto random_real(const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_real_v<Max>, "badargtype");
-    return random_real(Max(0), max, varg_tag{}, dims...);
+    return random_real(Max{}, max, varg_tag{}, dims...);
 }
 template<typename Min, typename Max, typename... Dims>
 auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>, "badargtype");
-    using C = decltype(plus(min, max));
-    using T = std::conditional_t<std::is_same_v<C, complex<float>>, complex<float>, complex<double>>;
-    auto dist = distribution::uniform<T>(T(min), T(max));
+    using C = common_type_t<value_type_t<Min>, value_type_t<Max>>;
+    using T = std::conditional_t<std::is_same_v<C, float>,
+        complex<float>, complex<double>>;
+    auto dist = distribution::uniform<T>(cast<T>(min), cast<T>(max));
     return _random_variate_impl(dist, dims...);
 }
 template<typename Max, typename... Dims>
@@ -3707,6 +3736,24 @@ auto array_reshape(X&& x, varg_tag, const Dims&... dims)
 }
 namespace wl
 {
+template<typename Function, typename Iter, size_t... Is>
+auto _apply_impl(Function f, Iter iter, std::index_sequence<Is...>)
+{
+    return f(*(iter + Is)...);
+}
+template<typename Function, typename Args>
+auto apply(Function f, Args&& args)
+{
+    static_assert(array_rank_v<remove_cvref_t<Args>> >= 1, "badargtype");
+    const auto& valargs = val(std::forward<decltype(args)>(args));
+    const auto iter = valargs.template view_begin<1u>();
+    using ArgType = remove_cvref_t<decltype(*iter)>;
+    constexpr auto argc = argc_can_be_invoked_v<Function, ArgType>;
+    static_assert(argc != invalid_apply_argc, "badapply");
+    if (argc > valargs.dims()[0])
+        throw std::logic_error("baddims");
+    return _apply_impl(f, iter, std::make_index_sequence<argc>{});
+}
 template<typename T, size_t R, typename Function>
 auto _select_impl(const ndarray<T, R>& a, Function f)
 {

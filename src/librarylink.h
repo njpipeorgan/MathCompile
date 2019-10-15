@@ -64,8 +64,10 @@ numericarray_data_t get_numeric_array_type()
         return MNumericArray_Type_Complex_Real32;
     else if constexpr (std::is_same_v<T, complex<double>>)
         return MNumericArray_Type_Complex_Real64;
-    else
+    else if constexpr (std::is_same_v<T, void_type>)
         return MNumericArray_Type_Undef;
+    else
+        static_assert(always_false_v<T>, "badtype");
 }
 
 template<typename T, size_t R>
@@ -239,7 +241,10 @@ int set_array(MArgument& res, const ndarray<T, R>& val)
 template<typename T>
 void set(MArgument& res, const T& val)
 {
-    if constexpr (is_boolean_v<T>)
+    if constexpr (std::is_same_v<T, void_type>)
+    {
+    }
+    else if constexpr (is_boolean_v<T>)
     {
         MArgument_setBoolean(res, mbool(val));
     }

@@ -14,12 +14,14 @@ CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,#["output"]]&@compile[H
 CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],opts]
 
 
+$CppSource="";
+$CompilerOutput="";
+
+
 Begin["`Private`"];
 
 
 $packagepath=DirectoryName[$InputFileName];
-$CppSource="";
-$CompilerOutput="";
 
 
 parse::unknown="`1` cannot be parsed.";
@@ -559,13 +561,15 @@ loadfunction[libpath_String,funcid_String,args_]:=
     If[typefunc===$Failed,Message[link::rettype];Return[$Failed]];
     {rank,type}=QuotientRemainder[typefunc[],maxtypecount];
     LibraryFunctionUnload[typefunc];
-    If[0<=rank<=maxrank,Null,Message[link::bigrank];Return[$Failed]];
-    If[2<=type+1<=Length[$numerictypes],type=$numerictypes[[type+1]],
-      Message[link::badtype,type];Return[$Failed]];
-    commontype=symboltype[type];
-    returntype=If[rank==0,commontype,
-      If[MemberQ[{"Integer64","Real64","ComplexReal64"},type],
-        {commontype,rank},LibraryDataType[NumericArray,type,rank]]];
+    If[type==0&&rank==0,returntype="Void",
+      If[0<=rank<=maxrank,Null,Message[link::bigrank];Return[$Failed]];
+      If[2<=type+1<=Length[$numerictypes],type=$numerictypes[[type+1]],
+        Message[link::badtype,type];Return[$Failed]];
+      commontype=symboltype[type];
+      returntype=If[rank==0,commontype,
+        If[MemberQ[{"Integer64","Real64","ComplexReal64"},type],
+          {commontype,rank},LibraryDataType[NumericArray,type,rank]]];
+    ];
     argtypes=Replace[totypename[#],{
         {t_,r_}:>If[MemberQ[{"Integer64","Real64","ComplexReal64"},t],
           {symboltype[t],r,"Constant"},{LibraryDataType[NumericArray,t,r],"Constant"}],
@@ -606,7 +610,7 @@ EXTERN_C DLLEXPORT int `funcid`_type(WolframLibraryData lib_data,
         wl::is_array_v<ReturnType>, wl::value_type_t<ReturnType>, ReturnType>;
     mint rank = mint(wl::array_rank_v<ReturnType>);
     mint type = wl::librarylink::get_numeric_array_type<ValueType>();
-    mint max_type_count = 256;
+    constexpr mint max_type_count = 256;
     MArgument_setInteger(res, rank * max_type_count + type);
     return LIBRARY_NO_ERROR;
 }
@@ -637,6 +641,7 @@ Options[compilelink]={
   "WorkingDirectory"->Automatic,
   "Debug"->False
 };
+Options[CompileToBinary]=Options[compilelink];
 
 compilelink[$Failed,___]:=$Failed;
 
@@ -656,7 +661,7 @@ compilelink[f_,OptionsPattern[]]:=
     MathCompile`$CppSource=
       TemplateApply[$template,<|
         "funcbody"->output,
-        "argsv"->StringRiffle[types,{"","{}, ","{}"}],
+        "argsv"->StringRiffle[#<>"{}"&/@types,", "],
         "args"->StringRiffle[
           MapThread[StringTemplate["wl::librarylink::get<``>(argv[``])"],
             {types,Range[Length@types]-1}],

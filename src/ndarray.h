@@ -117,7 +117,7 @@ struct ndarray
         return this->dims_[Level - 1];
     }
 
-    auto dims() const
+    const auto& dims() const
     {
         return this->dims_;
     }
@@ -180,8 +180,8 @@ struct ndarray
         if constexpr (Level == R)
             return this->begin();
         else
-            return simple_view<T, R, R - Level, false>(level_iter_tag{}, 
-                *this, 0, this->dims_.data() + Level);
+            return simple_view<T, R, R - Level, false>(
+                this->identifier(), this->data(), this->dims_.data() + Level);
     }
 
     template<size_t Level>
@@ -190,8 +190,11 @@ struct ndarray
         if constexpr (Level == R)
             return this->end();
         else
-            return this->view_begin<Level>().apply_pointer_offset(
-                this->size());
+        {
+            auto iter = this->view_begin();
+            iter.apply_pointer_offset(this->size());
+            return iter;
+        }
     }
 
     template<size_t Level>
@@ -201,8 +204,8 @@ struct ndarray
         if constexpr (Level == R)
             return this->begin();
         else
-            return simple_view<T, R, R - Level, true>(level_iter_tag{}, 
-                *this, 0, this->dims_.data() + Level);
+            return simple_view<T, R, R - Level, true>(
+                this->identifier(), this->data(), this->dims_.data() + Level);
     }
 
     template<size_t Level>
@@ -211,8 +214,11 @@ struct ndarray
         if constexpr (Level == R)
             return this->end();
         else
-            return this->view_begin<Level>().apply_pointer_offset(
-                this->size());
+        {
+            auto iter = this->view_begin();
+            iter.apply_pointer_offset(this->size());
+            return iter;
+        }
     }
 
     void resize(size_t new_dim0, ptrdiff_t size_diff)
@@ -223,29 +229,17 @@ struct ndarray
         this->dims_[0] = new_dim0;
     }
 
-    template<size_t Level, typename... Is>
-    void linear_pos_impl(size_t& pos,
-        const size_t& i1, const Is&... is) const
-    {
-        pos += i1;
-        if constexpr (Level < R - 1)
-            pos *= this->dims_[Level + 1u];
-        if constexpr (Level < R - 1)
-            linear_pos_impl<Level + 1u>(pos, is...);
-    }
-
     template<typename... Is>
-    size_t linear_pos(const Is&... is) const
+    size_t linear_position(const Is&... is) const
     {
-        size_t pos = 0u;
-        linear_pos_impl<0u>(pos, is...);
-        return pos;
+        return utils::linear_position(this->dims_, is...);
     }
 
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters)
     {
         auto ptr = this->data();
+#pragma omp simd
         for (size_t i = 0u; i < this->size(); ++i)
         {
             if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
@@ -262,6 +256,7 @@ struct ndarray
     void for_each(Function f, Iters... iters) const
     {
         auto ptr = this->data();
+#pragma omp simd
         for (size_t i = 0u; i < this->size(); ++i)
         {
             if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
@@ -278,6 +273,7 @@ struct ndarray
     void copy_to(FwdIter iter) const
     {
         auto ptr = this->data();
+#pragma omp simd
         for (size_t i = 0u; i < this->size(); ++i)
             *iter++ = *ptr++;
     }
@@ -286,6 +282,7 @@ struct ndarray
     void copy_from(FwdIter iter) &
     {
         auto ptr = this->data();
+#pragma omp simd
         for (size_t i = 0u; i < this->size(); ++i)
             *ptr++ = *iter++;
     }

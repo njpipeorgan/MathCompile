@@ -281,7 +281,7 @@ auto _fold_single_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
     {
         auto item = f(arg, *y_iter);
         y_inc(y_iter);
-        return std::move(item);
+        return item;
     };
     return nest(nest_f, std::forward<decltype(x)>(x), n);
 }
@@ -294,7 +294,7 @@ auto _fold_list_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
     {
         auto item = f(arg, *y_iter);
         y_inc(y_iter);
-        return std::move(item);
+        return item;
     };
     return nest_list(nest_f, std::forward<decltype(x)>(x), n);
 }

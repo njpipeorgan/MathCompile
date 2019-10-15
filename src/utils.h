@@ -186,6 +186,27 @@ auto check_dims(const std::array<size_t, R>& dims1,
         std::make_index_sequence<R>{});
 }
 
+template<size_t Level, size_t R, typename... Is>
+void _linear_position_impl(const std::array<size_t, R>& dims, size_t& pos,
+    const size_t& i1, const Is&... is)
+{
+    pos += i1;
+    if constexpr (Level < R - 1)
+    {
+        pos *= dims[Level + 1u];
+        _linear_position_impl<Level + 1u>(dims, pos, is...);
+    }
+}
+
+template<size_t R, typename... Is>
+size_t linear_position(const std::array<size_t, R>& dims, const Is&... is)
+{
+    static_assert(R == sizeof...(Is), "internal");
+    size_t pos = 0u;
+    _linear_position_impl<0u>(dims, pos, is...);
+    return pos;
+}
+
 template<typename Fn, typename X>
 auto listable_function(Fn fn, X&& x)
 {

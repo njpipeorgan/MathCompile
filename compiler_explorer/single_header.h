@@ -608,6 +608,25 @@ auto check_dims(const std::array<size_t, R>& dims1,
     return check_dims_impl(dims1.data(), dims2.data(),
         std::make_index_sequence<R>{});
 }
+template<size_t Level, size_t R, typename... Is>
+void _linear_position_impl(const std::array<size_t, R>& dims, size_t& pos,
+    const size_t& i1, const Is&... is)
+{
+    pos += i1;
+    if constexpr (Level < R - 1)
+    {
+        pos *= dims[Level + 1u];
+        _linear_position_impl<Level + 1u>(dims, pos, is...);
+    }
+}
+template<size_t R, typename... Is>
+size_t linear_position(const std::array<size_t, R>& dims, const Is&... is)
+{
+    static_assert(R == sizeof...(Is), "internal");
+    size_t pos = 0u;
+    _linear_position_impl<0u>(dims, pos, is...);
+    return pos;
+}
 template<typename Fn, typename X>
 auto listable_function(Fn fn, X&& x)
 {
@@ -1055,7 +1074,6 @@ auto make_indexer(const IndexType& index, size_t dim)
         return scalar_indexer(index, dim);
     }
 }
-struct level_iter_tag {};
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
 struct simple_view
 {
@@ -1068,38 +1086,35 @@ struct simple_view
     using array_ref_type = std::conditional_t<Const,
         const ndarray<T, ArrayRank>&, ndarray<T, ArrayRank>&>;
     using pointer_type = std::conditional_t<Const, const T*, T*>;
+    using _base_dims_t = std::array<size_t, ArrayRank>;
     using _dims_t = std::array<size_t, ViewRank>;
     const T* const identifier_;
     pointer_type data_;
     _dims_t dims_;
     size_t size_;
-    simple_view(level_iter_tag, 
-        array_ref_type base, ptrdiff_t offset, const size_t* dims) :
-        identifier_{base.data()}, data_{base.data() + offset}
+    simple_view(const T* base_id, pointer_type view_data, const size_t* dims) :
+        identifier_{base_id}, data_{view_data}
     {
         std::copy_n(dims, ViewRank, this->dims_.begin());
         this->size_ = utils::size_of_dims(this->dims_);
     }
     template<typename... Specs>
-    simple_view(array_ref_type base, const Specs&... specs) :
-        identifier_{base.data()}, size_{1u}
+    simple_view(const T* base_id, pointer_type base_data, 
+        const _base_dims_t& base_dims, const Specs&... specs) :
+        identifier_{base_id}, size_{1u}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
-        size_t offset = 0u;
-        this->_initialize<0u>(offset, base.dims_ptr(), specs...);
-        this->data_ = base.data() + offset;
+        this->_initialize<0u>(specs...);
+        this->data_ = base_data + 
+            utils::linear_position(base_dims, specs.offset()...);
     }
     template<size_t Level, typename Spec1, typename... Specs>
-    void _initialize(size_t& offset, const size_t* dims,
-        const Spec1& spec1, const Specs&... specs)
+    void _initialize(const Spec1& spec1, const Specs&... specs)
     {
-        if constexpr (Level > 0)
-            offset *= dims[Level];
-        offset += spec1.offset();
         if constexpr (Level < ArrayRank - ViewRank)
         {
             static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
-            this->_initialize<Level + 1u>(offset, dims, specs...);
+            this->_initialize<Level + 1u>(specs...);
         }
         else
         {
@@ -1108,7 +1123,7 @@ struct simple_view
             this->dims_[ViewLevel] = spec1.size();
             this->size_ *= this->dims_[ViewLevel];
             if constexpr (Level < ArrayRank - 1u)
-                _initialize<Level + 1u>(offset, dims, specs...);
+                _initialize<Level + 1u>(specs...);
         }
     }
     auto dims() const
@@ -1264,6 +1279,7 @@ struct regular_view
     using array_ref_type = std::conditional_t<Const,
         const ndarray<T, ArrayRank>&, ndarray<T, ArrayRank>&>;
     using pointer_type = std::conditional_t<Const, const T*, T*>;
+    using _base_dims_t = std::array<size_t, ArrayRank>;
     using _dims_t = std::array<size_t, ViewRank>;
     const T* const identifier_;
     pointer_type data_;
@@ -1271,26 +1287,24 @@ struct regular_view
     _dims_t dims_;
     size_t size_;
     template<typename... Specs>
-    regular_view(array_ref_type base, const Specs&... specs) :
-        identifier_{base.data()}, size_{1u}
+    regular_view(const T* base_id, pointer_type base_data,
+        const _base_dims_t& base_dims, const Specs&... specs) :
+        identifier_{base_id}, size_{1u}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
         this->stride_ = 1;
-        size_t offset = 0u;
-        this->_initialize<0u>(offset, base.dims_ptr(), specs...);
-        this->data_ = base.data() + offset;
+        this->_initialize<0u>(base_dims, specs...);
+        this->data_ = base_data +
+            utils::linear_position(base_dims, specs.offset()...);
     }
     template<size_t Level, typename Spec1, typename... Specs>
-    auto _initialize(size_t& offset, const size_t* dims,
+    auto _initialize(const _base_dims_t& dims,
         const Spec1& spec1, const Specs&... specs)
     {
-        if constexpr (Level > 0)
-            offset *= dims[Level];
-        offset += spec1.offset();
         if constexpr (Level < ArrayRank - ViewRank - StrideRank)
         {
             static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
-            this->_initialize<Level + 1>(offset, dims, specs...);
+            this->_initialize<Level + 1>(dims, specs...);
         }
         else if constexpr (Level < ArrayRank - StrideRank)
         {
@@ -1302,14 +1316,14 @@ struct regular_view
             if constexpr (std::is_same_v<Spec1, step_indexer>)
                 this->stride_ *= spec1.stride();
             if constexpr (Level < ArrayRank - 1u)
-                _initialize<Level + 1u>(offset, dims, specs...);
+                _initialize<Level + 1u>(dims, specs...);
         }
         else
         {
             static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
             this->stride_ *= dims[Level];
             if constexpr (Level < ArrayRank - 1u)
-                _initialize<Level + 1u>(offset, dims, specs...);
+                _initialize<Level + 1u>(dims, specs...);
         }
     }
     auto dims() const
@@ -1389,6 +1403,7 @@ struct general_view
     using array_ref_type = std::conditional_t<Const,
         const ndarray<T, ArrayRank>&, ndarray<T, ArrayRank>&>;
     using pointer_type = std::conditional_t<Const, const T*, T*>;
+    using _base_dims_t = std::array<size_t, ArrayRank>;
     using _dims_t = std::array<size_t, ViewRank>;
     using _strides_t = std::array<ptrdiff_t, ViewRank>;
     using _indexers_tuple = IndexersTuple;
@@ -1403,42 +1418,43 @@ struct general_view
     _dims_t dims_;
     size_t size_;
     template<typename... Specs>
-    general_view(array_ref_type base, const Specs&... specs) :
-        identifier_{base.data()}, size_{1u}
+    general_view(const T* base_id, pointer_type base_data,
+        const _base_dims_t& base_dims, Specs&&... specs) :
+        identifier_{base_id}, size_{1u}
     {
         static_assert(sizeof...(Specs) == ArrayRank, "internal");
-        size_t offset = 0u;
-        this->_initialize<0u, 0u>(offset, base.dims_ptr(), specs...);
-        this->data_ = base.data() + offset;
+        this->_initialize<0u, 0u>(
+            base_dims, std::forward<decltype(specs)>(specs)...);
+        this->data_ = base_data +
+            utils::linear_position(base_dims, specs.offset()...);
     }
     template<size_t Level, size_t ViewLevel, typename Spec1, typename... Specs>
-    auto _initialize(size_t& offset, const size_t* dims,
-        const Spec1& spec1, const Specs&... specs)
+    auto _initialize(const _base_dims_t& dims,
+        Spec1&& spec1, Specs&&... specs)
     {
-        if constexpr (Level > 0)
-            offset *= dims[Level];
-        offset += spec1.offset();
-        if constexpr (std::is_same_v<Spec1, scalar_indexer>)
+        if constexpr (std::is_same_v<remove_cvref_t<Spec1>, scalar_indexer>)
         {
             if constexpr (ViewLevel > 0u)
                 this->strides_[ViewLevel - 1] *= dims[Level];
             if constexpr (Level < ArrayRank - 1u)
-                _initialize<Level + 1u, ViewLevel>(offset, dims, specs...);
+                _initialize<Level + 1u, ViewLevel>(
+                    dims, std::forward<decltype(specs)>(specs)...);
         }
         else
         {
             if constexpr (ViewLevel > 0u)
                 this->strides_[ViewLevel - 1] *= dims[Level];
-            if constexpr (std::is_same_v<Spec1, step_indexer>)
+            if constexpr (std::is_same_v<remove_cvref_t<Spec1>, step_indexer>)
                 this->strides_[ViewLevel] = spec1.stride();
             else
                 this->strides_[ViewLevel] = 1;
             this->dims_[ViewLevel] = spec1.size();
             this->size_ *= this->dims_[ViewLevel];
-            std::get<ViewLevel>(this->indexers_) = spec1;
+            std::get<ViewLevel>(this->indexers_) = 
+                std::forward<decltype(spec1)>(spec1);
             if constexpr (Level < ArrayRank - 1u)
                 _initialize<Level + 1u, ViewLevel + 1u>(
-                    offset, dims, specs...);
+                    dims, std::forward<decltype(specs)>(specs)...);
         }
     }
     auto dims() const
@@ -1697,7 +1713,7 @@ struct ndarray
         static_assert(1 <= Level && Level <= R, "internal");
         return this->dims_[Level - 1];
     }
-    auto dims() const
+    const auto& dims() const
     {
         return this->dims_;
     }
@@ -1748,8 +1764,8 @@ struct ndarray
         if constexpr (Level == R)
             return this->begin();
         else
-            return simple_view<T, R, R - Level, false>(level_iter_tag{}, 
-                *this, 0, this->dims_.data() + Level);
+            return simple_view<T, R, R - Level, false>(
+                this->identifier(), this->data(), this->dims_.data() + Level);
     }
     template<size_t Level>
     auto view_end()
@@ -1757,8 +1773,11 @@ struct ndarray
         if constexpr (Level == R)
             return this->end();
         else
-            return this->view_begin<Level>().apply_pointer_offset(
-                this->size());
+        {
+            auto iter = this->view_begin();
+            iter.apply_pointer_offset(this->size());
+            return iter;
+        }
     }
     template<size_t Level>
     auto view_begin() const
@@ -1767,8 +1786,8 @@ struct ndarray
         if constexpr (Level == R)
             return this->begin();
         else
-            return simple_view<T, R, R - Level, true>(level_iter_tag{}, 
-                *this, 0, this->dims_.data() + Level);
+            return simple_view<T, R, R - Level, true>(
+                this->identifier(), this->data(), this->dims_.data() + Level);
     }
     template<size_t Level>
     auto view_end() const
@@ -1776,8 +1795,11 @@ struct ndarray
         if constexpr (Level == R)
             return this->end();
         else
-            return this->view_begin<Level>().apply_pointer_offset(
-                this->size());
+        {
+            auto iter = this->view_begin();
+            iter.apply_pointer_offset(this->size());
+            return iter;
+        }
     }
     void resize(size_t new_dim0, ptrdiff_t size_diff)
     {
@@ -1786,22 +1808,10 @@ struct ndarray
         this->data_.resize(data_.size() + size_diff);
         this->dims_[0] = new_dim0;
     }
-    template<size_t Level, typename... Is>
-    void linear_pos_impl(size_t& pos,
-        const size_t& i1, const Is&... is) const
-    {
-        pos += i1;
-        if constexpr (Level < R - 1)
-            pos *= this->dims_[Level + 1u];
-        if constexpr (Level < R - 1)
-            linear_pos_impl<Level + 1u>(pos, is...);
-    }
     template<typename... Is>
-    size_t linear_pos(const Is&... is) const
+    size_t linear_position(const Is&... is) const
     {
-        size_t pos = 0u;
-        linear_pos_impl<0u>(pos, is...);
-        return pos;
+        return utils::linear_position(this->dims_, is...);
     }
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters)
@@ -2040,10 +2050,10 @@ boolean equal(const X& x, const Y& y)
     else
     {
         if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
-            return false;
+            return boolean(false);
         if constexpr (X::category != view_category::General)
         {
-            boolean equal_flag = true;
+            auto equal_flag = boolean(true);
             y.for_each([&](const auto& a, const auto& b)
                 {
                     equal_flag = equal(a, b);
@@ -3299,6 +3309,7 @@ auto set(Dst&& dst, Src&& src)
         static_assert(dst_rank == src_rank, "badrank");
         if constexpr (is_array_v<DstType>)
         {
+            static_assert(!is_movable_v<Dst&&>, "badargtype");
             static_assert(std::is_same_v<SrcValue, DstValue>, "badargtype");
             if (!has_aliasing(src, dst))
                 dst = std::forward<decltype(src)>(src).to_array();
@@ -3437,13 +3448,27 @@ auto _part_impl3(Array&& a, Indexers&&... indexers) -> decltype(auto)
     using ArrayType = remove_cvref_t<Array>;
     using ValueType = typename ArrayType::value_type;
     constexpr auto is_const = array_is_const_v<Array&&>;
-    static_assert(sizeof...(Indexers) <= array_rank_v<ArrayType>, "badargc");
+    static_assert(sizeof...(Indexers) <= array_rank_v<ArrayType>, "internal");
     using return_type = typename view_detail::view_type<Indexers...>::
         template return_type<ValueType, is_const, Indexers...>;
     if constexpr (is_array_view_v<return_type>)
-        return return_type(a, std::forward<decltype(indexers)>(indexers)...);
+    {
+        auto view = return_type(a.identifier(), a.data(), a.dims(),
+            std::forward<decltype(indexers)>(indexers)...);
+        if constexpr (is_movable_v<Array&&>)
+            return std::move(view).to_array();
+        else
+            return view;
+    }
     else
-        return a.data()[a.linear_pos(indexers.offset()...)];
+    {
+        auto& data_ref = a.data()[
+            utils::linear_position(a.dims(), indexers.offset()...)];
+        if constexpr (is_movable_v<Array&&>)
+            return static_cast<remove_cvref_t<decltype(data_ref)>>(data_ref);
+        else
+            return data_ref;
+    }
 }
 template<typename Array, size_t... Is, typename... Specs>
 auto _part_impl2(Array&& a, std::index_sequence<Is...>,
@@ -3470,14 +3495,16 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
     static_assert(sizeof...(Specs) <= R, "badargc");
     if constexpr (R == 0)
         return std::forward<decltype(a)>(a);
-    else if constexpr (ArrayType::category != view_category::Array)
-        return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
-    else
+    else if constexpr (
+        ArrayType::category == view_category::Array ||
+        ArrayType::category == view_category::Simple)
     {
         return _part_impl1<R>(std::forward<decltype(a)>(a),
             std::make_index_sequence<R - sizeof...(Specs)>{},
             std::forward<decltype(specs)>(specs)...);
     }
+    else
+        return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
 }
 template<typename Begin, typename End, typename Step>
 auto range(Begin begin, End end, Step step)
@@ -3682,13 +3709,13 @@ auto reverse(X&& x, const_int<I>)
     if constexpr (is_movable_v<X&&>)
     {
         _reverse_inplace(x, outer_size, inter_size, inner_size);
-        return std::move(x);
+        return x;
     }
     else
     {
         auto x2 = x.to_array();
         _reverse_inplace(x2, outer_size, inter_size, inner_size);
-        return std::move(x2);
+        return x2;
     }
 }
 template<typename X>
@@ -3978,7 +4005,7 @@ auto _fold_single_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
     {
         auto item = f(arg, *y_iter);
         y_inc(y_iter);
-        return std::move(item);
+        return item;
     };
     return nest(nest_f, std::forward<decltype(x)>(x), n);
 }
@@ -3990,7 +4017,7 @@ auto _fold_list_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
     {
         auto item = f(arg, *y_iter);
         y_inc(y_iter);
-        return std::move(item);
+        return item;
     };
     return nest_list(nest_f, std::forward<decltype(x)>(x), n);
 }

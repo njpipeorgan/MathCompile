@@ -218,10 +218,10 @@ boolean equal(const X& x, const Y& y)
     else
     {
         if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
-            return false;
+            return boolean(false);
         if constexpr (X::category != view_category::General)
         {
-            boolean equal_flag = true;
+            auto equal_flag = boolean(true);
             y.for_each([&](const auto& a, const auto& b)
                 {
                     equal_flag = equal(a, b);

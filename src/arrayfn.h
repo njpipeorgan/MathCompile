@@ -59,6 +59,7 @@ auto set(Dst&& dst, Src&& src)
         static_assert(dst_rank == src_rank, "badrank");
         if constexpr (is_array_v<DstType>)
         {
+            static_assert(!is_movable_v<Dst&&>, "badargtype");
             static_assert(std::is_same_v<SrcValue, DstValue>, "badargtype");
             if (!has_aliasing(src, dst))
                 dst = std::forward<decltype(src)>(src).to_array();
@@ -204,13 +205,28 @@ auto _part_impl3(Array&& a, Indexers&&... indexers) -> decltype(auto)
     using ArrayType = remove_cvref_t<Array>;
     using ValueType = typename ArrayType::value_type;
     constexpr auto is_const = array_is_const_v<Array&&>;
-    static_assert(sizeof...(Indexers) <= array_rank_v<ArrayType>, "badargc");
+    static_assert(sizeof...(Indexers) <= array_rank_v<ArrayType>, "internal");
     using return_type = typename view_detail::view_type<Indexers...>::
         template return_type<ValueType, is_const, Indexers...>;
+
     if constexpr (is_array_view_v<return_type>)
-        return return_type(a, std::forward<decltype(indexers)>(indexers)...);
+    {
+        auto view = return_type(a.identifier(), a.data(), a.dims(),
+            std::forward<decltype(indexers)>(indexers)...);
+        if constexpr (is_movable_v<Array&&>)
+            return std::move(view).to_array();
+        else
+            return view;
+    }
     else
-        return a.data()[a.linear_pos(indexers.offset()...)];
+    {
+        auto& data_ref = a.data()[
+            utils::linear_position(a.dims(), indexers.offset()...)];
+        if constexpr (is_movable_v<Array&&>)
+            return static_cast<remove_cvref_t<decltype(data_ref)>>(data_ref);
+        else
+            return data_ref;
+    }
 }
 
 template<typename Array, size_t... Is, typename... Specs>
@@ -240,14 +256,16 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
     static_assert(sizeof...(Specs) <= R, "badargc");
     if constexpr (R == 0)
         return std::forward<decltype(a)>(a);
-    else if constexpr (ArrayType::category != view_category::Array)
-        return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
-    else
+    else if constexpr (
+        ArrayType::category == view_category::Array ||
+        ArrayType::category == view_category::Simple)
     {
         return _part_impl1<R>(std::forward<decltype(a)>(a),
             std::make_index_sequence<R - sizeof...(Specs)>{},
             std::forward<decltype(specs)>(specs)...);
     }
+    else
+        return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
 }
 
 template<typename Begin, typename End, typename Step>
@@ -464,13 +482,13 @@ auto reverse(X&& x, const_int<I>)
     if constexpr (is_movable_v<X&&>)
     {
         _reverse_inplace(x, outer_size, inter_size, inner_size);
-        return std::move(x);
+        return x;
     }
     else
     {
         auto x2 = x.to_array();
         _reverse_inplace(x2, outer_size, inter_size, inner_size);
-        return std::move(x2);
+        return x2;
     }
 }
 

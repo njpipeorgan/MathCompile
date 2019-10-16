@@ -3553,8 +3553,9 @@ auto range(Begin begin, End end, Step step)
             {
                 size_t length = size_t(diff / ptrdiff_t(step)) + 1u;
                 ndarray<T, 1u> ret(std::array<size_t, 1>{length});
-                for (size_t i = 0; i < length; ++i, begin += step)
-                    ret[i] = begin;
+                auto ret_iter = ret.begin();
+                for (size_t i = 0; i < length; ++i, begin += step, ++ret_iter)
+                    *ret_iter = begin;
                 return ret;
             }
         }
@@ -3575,8 +3576,9 @@ auto range(Begin begin, End end, Step step)
                 if (step * remain > T(0))
                     --length;
                 ndarray<T, 1u> ret(std::array<size_t, 1>{length});
-                for (size_t i = 0; i < length; ++i)
-                    ret[i] = T(begin + i * step);
+                auto ret_iter = ret.begin();
+                for (size_t i = 0; i < length; ++i, ++ret_iter)
+                    *ret_iter = T(begin + i * step);
                 return ret;
             }
         }
@@ -3613,8 +3615,11 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
         {
             if constexpr (L2 == rank)
             {
+                const auto inter_size = a.size();
+                auto a_iter = a.begin();
                 auto ret = ValueType{};
-                a.for_each([&](const auto& val) { ret += val; });
+                for (size_t j = 0; j < inter_size; ++j, ++a_iter)
+                    ret += *a_iter;
                 return ret;
             }
             else
@@ -3624,10 +3629,11 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
                 const auto inter_size = utils::size_of_dims(
                     utils::dims_take<L1, L2>(a.dims()));
                 const auto inner_size = ret.size();
-                auto iter = a.begin();
+                auto a_iter = a.begin();
+                auto ret_iter = ret.begin();
                 for (size_t j = 0; j < inter_size; ++j)
-                    for (size_t k = 0; k < inner_size; ++k)
-                        ret[k] += *iter++;
+                    for (size_t k = 0; k < inner_size; ++k, ++a_iter)
+                        ret_iter[k] += *a_iter;
                 return ret;
             }
         }
@@ -3640,10 +3646,15 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
                 const auto outer_size = ret.size();
                 const auto inter_size = utils::size_of_dims(
                     utils::dims_take<L1, L2>(a.dims()));
-                auto iter = a.begin();
-                for (size_t i = 0; i < outer_size; ++i)
-                    for (size_t j = 0; j < inter_size; ++j)
-                        ret[i] += *iter++;
+                auto a_iter = a.begin();
+                auto ret_iter = ret.begin();
+                for (size_t i = 0; i < outer_size; ++i, ++ret_iter)
+                {
+                    auto sum = ValueType{};
+                    for (size_t j = 0; j < inter_size; ++j, ++a_iter)
+                        sum += *a_iter;
+                    *ret_iter = sum;
+                }
                 return ret;
             }
             else
@@ -3653,14 +3664,15 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
                 auto inner_dims = utils::dims_take<L2 + 1, rank>(a.dims());
                 auto ret_dims = utils::dims_join(outer_dims, inner_dims);
                 ndarray<ValueType, rank - (L2 - L1 + 1)> ret(ret_dims);
-                auto iter = a.begin();
+                auto a_iter = a.begin();
+                auto ret_iter = ret.begin();
                 const auto outer_size = utils::size_of_dims(outer_dims);
                 const auto inter_size = utils::size_of_dims(inter_dims);
                 const auto inner_size = utils::size_of_dims(inner_dims);
-                for (size_t i = 0; i < outer_size; ++i)
+                for (size_t i = 0; i < outer_size; ++i, ret_iter += inner_size)
                     for (size_t j = 0; j < inter_size; ++j)
-                        for (size_t k = 0; k < inner_size; ++k)
-                            ret[i * inner_size + k] += *iter++;
+                        for (size_t k = 0; k < inner_size; ++k, ++a_iter)
+                            ret_iter[k] += *a_iter;
                 return ret;
             }
         }

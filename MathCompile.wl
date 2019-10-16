@@ -691,9 +691,9 @@ compilelink[f_,OptionsPattern[]]:=
 
 
 $compileroptions=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O3",
-  CCompilerDriver`IntelCompiler`IntelCompiler->"-std=c++17 -O3 -Kc++",
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Ox /Oi /Gy"
+  CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O3 -ffast-math",
+  CCompilerDriver`IntelCompiler`IntelCompiler->"-std=c++17 -Kc++ -O3 -fp-model fast=2",
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Ox /Oi /Gy /fp:fast"
 |>;
 $debugcompileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O0 -g3",

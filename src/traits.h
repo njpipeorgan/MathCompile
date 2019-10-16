@@ -234,9 +234,9 @@ template<typename T, typename U>
 struct is_convertible
 {
     static constexpr bool value =
-        _is_convertible_impl<T, U>::value || 
+        _is_convertible_impl<T, U>::value ||
         (is_array_v<T> && is_array_v<U> &&
-            array_rank_v<T> == array_rank_v<U> && 
+            array_rank_v<T> == array_rank_v<U> &&
             _is_convertible_impl<value_type_t<T>, value_type_t<U>>::value);
 };
 
@@ -264,7 +264,7 @@ template<typename Fn, typename ArgsTuple>
 struct tuple_invoke_result;
 
 template<typename Fn, typename... Args>
-struct tuple_invoke_result<Fn, std::tuple<Args...>> : 
+struct tuple_invoke_result<Fn, std::tuple<Args...>> :
     std::invoke_result<Fn, Args...> {};
 
 template<typename Fn, typename ArgsTuple>
@@ -285,15 +285,15 @@ constexpr auto can_be_invoked_v = can_be_invoked<Fn, Args...>::value;
 template<typename Fn, typename T, typename... Ts>
 struct _argc_can_be_invoked_impl
 {
-    static constexpr auto value = 
-        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) : 
+    static constexpr auto value =
+        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) :
         _argc_can_be_invoked_impl<Fn, T, T, Ts...>::value;
 };
 
 constexpr size_t invalid_apply_argc = 8u;
 
 template<typename Fn, typename T>
-struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> : 
+struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> :
     std::integral_constant<size_t, invalid_apply_argc> {};
 
 template<typename Fn, typename T>

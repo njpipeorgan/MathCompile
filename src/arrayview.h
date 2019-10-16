@@ -81,11 +81,31 @@ struct indexer_iter<true>
     }
 };
 
+struct cidx
+{
+    const size_t value_;
+
+    constexpr explicit cidx(int64_t value) : value_{size_t(value)}
+    {
+    }
+
+    constexpr size_t value() const
+    {
+        return value_;
+    }
+};
+
 template<typename IndexType>
 size_t convert_index(const IndexType& idx, const size_t& dim)
 {
-    static_assert(is_integral_v<IndexType>, "badidxtype");
-    if constexpr (std::is_unsigned_v<IndexType>)
+    if constexpr (std::is_same_v<IndexType, cidx>)
+    {
+        if (idx.value() < dim)
+            return idx.value();
+        else
+            throw std::logic_error("badindex");
+    }
+    else if constexpr (std::is_unsigned_v<IndexType>)
     {
         if (1u <= idx && idx <= dim)
             return size_t(idx - 1u);
@@ -94,6 +114,7 @@ size_t convert_index(const IndexType& idx, const size_t& dim)
     }
     else
     {
+        static_assert(is_integral_v<IndexType>, "internal");
         ptrdiff_t pos_idx = idx >= 0 ?
             idx : idx + ptrdiff_t(dim) + 1;
         if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
@@ -110,8 +131,8 @@ struct scalar_indexer
 
     scalar_indexer() = default;
 
-    template<typename IndexType>
-    scalar_indexer(IndexType index, size_t dim) :
+    template<typename IndexType, typename Dim>
+    scalar_indexer(IndexType index, const Dim& dim) :
         index_{convert_index(index, dim)}
     {
     }
@@ -394,6 +415,8 @@ auto make_indexer(const IndexType& index, size_t dim)
 {
     if constexpr (std::is_same_v<IndexType, all_type>)
         return all_indexer(dim);
+    else if constexpr (std::is_same_v<IndexType, cidx>)
+        return scalar_indexer(index, dim);
     else
     {
         static_assert(is_integral_v<IndexType>, "badidxtype");
@@ -623,6 +646,11 @@ struct regular_view_iterator
     auto operator+(ptrdiff_t diff) const
     {
         return _my_type(pointer_ + diff * stride_, stride_);
+    }
+
+    auto& operator[](ptrdiff_t diff) const
+    {
+        return pointer_ + diff * stride_;
     }
 };
 

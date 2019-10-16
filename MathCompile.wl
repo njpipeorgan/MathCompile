@@ -418,7 +418,9 @@ functionmacro[code_]:=code//.{
     id["Fold"][func_,id["Reverse"][y_]]:>native["foldr"][func,y],
     id["FoldList"][func_,x_,id["Reverse"][y_]]:>native["foldr_list"][func,x,y],
     id["FoldList"][func_,id["Reverse"][y_]]:>native["foldr_list"][func,y],
-    id["Apply"][func_,list[args___]]:>func[args]
+    id["Apply"][func_,list[args___]]:>func[args],
+    id["Part"][array_,specs___]:>id["Part"][array,
+      Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]]
   }
 
 arithmeticmacro[code_]:=code//.{

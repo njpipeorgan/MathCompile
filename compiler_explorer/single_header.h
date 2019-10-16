@@ -167,9 +167,9 @@ template<typename T, typename U>
 struct is_convertible
 {
     static constexpr bool value =
-        _is_convertible_impl<T, U>::value || 
+        _is_convertible_impl<T, U>::value ||
         (is_array_v<T> && is_array_v<U> &&
-            array_rank_v<T> == array_rank_v<U> && 
+            array_rank_v<T> == array_rank_v<U> &&
             _is_convertible_impl<value_type_t<T>, value_type_t<U>>::value);
 };
 template<typename T>
@@ -188,7 +188,7 @@ constexpr auto all_is_integral_v = all_is_integral<Ts...>::value;
 template<typename Fn, typename ArgsTuple>
 struct tuple_invoke_result;
 template<typename Fn, typename... Args>
-struct tuple_invoke_result<Fn, std::tuple<Args...>> : 
+struct tuple_invoke_result<Fn, std::tuple<Args...>> :
     std::invoke_result<Fn, Args...> {};
 template<typename Fn, typename ArgsTuple>
 using tuple_invoke_result_t = typename tuple_invoke_result<Fn, ArgsTuple>::type;
@@ -203,13 +203,13 @@ constexpr auto can_be_invoked_v = can_be_invoked<Fn, Args...>::value;
 template<typename Fn, typename T, typename... Ts>
 struct _argc_can_be_invoked_impl
 {
-    static constexpr auto value = 
-        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) : 
+    static constexpr auto value =
+        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) :
         _argc_can_be_invoked_impl<Fn, T, T, Ts...>::value;
 };
 constexpr size_t invalid_apply_argc = 8u;
 template<typename Fn, typename T>
-struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> : 
+struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> :
     std::integral_constant<size_t, invalid_apply_argc> {};
 template<typename Fn, typename T>
 struct argc_can_be_invoked : _argc_can_be_invoked_impl<Fn, T> {};
@@ -801,11 +801,28 @@ struct indexer_iter<true>
         return this->index_ == other.index_;
     }
 };
+struct cidx
+{
+    const size_t value_;
+    constexpr explicit cidx(int64_t value) : value_{size_t(value)}
+    {
+    }
+    constexpr size_t value() const
+    {
+        return value_;
+    }
+};
 template<typename IndexType>
 size_t convert_index(const IndexType& idx, const size_t& dim)
 {
-    static_assert(is_integral_v<IndexType>, "badidxtype");
-    if constexpr (std::is_unsigned_v<IndexType>)
+    if constexpr (std::is_same_v<IndexType, cidx>)
+    {
+        if (idx.value() < dim)
+            return idx.value();
+        else
+            throw std::logic_error("badindex");
+    }
+    else if constexpr (std::is_unsigned_v<IndexType>)
     {
         if (1u <= idx && idx <= dim)
             return size_t(idx - 1u);
@@ -814,6 +831,7 @@ size_t convert_index(const IndexType& idx, const size_t& dim)
     }
     else
     {
+        static_assert(is_integral_v<IndexType>, "internal");
         ptrdiff_t pos_idx = idx >= 0 ?
             idx : idx + ptrdiff_t(dim) + 1;
         if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
@@ -827,8 +845,8 @@ struct scalar_indexer
 {
     size_t index_;
     scalar_indexer() = default;
-    template<typename IndexType>
-    scalar_indexer(IndexType index, size_t dim) :
+    template<typename IndexType, typename Dim>
+    scalar_indexer(IndexType index, const Dim& dim) :
         index_{convert_index(index, dim)}
     {
     }
@@ -1068,6 +1086,8 @@ auto make_indexer(const IndexType& index, size_t dim)
 {
     if constexpr (std::is_same_v<IndexType, all_type>)
         return all_indexer(dim);
+    else if constexpr (std::is_same_v<IndexType, cidx>)
+        return scalar_indexer(index, dim);
     else
     {
         static_assert(is_integral_v<IndexType>, "badidxtype");
@@ -1153,31 +1173,29 @@ struct simple_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i)
+        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
         {
-            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-            {
-                if (f(*ptr++, (*iters++)...))
-                    break;
-            }
-            else
-                f(*ptr++, (*iters++)...);
+            bool continue_flag = true;
+            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
+                continue_flag = !f(this->data_[i], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < this->size_; ++i)
+                f(this->data_[i], iters[i]...);
         }
     }
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        auto ptr = this->data_;
         for (size_t i = 0u; i < this->size_; ++i)
-            *iter++ = *ptr++;
+            iter[i] = this->data_[i];
     }
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        auto ptr = this->data_;
         for (size_t i = 0u; i < this->size_; ++i)
-            *ptr++ = *iter++;
+            this->data_[i] = iter[i];
     }
     auto to_array() const
     {
@@ -1264,6 +1282,10 @@ struct regular_view_iterator
     auto operator+(ptrdiff_t diff) const
     {
         return _my_type(pointer_ + diff * stride_, stride_);
+    }
+    auto& operator[](ptrdiff_t diff) const
+    {
+        return pointer_ + diff * stride_;
     }
 };
 template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, bool Const>
@@ -1357,31 +1379,29 @@ struct regular_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i, ptr += this->stride_)
+        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
         {
-            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-            {
-                if (f(*ptr, (*iters++)...))
-                    break;
-            }
-            else
-                f(*ptr, (*iters++)...);
+            bool continue_flag = true;
+            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
+                continue_flag = !f(this->data_[i * stride_], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < this->size_; ++i)
+                f(this->data_[i * stride_], iters[i]...);
         }
     }
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size_; ++i, ptr += this->stride_)
-            *iter++ = *ptr;
+        for (size_t i = 0u; i < this->size_; ++i)
+            iter[i] = this->data_[i * stride_];
     }
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size_; ++i, ptr += this->stride_)
-            *ptr = *iter++;
+        for (size_t i = 0u; i < this->size_; ++i)
+            this->data_[i * stride_] = iter[i];
     }
     auto to_array() const
     {
@@ -1513,22 +1533,26 @@ struct general_view
                 {
                     if constexpr (check_break)
                     {
-                        if (f(this->data_[(index + i) * last_stride], (*iters++)...))
+                        if (f(this->data_[(index + i) * last_stride], 
+                            (*iters++)...))
                             break;
                     }
                     else
-                        f(this->data_[(index + i) * last_stride], (*iters++)...);
+                        f(this->data_[(index + i) * last_stride], 
+                        (*iters++)...);
                 }
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
                 {
                     if constexpr (check_break)
                     {
-                        if (f(this->data_[(index + i) * last_stride], (*iters++)...))
+                        if (f(this->data_[(index + i) * last_stride], 
+                            (*iters++)...))
                             break;
                     }
                     else
-                        f(this->data_[(index + i) * last_stride], (*iters++)...);
+                        f(this->data_[(index + i) * last_stride], 
+                        (*iters++)...);
                 }
         }
     }
@@ -1817,45 +1841,51 @@ struct ndarray
     void for_each(Function f, Iters... iters)
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i)
+        const auto size = this->size();
+        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
         {
-            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-            {
-                if (f(*ptr++, (*iters++)...))
-                    break;
-            }
-            else
-                f(*ptr++, (*iters++)...);
+            bool continue_flag = true;
+            for (size_t i = 0u; i < size && continue_flag; ++i)
+                continue_flag = !f(ptr[i], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < size; ++i)
+                f(ptr[i], iters[i]...);
         }
     }
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i)
+        const auto size = this->size();
+        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
         {
-            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-            {
-                if (f(*ptr++, (*iters++)...))
-                    break;
-            }
-            else
-                f(*ptr++, (*iters++)...);
+            bool continue_flag = true;
+            for (size_t i = 0u; i < size && continue_flag; ++i)
+                continue_flag = !f(ptr[i], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < size; ++i)
+                f(ptr[i], iters[i]...);
         }
     }
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i)
-            *iter++ = *ptr++;
+        const auto size = this->size();
+        for (size_t i = 0u; i < size; ++i)
+            iter[i] = ptr[i];
     }
     template<typename FwdIter>
     void copy_from(FwdIter iter) &
     {
         auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i)
-            *ptr++ = *iter++;
+        const auto size = this->size();
+        for (size_t i = 0u; i < size; ++i)
+            ptr[i] = iter[i];
     }
     template<typename FwdIter>
     void copy_from(FwdIter) && = delete;

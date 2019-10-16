@@ -515,33 +515,31 @@ struct simple_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i)
+        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
         {
-            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-            {
-                if (f(*ptr++, (*iters++)...))
-                    break;
-            }
-            else
-                f(*ptr++, (*iters++)...);
+            bool continue_flag = true;
+            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
+                continue_flag = !f(this->data_[i], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < this->size_; ++i)
+                f(this->data_[i], iters[i]...);
         }
     }
 
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        auto ptr = this->data_;
         for (size_t i = 0u; i < this->size_; ++i)
-            *iter++ = *ptr++;
+            iter[i] = this->data_[i];
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        auto ptr = this->data_;
         for (size_t i = 0u; i < this->size_; ++i)
-            *ptr++ = *iter++;
+            this->data_[i] = iter[i];
     }
 
     auto to_array() const
@@ -757,33 +755,31 @@ struct regular_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size(); ++i, ptr += this->stride_)
+        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
         {
-            if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-            {
-                if (f(*ptr, (*iters++)...))
-                    break;
-            }
-            else
-                f(*ptr, (*iters++)...);
+            bool continue_flag = true;
+            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
+                continue_flag = !f(this->data_[i * stride_], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < this->size_; ++i)
+                f(this->data_[i * stride_], iters[i]...);
         }
     }
 
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size_; ++i, ptr += this->stride_)
-            *iter++ = *ptr;
+        for (size_t i = 0u; i < this->size_; ++i)
+            iter[i] = this->data_[i * stride_];
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        auto ptr = this->data();
-        for (size_t i = 0u; i < this->size_; ++i, ptr += this->stride_)
-            *ptr = *iter++;
+        for (size_t i = 0u; i < this->size_; ++i)
+            this->data_[i * stride_] = iter[i];
     }
 
     auto to_array() const
@@ -931,22 +927,26 @@ struct general_view
                 {
                     if constexpr (check_break)
                     {
-                        if (f(this->data_[(index + i) * last_stride], (*iters++)...))
+                        if (f(this->data_[(index + i) * last_stride], 
+                            (*iters++)...))
                             break;
                     }
                     else
-                        f(this->data_[(index + i) * last_stride], (*iters++)...);
+                        f(this->data_[(index + i) * last_stride], 
+                        (*iters++)...);
                 }
             else
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
                 {
                     if constexpr (check_break)
                     {
-                        if (f(this->data_[(index + i) * last_stride], (*iters++)...))
+                        if (f(this->data_[(index + i) * last_stride], 
+                            (*iters++)...))
                             break;
                     }
                     else
-                        f(this->data_[(index + i) * last_stride], (*iters++)...);
+                        f(this->data_[(index + i) * last_stride], 
+                        (*iters++)...);
                 }
         }
     }

@@ -99,6 +99,16 @@ struct _small_vector
         new(&data_.dynamic_) dynamic_t(std::move(other));
     }
 
+    template<typename FwdIter>
+    _small_vector(FwdIter begin, FwdIter end) :
+        is_static_{size_t(end - begin) <= N}, size_{size_t(end - begin)}
+    {
+        if (is_static_)
+            std::copy_n(begin, size_, this->data_.static_.data());
+        else
+            new(&data_.dynamic_) dynamic_t(begin, end);
+    }
+
     _small_vector(const _small_vector& other) :
         is_static_{other.is_static_}, size_{other.size_}
     {
@@ -217,8 +227,14 @@ struct ndarray
         std::copy(dims.begin(), dims.end(), this->dims_.data());
     }
 
+    template<typename FwdIter>
+    ndarray(std::array<size_t, rank> dims, FwdIter begin, FwdIter end) :
+        dims_{dims}, data_(begin, end)
+    {
+    }
+
     ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
-        dims_{dims}, size_{movable.size()}, data_{std::move(movable)}
+        dims_{dims}, data_{std::move(movable)}
     {
     }
     

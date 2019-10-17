@@ -139,24 +139,33 @@ auto dims_take(const std::array<size_t, R>& dims)
     }
 }
 
-template<size_t... Is>
-auto _size_of_dims_impl(const size_t* dims, std::index_sequence<Is...>)
+template<typename Dims, size_t... Is>
+auto _size_of_dims_impl(const Dims* dims, std::index_sequence<Is...>)
 {
-    return (dims[Is] * ...);
+    if constexpr (std::is_unsigned_v<Dims>)
+        return (size_t(dims[Is]) * ...);
+    else
+    {
+        if (!((dims[Is] >= 0) && ...))
+            throw std::logic_error("baddims");
+        return (size_t(dims[Is]) * ...);
+    }
 }
 
-template<size_t R>
-auto size_of_dims(const size_t* dims)
+template<size_t R, typename Dims>
+auto size_of_dims(const Dims* dims)
 {
+    static_assert(is_integral_v<Dims>, "internal");
     if constexpr (R == 0u)
         return size_t(1);
     else
         return _size_of_dims_impl(dims, std::make_index_sequence<R>{});
 }
 
-template<size_t R>
-auto size_of_dims(const std::array<size_t, R>& dims)
+template<size_t R, typename Dims>
+auto size_of_dims(const std::array<Dims, R>& dims)
 {
+    static_assert(is_integral_v<Dims>, "internal");
     if constexpr (R == 0u)
         return size_t(1);
     else

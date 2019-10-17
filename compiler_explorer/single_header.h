@@ -12,6 +12,7 @@
 #include <cassert>
 #include <array>
 #include <numeric>
+#include <variant>
 #include <cmath>
 #include <random>
 namespace wl
@@ -567,22 +568,31 @@ auto dims_take(const std::array<size_t, R>& dims)
         return dims_take<I1, I2>(dims.data());
     }
 }
-template<size_t... Is>
-auto _size_of_dims_impl(const size_t* dims, std::index_sequence<Is...>)
+template<typename Dims, size_t... Is>
+auto _size_of_dims_impl(const Dims* dims, std::index_sequence<Is...>)
 {
-    return (dims[Is] * ...);
+    if constexpr (std::is_unsigned_v<Dims>)
+        return (size_t(dims[Is]) * ...);
+    else
+    {
+        if (!((dims[Is] >= 0) && ...))
+            throw std::logic_error("baddims");
+        return (size_t(dims[Is]) * ...);
+    }
 }
-template<size_t R>
-auto size_of_dims(const size_t* dims)
+template<size_t R, typename Dims>
+auto size_of_dims(const Dims* dims)
 {
+    static_assert(is_integral_v<Dims>, "internal");
     if constexpr (R == 0u)
         return size_t(1);
     else
         return _size_of_dims_impl(dims, std::make_index_sequence<R>{});
 }
-template<size_t R>
-auto size_of_dims(const std::array<size_t, R>& dims)
+template<size_t R, typename Dims>
+auto size_of_dims(const std::array<Dims, R>& dims)
 {
+    static_assert(is_integral_v<Dims>, "internal");
     if constexpr (R == 0u)
         return size_t(1);
     else
@@ -1108,11 +1118,11 @@ struct simple_view
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _base_dims_t = std::array<size_t, ArrayRank>;
     using _dims_t = std::array<size_t, ViewRank>;
-    const T* const identifier_;
+    const void* const identifier_;
     pointer_type data_;
     _dims_t dims_;
     size_t size_;
-    simple_view(const T* base_id, pointer_type view_data, const size_t* dims) :
+    simple_view(const void* base_id, pointer_type view_data, const size_t* dims) :
         identifier_{base_id}, data_{view_data}
     {
         std::copy_n(dims, ViewRank, this->dims_.begin());
@@ -1303,13 +1313,13 @@ struct regular_view
     using pointer_type = std::conditional_t<Const, const T*, T*>;
     using _base_dims_t = std::array<size_t, ArrayRank>;
     using _dims_t = std::array<size_t, ViewRank>;
-    const T* const identifier_;
+    const void* const identifier_;
     pointer_type data_;
     ptrdiff_t stride_;
     _dims_t dims_;
     size_t size_;
     template<typename... Specs>
-    regular_view(const T* base_id, pointer_type base_data,
+    regular_view(const void* base_id, pointer_type base_data,
         const _base_dims_t& base_dims, const Specs&... specs) :
         identifier_{base_id}, size_{1u}
     {
@@ -1431,14 +1441,14 @@ struct general_view
         std::is_same_v<
         std::tuple_element_t<ViewRank - 1u, IndexersTuple>,
         step_indexer>;
-    const T* const identifier_;
+    const void* const identifier_;
     pointer_type data_;
     _strides_t strides_;
     _indexers_tuple indexers_;
     _dims_t dims_;
     size_t size_;
     template<typename... Specs>
-    general_view(const T* base_id, pointer_type base_data,
+    general_view(const void* base_id, pointer_type base_data,
         const _base_dims_t& base_dims, Specs&&... specs) :
         identifier_{base_id}, size_{1u}
     {
@@ -1664,6 +1674,340 @@ auto indirect_view_copy(Dst&& dst, const Src& src)
 }
 namespace wl
 {
+#ifndef WL_SMALL_ARRAY_SIZE
+#define WL_SMALL_ARRAY_SIZE 1024
+#endif
+template<typename T, size_t N>
+struct _small_vector
+{
+    using static_t = std::array<T, N>;
+    using dynamic_t = std::vector<T>;
+    union data_t
+    {
+        static_t static_;
+        dynamic_t dynamic_;
+        data_t() {}
+        ~data_t() {}
+        data_t(const data_t&) = delete;
+        data_t(data_t&&) = delete;
+        data_t& operator=(const data_t&) = delete;
+        data_t& operator=(data_t&&) = delete;
+    };
+    bool is_static_ = true;
+    size_t size_ = 0u;
+    data_t data_;
+    _small_vector()
+    {
+    }
+    ~_small_vector()
+    {
+        if (!is_static_)
+            data_.dynamic_.~dynamic_t();
+    }
+    explicit _small_vector(size_t size) :
+        is_static_{size <= N}, size_{size}
+    {
+        if (!is_static_)
+            new(&data_.dynamic_) dynamic_t(size);
+    }
+    _small_vector(size_t size, const T& val) :
+        is_static_{size <= N}, size_{size}
+    {
+        if (is_static_)
+            std::fill_n(data_.static_.data(), size, val);
+        else
+            new(&data_.dynamic_) dynamic_t(size, val);
+    }
+    explicit _small_vector(const dynamic_t& other) :
+        is_static_{other.size() <= N}, size_{other.size()}
+    {
+        if (is_static_)
+            std::copy_n(other.data(), size_, this->data_.static_.data());
+        else
+            new(&data_.dynamic_) dynamic_t(other);
+    }
+    explicit _small_vector(dynamic_t&& other) :
+        is_static_{false}, size_{other.size()}
+    {
+        new(&data_.dynamic_) dynamic_t(std::move(other));
+    }
+    _small_vector(const _small_vector& other) :
+        is_static_{other.is_static_}, size_{other.size_}
+    {
+        if (is_static_)
+            std::copy_n(other.data_.static_.data(), size_,
+                this->data_.static_.data());
+        else
+            new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
+    }
+    _small_vector(_small_vector&& other) :
+        is_static_{other.is_static_}, size_{other.size_}
+    {
+        if (is_static_)
+            std::copy_n(other.data_.static_.data(), size_,
+                this->data_.static_.data());
+        else
+            new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
+    }
+    _small_vector& operator=(const _small_vector&) = delete;
+    _small_vector& operator=(_small_vector&&) = delete;
+    size_t size() const
+    {
+        return size_;
+    }
+    const T* data() const
+    {
+        if (is_static_)
+            return data_.static_.data();
+        else
+            return data_.dynamic_.data();
+    }
+    T* data()
+    {
+        if (is_static_)
+            return data_.static_.data();
+        else
+            return data_.dynamic_.data();
+    }
+    T* begin() { return data(); }
+    T* end() { return data() + size_; }
+    const T* begin() const { return data(); }
+    const T* end() const { return data() + size_; }
+    void to_dynamic()
+    {
+        if (is_static_)
+        {
+            dynamic_t new_data(data(), data() + size_);
+            new(&data_.dynamic_) dynamic_t(std::move(new_data));
+            is_static_ = false;
+        }
+    }
+    void resize(size_t new_size)
+    {
+        if (!is_static_)
+            data_.dynamic_.resize(new_size);
+        else if (new_size > N)
+        {
+            dynamic_t new_data(new_size);
+            std::copy_n(data_.static_.data(), size_, new_data.data());
+            new(&data_.dynamic_) dynamic_t(std::move(new_data));
+            is_static_ = false;
+            size_ = new_size;
+        }
+    }
+    const void* identifier() const
+    {
+        return reinterpret_cast<const void*>(this);
+    }
+};
+#if WL_SMALL_ARRAY_SIZE > 0
+template<typename T, size_t R>
+struct ndarray
+{
+    static_assert(1u <= R && R <= 1024u, "badrank");
+    static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
+    static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>,
+        "badargtype");
+    using value_type = T;
+    static constexpr auto rank = R;
+    using _dims_t = std::array<size_t, R>;
+    static constexpr auto category = view_category::Array;
+    static constexpr auto small_size = size_t(WL_SMALL_ARRAY_SIZE) / sizeof(T);
+    using _data_t = _small_vector<T, small_size>;
+    _dims_t dims_;
+    _data_t data_;
+    ndarray() : dims_{0u}, data_{}
+    {
+    }
+    template<typename DimsT>
+    ndarray(std::array<DimsT, rank> dims, const T& val) :
+        data_{utils::size_of_dims(dims)}
+    {
+        std::copy(dims.begin(), dims.end(), this->dims_.data());
+    }
+    template<typename DimsT>
+    ndarray(std::array<DimsT, rank> dims) : 
+        data_{utils::size_of_dims(dims)}
+    {
+        std::copy(dims.begin(), dims.end(), this->dims_.data());
+    }
+    ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
+        dims_{dims}, size_{movable.size()}, data_{std::move(movable)}
+    {
+    }
+    
+    size_t size() const
+    {
+        return data_.size();
+    }
+    template<size_t Level>
+    size_t partial_size() const
+    {
+        static_assert(Level <= R, "internal");
+        return utils::size_of_dims<R - Level>(this->dims_.data());
+    }
+    // uses one-based indexing
+    template<size_t Level>
+    size_t dimension() const
+    {
+        static_assert(1 <= Level && Level <= R, "internal");
+        return this->dims_[Level - 1];
+    }
+    const auto& dims() const
+    {
+        return this->dims_;
+    }
+    const size_t* dims_ptr() const
+    {
+        return this->dims_.data();
+    }
+    const T* data() const
+    {
+        return this->data_.data();
+    }
+    T* data()
+    {
+        return this->data_.data();
+    }
+    auto data_vector() const & -> const auto&
+    {
+        return this->data_;
+    }
+    auto data_vector() & -> auto&
+    {
+        return this->data_;
+    }
+    auto data_vector() && -> auto&&
+    {
+        return std::move(this->data_);
+    }
+    const void* identifier() const
+    {
+        return this->data_.identifier();
+    }
+    auto begin() { return this->data_.begin(); }
+    auto end() { return this->data_.end(); }
+    auto begin() const { return this->data_.begin(); }
+    auto end() const { return this->data_.end(); }
+    template<size_t Level>
+    auto view_begin()
+    {
+        static_assert(Level <= R, "internal");
+        if constexpr (Level == R)
+            return this->begin();
+        else
+            return simple_view<T, R, R - Level, false>(
+                this->identifier(), this->data(), this->dims_ptr() + Level);
+    }
+    template<size_t Level>
+    auto view_end()
+    {
+        if constexpr (Level == R)
+            return this->end();
+        else
+        {
+            auto iter = this->view_begin();
+            iter.apply_pointer_offset(this->size());
+            return iter;
+        }
+    }
+    template<size_t Level>
+    auto view_begin() const
+    {
+        static_assert(Level <= R, "internal");
+        if constexpr (Level == R)
+            return this->begin();
+        else
+            return simple_view<T, R, R - Level, true>(
+                this->identifier(), this->data(), this->dims_ptr() + Level);
+    }
+    template<size_t Level>
+    auto view_end() const
+    {
+        if constexpr (Level == R)
+            return this->end();
+        else
+        {
+            auto iter = this->view_begin();
+            iter.apply_pointer_offset(this->size());
+            return iter;
+        }
+    }
+    void resize(size_t new_dim0, ptrdiff_t size_diff)
+    {
+        assert(size_diff ==
+            ptrdiff_t((new_dim0 - dims_[0]) * partial_size<1u>()));
+        this->size_ += size_diff;
+        this->dims_[0] = new_dim0;
+        this->data_.resize(this->size_);
+    }
+    template<typename... Is>
+    size_t linear_position(const Is&... is) const
+    {
+        return utils::linear_position(this->dims_, is...);
+    }
+    template<typename Function, typename... Iters>
+    void for_each(Function f, Iters... iters)
+    {
+        auto ptr = this->data();
+        const auto size = this->size();
+        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
+        {
+            bool continue_flag = true;
+            for (size_t i = 0u; i < size && continue_flag; ++i)
+                continue_flag = !f(ptr[i], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < size; ++i)
+                f(ptr[i], iters[i]...);
+        }
+    }
+    template<typename Function, typename... Iters>
+    void for_each(Function f, Iters... iters) const
+    {
+        auto ptr = this->data();
+        const auto size = this->size();
+        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
+        {
+            bool continue_flag = true;
+            for (size_t i = 0u; i < size && continue_flag; ++i)
+                continue_flag = !f(ptr[i], iters[i]...);
+        }
+        else
+        {
+            for (size_t i = 0u; i < size; ++i)
+                f(ptr[i], iters[i]...);
+        }
+    }
+    template<typename FwdIter>
+    void copy_to(FwdIter iter) const
+    {
+        auto ptr = this->data();
+        const auto size = this->size();
+        for (size_t i = 0u; i < size; ++i)
+            iter[i] = ptr[i];
+    }
+    template<typename FwdIter>
+    void copy_from(FwdIter iter) &
+    {
+        auto ptr = this->data();
+        const auto size = this->size();
+        for (size_t i = 0u; i < size; ++i)
+            ptr[i] = iter[i];
+    }
+    template<typename FwdIter>
+    void copy_from(FwdIter) && = delete;
+    auto to_array() const & -> decltype(auto)
+    {
+        return *this;
+    }
+    auto to_array() && -> decltype(auto)
+    {
+        return std::move(*this);
+    }
+};
+#else
 template<typename T, size_t R>
 struct ndarray
 {
@@ -1716,6 +2060,10 @@ struct ndarray
             size *= d;
         }
         return size;
+    }
+    bool is_static() const
+    {
+        return false;
     }
     size_t size() const
     {
@@ -1898,6 +2246,7 @@ struct ndarray
         return std::move(*this);
     }
 };
+#endif
 }
 namespace wl
 {
@@ -3785,6 +4134,8 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
             static_assert(is_convertible_v<Pad, XV>, "badargtype");
             std::fill(ret.begin() + x_size, ret.end(), cast<XV>(padding));
         }
+        else if (ret.is_static())
+            std::fill(ret.begin() + x_size, ret.end(), XV(0));
     }
     else
     {
@@ -3923,7 +4274,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
         first_item.copy_to(ret_iter.begin());
         ++a_iter;
         ++ret_iter;
-        for (size_t i = 0; i < utils::size_of_dims(map_dims);
+        for (size_t i = 1; i < utils::size_of_dims(map_dims);
             ++i, ++a_iter, ++ret_iter)
         {
             auto item = f(*a_iter);
@@ -3999,9 +4350,10 @@ auto nest_list(Function f, X&& x, const int64_t n)
     if constexpr (rank == 0u)
     {
         ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
-        ret[0] = cast<XT2>(std::forward<decltype(x)>(x));
-        for (size_t i = 1; i <= size_t(n); ++i)
-            ret[i] = cast<XT2>(f(ret[i - 1]));
+        auto ret_iter = ret.begin();
+        *ret_iter = cast<XT2>(std::forward<decltype(x)>(x));
+        for (size_t i = 1; i < size_t(n); ++i, ++ret_iter)
+            *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
         return ret;
     }
     else

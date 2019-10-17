@@ -531,6 +531,8 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
             static_assert(is_convertible_v<Pad, XV>, "badargtype");
             std::fill(ret.begin() + x_size, ret.end(), cast<XV>(padding));
         }
+        else if (ret.is_static())
+            std::fill(ret.begin() + x_size, ret.end(), XV(0));
     }
     else
     {

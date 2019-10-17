@@ -440,12 +440,12 @@ struct simple_view
     using _base_dims_t = std::array<size_t, ArrayRank>;
     using _dims_t = std::array<size_t, ViewRank>;
 
-    const T* const identifier_;
+    const void* const identifier_;
     pointer_type data_;
     _dims_t dims_;
     size_t size_;
 
-    simple_view(const T* base_id, pointer_type view_data, const size_t* dims) :
+    simple_view(const void* base_id, pointer_type view_data, const size_t* dims) :
         identifier_{base_id}, data_{view_data}
     {
         std::copy_n(dims, ViewRank, this->dims_.begin());
@@ -669,14 +669,14 @@ struct regular_view
     using _base_dims_t = std::array<size_t, ArrayRank>;
     using _dims_t = std::array<size_t, ViewRank>;
 
-    const T* const identifier_;
+    const void* const identifier_;
     pointer_type data_;
     ptrdiff_t stride_;
     _dims_t dims_;
     size_t size_;
 
     template<typename... Specs>
-    regular_view(const T* base_id, pointer_type base_data,
+    regular_view(const void* base_id, pointer_type base_data,
         const _base_dims_t& base_dims, const Specs&... specs) :
         identifier_{base_id}, size_{1u}
     {
@@ -815,7 +815,7 @@ struct general_view
         std::tuple_element_t<ViewRank - 1u, IndexersTuple>,
         step_indexer>;
 
-    const T* const identifier_;
+    const void* const identifier_;
     pointer_type data_;
     _strides_t strides_;
     _indexers_tuple indexers_;
@@ -823,7 +823,7 @@ struct general_view
     size_t size_;
 
     template<typename... Specs>
-    general_view(const T* base_id, pointer_type base_data,
+    general_view(const void* base_id, pointer_type base_data,
         const _base_dims_t& base_dims, Specs&&... specs) :
         identifier_{base_id}, size_{1u}
     {

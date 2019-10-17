@@ -678,7 +678,7 @@ compilelink[f_,OptionsPattern[]]:=
       "CompileOptions"->
         If[OptionValue["Debug"],$debugcompileroptions,$compileroptions][
           CCompilerDriver`DefaultCCompiler[]],
-      "CleanIntermediate"->False,
+      "CleanIntermediate"->!OptionValue["Debug"],
       "IncludeDirectories"->{$packagepath<>"/src"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,

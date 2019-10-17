@@ -150,7 +150,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
         first_item.copy_to(ret_iter.begin());
         ++a_iter;
         ++ret_iter;
-        for (size_t i = 0; i < utils::size_of_dims(map_dims);
+        for (size_t i = 1; i < utils::size_of_dims(map_dims);
             ++i, ++a_iter, ++ret_iter)
         {
             auto item = f(*a_iter);
@@ -232,9 +232,10 @@ auto nest_list(Function f, X&& x, const int64_t n)
     if constexpr (rank == 0u)
     {
         ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
-        ret[0] = cast<XT2>(std::forward<decltype(x)>(x));
-        for (size_t i = 1; i <= size_t(n); ++i)
-            ret[i] = cast<XT2>(f(ret[i - 1]));
+        auto ret_iter = ret.begin();
+        *ret_iter = cast<XT2>(std::forward<decltype(x)>(x));
+        for (size_t i = 1; i < size_t(n); ++i, ++ret_iter)
+            *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
         return ret;
     }
     else

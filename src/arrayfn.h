@@ -90,70 +90,139 @@ auto set(Dst&& dst, Src&& src)
     }
 }
 
-template<typename T, size_t R, size_t N, size_t I, typename Iter, typename Tuple>
-void _copy_list_array_elements(
-    Iter dst, const size_t* dims, size_t size, Tuple&& elems)
+template<typename Iter, size_t R>
+void _copy_list_array_elements(Iter&, const std::array<size_t, R>&)
 {
-    if constexpr (I < N)
-    {
-        using SrcType = remove_cvref_t<decltype(std::get<I>(elems))>;
-        static_assert(array_rank_v<SrcType> == R, "badrank");
-        using SrcValueType = typename SrcType::value_type;
-        static_assert(is_convertible_v<SrcValueType, T>, "badargtype");
-        auto elem = std::get<I>(std::forward<decltype(elems)>(elems));
-        if (!utils::check_dims<R>(elem.dims_ptr(), dims))
-            throw std::logic_error("baddims");
-        std::move(elem).copy_to(dst);
-    }
-    if constexpr (I < N - 1)
-        _copy_list_array_elements<T, R, N, I + 1>(dst + size, dims, size,
-            std::forward<decltype(elems)>(elems));
 }
 
-template<typename T, size_t N, size_t I, typename Iter, typename Tuple>
-void _copy_list_scalar_elements(Iter dst, Tuple&& elems)
+template<typename Iter, size_t R, typename First, typename... Rest>
+void _copy_list_array_elements(Iter& ret_iter,
+    const std::array<size_t, R>& dims, First&& first, Rest&&... rest)
 {
-    if constexpr (I < N)
+    using FirstType = remove_cvref_t<First>;
+    using T = value_type_t<remove_cvref_t<decltype(*ret_iter)>>;
+    if constexpr (is_argument_pack_v<FirstType>)
     {
-        using SrcType = remove_cvref_t<decltype(std::get<I>(elems))>;
-        static_assert(is_convertible_v<SrcType, T>, "badargtype");
-        *dst = std::get<I>(elems);
+        using ItemType = value_type_t<FirstType>;
+        static_assert(array_rank_v<ItemType> == R, "badrank");
+        using ValueType = value_type_t<ItemType>;
+        static_assert(is_convertible_v<ValueType, T>, "badargtype");
+        const auto size = first.size();
+        for (size_t i = 0u; i < size; ++i, ++ret_iter)
+        {
+            const auto& item = first.get(i);
+            if (!utils::check_dims(item.dims(), dims))
+                throw std::logic_error("baddims");
+            item.copy_to(ret_iter->begin());
+        }
     }
-    if constexpr (I < N - 1)
-        _copy_list_scalar_elements<T, N, I + 1>(dst + 1,
-            std::forward<decltype(elems)>(elems));
+    else
+    {
+        static_assert(array_rank_v<FirstType> == R, "badrank");
+        using ValueType = value_type_t<FirstType>;
+        static_assert(is_convertible_v<ValueType, T>, "badargtype");
+        if (!utils::check_dims(first.dims(), dims))
+            throw std::logic_error("baddims");
+        first.copy_to(ret_iter->begin());
+        ++ret_iter;
+    }
+    _copy_list_array_elements(ret_iter, dims,
+        std::forward<decltype(rest)>(rest)...);
 }
+
+template<typename T>
+void _copy_list_scalar_elements(T*&)
+{
+}
+
+template<typename T, typename First, typename... Rest>
+void _copy_list_scalar_elements(T*& ret_iter, First&& first, Rest&&... rest)
+{
+    using FirstType = remove_cvref_t<First>;
+    if constexpr (is_argument_pack_v<FirstType>)
+    {
+        using ItemType = value_type_t<FirstType>;
+        static_assert(is_convertible_v<ItemType, T>, "badargtype");
+        const auto size = first.size();
+        for (size_t i = 0; i < size; ++i, ++ret_iter)
+            *ret_iter = cast<T>(first.get(i));
+    }
+    else
+    {
+        static_assert(is_convertible_v<FirstType, T>, "badargtype");
+        *ret_iter = cast<T>(std::forward<decltype(first)>(first));
+        ++ret_iter;
+    }
+    _copy_list_scalar_elements(ret_iter,
+        std::forward<decltype(rest)>(rest)...);
+}
+
+
+template<typename Any>
+auto _list_length_by_args_impl(const Any& any)
+{
+    return size_t(1);
+}
+
+template<typename Iter>
+auto _list_length_by_args_impl(const argument_pack<Iter>& args)
+{
+    return args.size();
+}
+
+template<typename... Elems>
+auto _list_length_by_args(const Elems&... elems)
+{
+    return (_list_length_by_args_impl(elems) + ...);
+};
 
 template<typename First, typename... Rest>
 auto list(First&& first, Rest&&... rest)
 {
     using FirstType = remove_cvref_t<First>;
-    constexpr auto first_rank = array_rank_v<FirstType>;
-    constexpr auto dim0 = sizeof...(rest) + 1u;
-    if constexpr (first_rank == 0)
+    if constexpr (is_argument_pack_v<FirstType>)
     {
-        ndarray<FirstType, 1u> ret(std::array<size_t, 1u>{dim0});
-        _copy_list_scalar_elements<FirstType, dim0, 0u>(
-            ret.begin(),
-            std::make_tuple(std::forward<decltype(first)>(first),
-                std::forward<decltype(rest)>(rest)...));
-        return ret;
+        if (first.size() == 0u)
+        {
+            if constexpr (sizeof...(rest) == 0u)
+            {
+                using ItemType = value_type_t<FirstType>;
+                constexpr auto ret_rank = array_rank_v<ItemType> + 1u;
+                return ndarray<value_type_t<ItemType>, ret_rank>{};
+            }
+            else
+                return list(std::forward<decltype(rest)>(rest)...);
+        }
+        else
+            return list(first.get(0), first.get_pack(1),
+                std::forward<decltype(rest)>(rest)...);
     }
     else
     {
-        constexpr auto rank = first_rank + 1u;
-        std::array<size_t, rank> dims;
-        dims[0] = dim0;
-        std::copy_n(first.dims().begin(), first_rank, dims.data() + 1);
-        using FirstValueType = typename FirstType::value_type;
-        ndarray<FirstValueType, rank> ret(dims);
-        size_t item_size = first.size();
-        _copy_list_array_elements<FirstValueType, first_rank, dim0, 0u>(
-            ret.begin(), dims.data() + 1, item_size,
-            std::make_tuple(std::forward<decltype(first)>(first),
-                std::forward<decltype(rest)>(rest)...));
-        return ret;
-
+        constexpr auto first_rank = array_rank_v<FirstType>;
+        const auto dim0 = _list_length_by_args(first, rest...);
+        if constexpr (first_rank == 0)
+        {
+            ndarray<FirstType, 1u> ret(std::array<size_t, 1u>{dim0});
+            auto ret_iter = ret.data();
+            _copy_list_scalar_elements(ret_iter,
+                std::forward<decltype(first)>(first),
+                std::forward<decltype(rest)>(rest)...);
+            return ret;
+        }
+        else
+        {
+            constexpr auto rank = first_rank + 1u;
+            const auto dims = utils::dims_join(
+                std::array<size_t, 1u>{dims0}, first.dims());
+            using FirstValueType = value_type_t<FirstType>;
+            ndarray<FirstValueType, rank> ret(dims);
+            auto ret_iter = ret.template view_begin<1u>();
+            _copy_list_array_elements(ret_iter, first.dims(),
+                std::forward<decltype(first)>(first),
+                std::forward<decltype(rest)>(rest)...);
+            return ret;
+        }
     }
 }
 
@@ -531,8 +600,8 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
             static_assert(is_convertible_v<Pad, XV>, "badargtype");
             std::fill(ret.begin() + x_size, ret.end(), cast<XV>(padding));
         }
-        else if (ret.is_static())
-            std::fill(ret.begin() + x_size, ret.end(), XV(0));
+        else if (ret.is_static()) // only std::array needs initialization
+            std::fill(ret.begin() + x_size, ret.end(), XV{});
     }
     else
     {

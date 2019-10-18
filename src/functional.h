@@ -25,24 +25,125 @@
 namespace wl
 {
 
-template<typename Function, typename Iter, size_t... Is>
-auto _apply_impl(Function f, Iter iter, std::index_sequence<Is...>)
+template<typename ArgIter>
+struct argument_pack
 {
-    return f(*(iter + Is)...);
+    using value_type = remove_cvref_t<decltype(*std::declval<ArgIter>())>;
+
+    const ArgIter iter_;
+    const size_t size_;
+
+    argument_pack(ArgIter iter, size_t size) :
+        iter_{iter}, size_{size}
+    {
+    }
+
+    size_t size() const
+    {
+        return this->size_;
+    }
+
+    auto get(size_t i) const
+    {
+        if (i >= size_)
+            throw std::logic_error("badargc");
+        return *(this->iter_ + i);
+    }
+
+    auto get_pack(size_t i) const
+    {
+        if (i >= size_)
+            throw std::logic_error("badargc");
+        return argument_pack(iter_ + i, size_ - i);
+    }
+};
+
+template<typename Normal, typename Variadic>
+struct variadic
+{
+    Normal nf_;
+    Variadic vf_;
+
+    variadic(Normal nf, Variadic vf) :
+        nf_{std::move(nf)}, vf_{std::move(vf)}
+    {
+    }
+
+    template<typename... Args>
+    auto operator()(Args&&... args) -> decltype(auto)
+    {
+        return nf_(std::forward<decltype(args)>(args)...);
+    }
+
+    template<typename T>
+    auto operator()(const argument_pack<T>& args)
+    {
+        return vf_(args);
+    }
+
+    template<typename T>
+    auto operator()(argument_pack<T>&& args)
+    {
+        return vf_(args);
+    }
+};
+
+template<typename Function, typename X, int64_t I>
+auto apply(Function f, const X& x, const_int<I>)
+{
+    static_assert(is_variadic_function_v<Function>, "badargtype");
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 1, "badrank");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(0 <= Level && Level < int64_t(R), "badlevel");
+
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<Level + 1u>();
+    const auto argc = valx.dims()[Level];
+    using PackType = argument_pack<decltype(x_iter)>;
+    using RT = remove_cvref_t<decltype(f(std::declval<PackType>()))>;
+
+    const auto apply_dims = utils::dims_take<1u, Level>(valx.dims());
+    if constexpr (Level == 0u)
+    {
+        return f(PackType(x_iter, argc));
+    }
+    else if constexpr (array_rank_v<RT> == 0u)
+    {
+        ndarray<value_type_t<RT>, 1u> ret(apply_dims);
+        auto ret_iter = ret.begin();
+        auto ret_size = ret.size();
+        for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
+            *ret_iter = f(PackType(x_iter, argc));
+        return ret;
+    }
+    else
+    {
+        auto first_item = f(PackType(x_iter, argc));
+        const auto item_dims = first_item.dims();
+        ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+            utils::dims_join(apply_dims, item_dims));
+        auto ret_iter = ret.template view_begin<Level>();
+        first_item.copy_to(ret_iter.begin());
+        x_iter += size;
+        ++ret_iter;
+        for (size_t i = 1; i < utils::size_of_dims(map_dims);
+            ++i, x_iter += size, ++ret_iter)
+        {
+            auto item = f(PackType(x_iter, argc));
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error("baddims");
+            item.copy_to(ret_iter.begin());
+        }
+        return ret;
+    }
 }
 
-template<typename Function, typename Args>
-auto apply(Function f, Args&& args)
+template<typename Function, typename X>
+auto apply(Function f, X&& x)
 {
-    static_assert(array_rank_v<remove_cvref_t<Args>> >= 1, "badargtype");
-    const auto& valargs = val(std::forward<decltype(args)>(args));
-    const auto iter = valargs.template view_begin<1u>();
-    using ArgType = remove_cvref_t<decltype(*iter)>;
-    constexpr auto argc = argc_can_be_invoked_v<Function, ArgType>;
-    static_assert(argc != invalid_apply_argc, "badapply");
-    if (argc > valargs.dims()[0])
-        throw std::logic_error("baddims");
-    return _apply_impl(f, iter, std::make_index_sequence<argc>{});
+    return apply(f, std::forward<decltype(x)>(x), const_int<0>{});
 }
 
 template<typename T, size_t R, typename Function>
@@ -275,7 +376,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
 }
 
 template<typename Function, typename X, typename YIter, typename YInc>
-auto _fold_single_impl(Function f, X&& x, YIter y_iter, YInc y_inc, 
+auto _fold_single_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
     const size_t n)
 {
     auto nest_f = [&](auto&& arg)
@@ -322,11 +423,11 @@ auto _fold_impl1(Function f, Y&& y)
     {
         if constexpr (FoldL)
             return _fold_single_impl(f, *valy.template view_begin<1u>(),
-                valy.template view_begin<1u>(), 
+                valy.template view_begin<1u>(),
                 [](auto& iter) { ++iter; }, n);
         else
             return _fold_single_impl(f, *(--(valy.template view_end<1u>())),
-                --(valy.template view_end<1u>()), 
+                --(valy.template view_end<1u>()),
                 [](auto& iter) { --iter; }, n);
     }
 }
@@ -342,22 +443,22 @@ auto _fold_impl1(Function f, X&& x, Y&& y)
     {
         if constexpr (FoldL)
             return _fold_list_impl(f, std::forward<decltype(x)>(x),
-                valy.template view_begin<1u>(), 
+                valy.template view_begin<1u>(),
                 [](auto& iter) { ++iter; }, n);
         else
             return _fold_list_impl(f, std::forward<decltype(x)>(x),
-                --(valy.template view_end<1u>()), 
+                --(valy.template view_end<1u>()),
                 [](auto& iter) { --iter; }, n);
     }
     else
     {
         if constexpr (FoldL)
             return _fold_single_impl(f, std::forward<decltype(x)>(x),
-                valy.template view_begin<1u>(), 
+                valy.template view_begin<1u>(),
                 [](auto& iter) { ++iter; }, n);
         else
             return _fold_single_impl(f, std::forward<decltype(x)>(x),
-                --(valy.template view_end<1u>()), 
+                --(valy.template view_end<1u>()),
                 [](auto& iter) { --iter; }, n);
     }
 }

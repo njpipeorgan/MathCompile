@@ -51,6 +51,12 @@ struct all_type;
 
 struct boolean;
 
+template<typename ArgIter>
+struct argument_pack;
+
+template<typename Normal, typename Variadic>
+struct variadic;
+
 
 template<typename...>
 constexpr auto always_false_v = false;
@@ -260,6 +266,25 @@ struct all_is_integral<T1, Ts...> :
 template<typename... Ts>
 constexpr auto all_is_integral_v = all_is_integral<Ts...>::value;
 
+template<typename Fn>
+struct is_variadic_function : std::false_type {};
+
+template<typename F1, typename F2>
+struct is_variadic_function<variadic<F1, F2>> : std::true_type {};
+
+template<typename Fn>
+constexpr auto is_variadic_function_v = is_variadic_function<Fn>::value;
+
+template<typename T>
+struct is_argument_pack : std::false_type {};
+
+template<typename Iter>
+struct is_argument_pack<argument_pack<Iter>> : std::true_type {};
+
+template<typename Iter>
+constexpr auto is_argument_pack_v = is_argument_pack<Iter>::value;
+
+/*
 template<typename Fn, typename ArgsTuple>
 struct tuple_invoke_result;
 
@@ -301,6 +326,7 @@ struct argc_can_be_invoked : _argc_can_be_invoked_impl<Fn, T> {};
 
 template<typename Fn, typename T>
 constexpr auto argc_can_be_invoked_v = argc_can_be_invoked<Fn, T>::value;
+*/
 
 
 }

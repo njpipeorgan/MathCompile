@@ -22,13 +22,15 @@ Begin["`Private`"];
 
 
 $packagepath=DirectoryName[$InputFileName];
+$slotmaximum=10;
 
 
 parse::unknown="`1` cannot be parsed.";
 syntax::iter="`1` does not have a correct syntax for an iterator.";
 syntax::bad="`1` does not have a correct syntax for `2`.";
-syntax::badtype="`1` dies not specify a correct type.";
+syntax::badtype="`1` does not specify a correct type.";
 syntax::farg="`1` does not have a correct syntax for a function argument.";
+syntax::slotmax="#`1` exceeds the maximum value of slot number allowed.";
 syntax::fpure="`1` does not have a correct syntax for a pure function.";
 syntax::scopevar="`1` does not have a correct syntax for a local variable.";
 syntax::badbreak="Break[] cannot be called in `1`.";
@@ -65,6 +67,7 @@ compile[code_]:=
 
 newid:=SymbolName@Unique["id"]
 newvar:=SymbolName@Unique["v"]
+newvarpack:=SymbolName@Unique["vp"]
 
 
 parse[Hold[head_[args___]]]:=parse[Hold[head]]@@(parse/@Hold/@Hold[args])
@@ -155,16 +158,33 @@ syntax[function][code_]:=
   Module[{
     functionrules={
       id["Function"][args_,expr_]:>(
-        function[Range[Length@#],#[[;;,1]],#[[;;,2]],sequence[expr]]&@
-          Replace[If[Head[args]===list,List@@args,{args}],{
+        function[
+          id/@#[[;;,1]],   (* argument names *)
+          #[[;;,2]],       (* argument types *)
+          sequence[expr]    (* function body *)
+          ]&@Replace[If[Head[args]===list,List@@args,{args}],{
               id[arg_]:>{arg,nil},
               typed[id[arg_],type_]:>{arg,type},
               any_:>(Message[syntax::farg,tostring[any]];Throw["syntax"])
             },{1}]),
-      id["Function"][pure_]:>If[FreeQ[pure,id["Function"][___]],
-        function[#1,#2[[;;,2,1]],Table[nil,Length@#1],sequence[pure/.#2]]&[#,id["Slot"][literal[#]]->id[newid]&/@#]&@
-          Union@Cases[pure,id["Slot"][literal[i_Integer/;i>0]]:>i,{0,Infinity},Heads->True],
-        (Message[syntax::fpure,tostring[id["Function"][pure]]];Throw["syntax"])],
+      id["Function"][pure_]:>
+        Module[{slots,slotsrule,slotspos},
+          slots=Union@Cases[pure,
+            s:id[type:("Slot"|"SlotSequence")][literal[i_Integer/;i>0]]:>
+              (s->If[type=="Slot",i,slotseq[i]]),
+            {0,Infinity},Heads->True];
+          slotsrule=Module[{i=newid,nvar,names},
+            nvar=Max[slots[[;;,2]]/.slotseq->Sequence]+1;
+            If[nvar>$slotmaximum,(Message[syntax::slotmax,nvar-1];Throw["syntax"])];
+            names=MapAt[pack[#]&,id[i,#]&/@Range[nvar],{-1,2}];
+            (#1->Sequence@@Replace[#2,{slotseq[i_]:>names[[i;;]],i_:>names[[i;;i]]}]&)@@@slots];
+          slotspos=(#[[2]]/.pack[i_]:>i)->#&/@Union[slotsrule[[;;,2]]];
+          function[
+            ReplacePart[Table[nil,Max[slotspos[[;;,1]]]],slotspos],
+            Table[nil,Max[slotspos[[;;,1]]]],
+            sequence[pure/.slotsrule]
+          ]
+        ],
       any:id["Function"][___]:>(Message[syntax::bad,tostring[any],"Function"];Throw["syntax"])
     }},
     Fold[
@@ -375,13 +395,19 @@ variablerename[code_]:=
           AppendTo[$variabletable,AssociationThread[vars->ids]];
           scope[vars,expr/.Thread[(id/@ids)->(var/@vars)]]
         ],
-      function[indices_,ids_,types_,expr_]:>
-        Module[{vars=Table[newvar,Length@ids]},
-          AppendTo[$variabletable,AssociationThread[vars->ids]];
-          function[indices,vars,types,expr/.
-            MapThread[id[#1]->If[
-              (Length[#]==1&&Count[headerseries[expr,#[[1]]],function]==0)&@
-                Position[expr,id[#1]],movvar,var][#2]&,{ids,vars}]]
+      function[ids_,types_,expr_]:>
+        Module[{vars},
+          vars=If[MatchQ[#,id[_,pack[_]]],newvarpack,newvar]&/@ids;
+          (*AppendTo[$variabletable,AssociationThread[vars->ids]];*)
+          function[vars,types,
+            expr/.
+              MapThread[#1->If[
+                (Length[#]==1&&Count[headerseries[expr,#[[1]]],function]==0)&@
+                  Position[expr,#1],movvar,var][#2]&,{ids,vars}],
+            Sequence@@If[MemberQ[ids,id[_,pack[_]]],
+              With[{var=newvar},{variadic[{var},{nil},expr/.{id[_,i_]:>argv[var,i]}]}],
+              {}]
+          ]
         ],
       any_:>(Message[semantics::bad,tostring@any];Throw["semantics"])
     }},
@@ -419,6 +445,7 @@ functionmacro[code_]:=code//.{
     id["FoldList"][func_,x_,id["Reverse"][y_]]:>native["foldr_list"][func,x,y],
     id["FoldList"][func_,id["Reverse"][y_]]:>native["foldr_list"][func,y],
     id["Apply"][func_,list[args___]]:>func[args],
+    id["Apply"][func_,array_,list[literal[i_Integer]]]:>native["apply"][func,array,const[i]],
     id["Part"][array_,specs___]:>id["Part"][array,
       Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]]
   }
@@ -471,16 +498,21 @@ semantics[code_]:=findinit@resolvesymbols@arithmeticmacro@functionmacro@variable
 
 
 nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]
-getargtypes[function[_,_,types_,_]]:=types
+getargtypes[function[_,types_,__]]:=types
 
-codegen[args[indices_,vars_,types_],___]:=
-  If[Length[indices]==0,{},
-    Normal@SparseArray[indices->MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}],Max[indices],"auto&&"]]
+codegen[args[vars_,types_],___]:=
+  MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}]
+codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString[i-1]<>")"
+codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString[i-1]<>")"
 
-codegen[function[indices_,vars_,types_,sequence[exprs___]],___]:=
-  {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Return"]}
-codegen[function[indices_,vars_,types_,sequence[exprs___]],"Scope"]:=
-  {"[&](",Riffle[Append[codegen[args[indices,vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Scope"]}
+codegen[function[vars_,types_,sequence[exprs___]],___]:=
+  {"[&](",Riffle[Append[codegen[args[vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Return"]}
+codegen[function[vars_,types_,sequence[exprs___]],"Scope"]:=
+  {"[&](",Riffle[Append[codegen[args[vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Scope"]}
+codegen[variadic[vars_,types_,sequence[exprs___]],___]:=
+  {"[&](",Riffle[codegen[args[vars,types]],", "],")",codegen[sequence[exprs],"Return"]}
+codegen[function[vars_,types_,sequence[exprs___],variadic[specs___]],___]:=
+  codegen[native["variadic"][function[vars,types,sequence[exprs]],variadic[specs]]]
 
 codegen[scope[_,sequence[exprs___]],any___]:=codegen[sequence[exprs],any]
 
@@ -533,8 +565,8 @@ codegen[native[name_][args___],any___]:={codegen[native[name],"Function"],"(",Ri
 
 codegen[any_,rest___]:=(Message[codegen::bad,tostring[any]];Throw["codegen"])
 
-initcodegen[function[indices_,vars_,types_,expr_]]:=
-  Flatten@{"auto main_function(",Riffle[codegen[args[indices,vars,types]],", "],")",codegen[expr,"Return"]}
+initcodegen[function[vars_,types_,expr_]]:=
+  Flatten@{"auto main_function(",Riffle[codegen[args[vars,types]],", "],")",codegen[expr,"Return"]}
   
 codeformat[segments_List]:=
   StringRiffle[#,{"","\n","\n"}]&@
@@ -722,7 +754,7 @@ print[iter[spec__]]:=RowBox[Join[{"Iterator","["},Riffle[print/@{spec},","],{"]"
 print[variter[spec__]]:=RowBox[Join[{"Iterator","["},Riffle[(print/@{spec}),","],{"]"}]]
 print[clause[type_][func_,iters_List]]:=RowBox[{type,"[",print[func],",",print[list@@iters],"]"}]
 print[mutable[type_][var_,expr_]]:=print@id[type][var,expr]
-print[function[indices_,args_,types_,expr_]]:=RowBox[{"Function","[",print[list@@(id/@args)],",",print[expr],"]"}]
+print[function[args_,types_,expr_]]:=RowBox[{"Function","[",print[list@@(id/@args)],",",print[expr],"]"}]
 print[scope[vars_,expr_]]:=RowBox[{"Module","[",print[list@@(id/@vars)],",",print[expr],"]"}]
 print[branch[cond_,true_,false_]]:=print@id["If"][cond,true,false];
 print[sequence[exprs__]]:=RowBox[Join[{"("},Riffle[(print/@{exprs}),";"],{")"}]]

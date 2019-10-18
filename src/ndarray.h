@@ -84,6 +84,16 @@ struct _small_vector
             new(&data_.dynamic_) dynamic_t(size, val);
     }
 
+    template<typename FwdIter>
+    _small_vector(FwdIter begin, FwdIter end) :
+        is_static_{size_t(end - begin) <= N}, size_{size_t(end - begin)}
+    {
+        if (is_static_)
+            std::copy(begin, end, data_.static_.data());
+        else
+            new(&data_.dynamic_) dynamic_t(begin, end);
+    }
+
     explicit _small_vector(const dynamic_t& other) :
         is_static_{other.size() <= N}, size_{other.size()}
     {
@@ -151,6 +161,11 @@ struct _small_vector
             return data_.static_.data();
         else
             return data_.dynamic_.data();
+    }
+
+    bool is_static() const
+    {
+        return is_static_;
     }
 
     T* begin() { return data(); }
@@ -276,6 +291,11 @@ struct ndarray
     T* data()
     {
         return this->data_.data();
+    }
+
+    auto is_static() const
+    {
+        return this->data_.is_static();
     }
 
     auto data_vector() const & -> const auto&

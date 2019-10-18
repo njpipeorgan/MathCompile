@@ -565,17 +565,28 @@ struct simple_view
         return *this;
     }
 
+    simple_view& operator+=(ptrdiff_t diff)
+    {
+        this->apply_pointer_offset(ptrdiff_t(this->size_) * diff);
+        return *this;
+    }
+
+    simple_view& operator-=(ptrdiff_t diff)
+    {
+        return *this += (-diff);
+    }
+
     simple_view operator+(ptrdiff_t diff) const
     {
         auto copy = *this;
-        copy.apply_pointer_offset(ptrdiff_t(this->size_) * diff);
+        copy += diff;
         return copy;
     }
 
     simple_view operator-(ptrdiff_t diff) const
     {
         auto copy = *this;
-        copy.apply_pointer_offset(ptrdiff_t(this->size_) * (-diff));
+        copy -= diff;
         return copy;
     }
 
@@ -979,7 +990,7 @@ struct general_view
 };
 
 template<typename Any>
-auto val(Any&& any)
+auto val(Any&& any) -> decltype(auto)
 {
     if constexpr (is_array_view_v<remove_cvref_t<Any>>)
         return std::forward<decltype(any)>(any).to_array();

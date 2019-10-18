@@ -214,7 +214,7 @@ auto list(First&& first, Rest&&... rest)
         {
             constexpr auto rank = first_rank + 1u;
             const auto dims = utils::dims_join(
-                std::array<size_t, 1u>{dims0}, first.dims());
+                std::array<size_t, 1u>{dim0}, first.dims());
             using FirstValueType = value_type_t<FirstType>;
             ndarray<FirstValueType, rank> ret(dims);
             auto ret_iter = ret.template view_begin<1u>();

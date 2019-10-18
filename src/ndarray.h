@@ -109,16 +109,6 @@ struct _small_vector
         new(&data_.dynamic_) dynamic_t(std::move(other));
     }
 
-    template<typename FwdIter>
-    _small_vector(FwdIter begin, FwdIter end) :
-        is_static_{size_t(end - begin) <= N}, size_{size_t(end - begin)}
-    {
-        if (is_static_)
-            std::copy_n(begin, size_, this->data_.static_.data());
-        else
-            new(&data_.dynamic_) dynamic_t(begin, end);
-    }
-
     _small_vector(const _small_vector& other) :
         is_static_{other.is_static_}, size_{other.size_}
     {

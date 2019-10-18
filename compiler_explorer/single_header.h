@@ -1769,15 +1769,6 @@ struct _small_vector
     {
         new(&data_.dynamic_) dynamic_t(std::move(other));
     }
-    template<typename FwdIter>
-    _small_vector(FwdIter begin, FwdIter end) :
-        is_static_{size_t(end - begin) <= N}, size_{size_t(end - begin)}
-    {
-        if (is_static_)
-            std::copy_n(begin, size_, this->data_.static_.data());
-        else
-            new(&data_.dynamic_) dynamic_t(begin, end);
-    }
     _small_vector(const _small_vector& other) :
         is_static_{other.is_static_}, size_{other.size_}
     {
@@ -3938,7 +3929,7 @@ auto list(First&& first, Rest&&... rest)
         {
             constexpr auto rank = first_rank + 1u;
             const auto dims = utils::dims_join(
-                std::array<size_t, 1u>{dims0}, first.dims());
+                std::array<size_t, 1u>{dim0}, first.dims());
             using FirstValueType = value_type_t<FirstType>;
             ndarray<FirstValueType, rank> ret(dims);
             auto ret_iter = ret.template view_begin<1u>();
@@ -4412,10 +4403,10 @@ auto apply(Function f, const X& x, const_int<I>)
             utils::dims_join(apply_dims, item_dims));
         auto ret_iter = ret.template view_begin<Level>();
         first_item.copy_to(ret_iter.begin());
-        x_iter += size;
+        x_iter += argc;
         ++ret_iter;
-        for (size_t i = 1; i < utils::size_of_dims(map_dims);
-            ++i, x_iter += size, ++ret_iter)
+        for (size_t i = 1; i < utils::size_of_dims(apply_dims);
+            ++i, x_iter += argc, ++ret_iter)
         {
             auto item = f(PackType(x_iter, argc));
             if (!utils::check_dims(item.dims(), item_dims))

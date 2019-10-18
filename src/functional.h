@@ -126,10 +126,10 @@ auto apply(Function f, const X& x, const_int<I>)
             utils::dims_join(apply_dims, item_dims));
         auto ret_iter = ret.template view_begin<Level>();
         first_item.copy_to(ret_iter.begin());
-        x_iter += size;
+        x_iter += argc;
         ++ret_iter;
-        for (size_t i = 1; i < utils::size_of_dims(map_dims);
-            ++i, x_iter += size, ++ret_iter)
+        for (size_t i = 1; i < utils::size_of_dims(apply_dims);
+            ++i, x_iter += argc, ++ret_iter)
         {
             auto item = f(PackType(x_iter, argc));
             if (!utils::check_dims(item.dims(), item_dims))

@@ -14,6 +14,7 @@
 #include <numeric>
 #include <variant>
 #include <cmath>
+#include <immintrin.h>
 #include <random>
 namespace wl
 {
@@ -37,51 +38,6 @@ template<typename Normal, typename Variadic>
 struct variadic;
 template<typename...>
 constexpr auto always_false_v = false;
-template<typename T> struct _type_to_index : std::integral_constant<int, -1> {};
-template<> struct _type_to_index<double> : std::integral_constant<int, 1> {};
-template<> struct _type_to_index<float> : std::integral_constant<int, 2> {};
-template<> struct _type_to_index<uint64_t> : std::integral_constant<int, 3> {};
-template<> struct _type_to_index<int64_t> : std::integral_constant<int, 4> {};
-template<> struct _type_to_index<uint32_t> : std::integral_constant<int, 5> {};
-template<> struct _type_to_index<int32_t> : std::integral_constant<int, 6> {};
-template<> struct _type_to_index<uint16_t> : std::integral_constant<int, 7> {};
-template<> struct _type_to_index<int16_t> : std::integral_constant<int, 8> {};
-template<> struct _type_to_index<uint8_t> : std::integral_constant<int, 9> {};
-template<> struct _type_to_index<int8_t> : std::integral_constant<int, 10> {};
-template<int I> struct _index_to_type { using type = void; };
-template<> struct _index_to_type<1> { using type = double; };
-template<> struct _index_to_type<2> { using type = float; };
-template<> struct _index_to_type<3> { using type = uint64_t; };
-template<> struct _index_to_type<4> { using type = int64_t; };
-template<> struct _index_to_type<5> { using type = uint32_t; };
-template<> struct _index_to_type<6> { using type = int32_t; };
-template<> struct _index_to_type<7> { using type = uint16_t; };
-template<> struct _index_to_type<8> { using type = int16_t; };
-template<> struct _index_to_type<9> { using type = uint8_t; };
-template<> struct _index_to_type<10> { using type = int8_t; };
-template<typename... Ts>
-struct common_type;
-template<typename T, typename U>
-struct common_type<T, U> :
-    _index_to_type<std::min(_type_to_index<T>::value,
-        _type_to_index<U>::value)> {};
-template<typename T1, typename T2, typename T3, typename... Ts>
-struct common_type<T1, T2, T3, Ts...>
-{
-    using type = typename common_type<
-        typename common_type<T1, T2>::type, T3, Ts...>::type;
-};
-template<typename... Ts>
-using common_type_t = typename common_type<Ts...>::type;
-template<typename T> struct make_signed { using type = T; };
-template<> struct make_signed<uint8_t> { using type = int8_t; };
-template<> struct make_signed<uint16_t> { using type = int16_t; };
-template<> struct make_signed<uint32_t> { using type = int32_t; };
-template<> struct make_signed<uint64_t> { using type = int64_t; };
-template<typename T>
-using make_signed_t = typename make_signed<T>::type;
-template<typename T>
-using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
 template<typename T>
@@ -100,6 +56,65 @@ template<typename T>
 constexpr auto is_real_v = is_integral_v<T> || is_float_v<T>;
 template<typename T>
 constexpr auto is_arithmetic_v = is_real_v<T> || is_complex_v<T>;
+template<typename T>
+struct promote_integral
+{
+    using type = std::conditional_t<is_integral_v<T>, double, T>;
+};
+template<typename T>
+using promote_integral_t = typename promote_integral<T>::type;
+template<typename T, typename U>
+struct _common_type_impl
+{
+    using type = std::conditional_t<is_float_v<T>, T, U>;
+};
+template<> struct _common_type_impl<double, double> { using type = double; };
+template<> struct _common_type_impl<float, double> { using type = double; };
+template<> struct _common_type_impl<double, float> { using type = double; };
+template<> struct _common_type_impl<float, float> { using type = float; };
+template<typename... Ts>
+struct common_type;
+template<typename T, typename U>
+struct common_type<T, U>
+{
+    using type = std::conditional_t<
+        is_float_v<T> || is_float_v<U>,
+        typename _common_type_impl<T, U>::type,
+        std::conditional_t<(sizeof(T) > sizeof(U)), T,
+        std::conditional_t<(sizeof(U) > sizeof(T)), U,
+        std::conditional_t<std::is_unsigned_v<T>, T, U
+        >>>>;
+};
+template<typename T, typename U>
+struct common_type<T, complex<U>> : common_type<complex<U>, T> {};
+template<typename T, typename U>
+struct common_type<complex<T>, U>
+{
+    using type = std::conditional_t<is_integral_v<U>, 
+        complex<T>, complex<typename common_type<T, U>::type>>;
+};
+template<typename T, typename U>
+struct common_type<complex<T>, complex<U>>
+{
+    using type = complex<typename common_type<T, U>::type>;
+};
+template<typename T1, typename T2, typename T3, typename... Ts>
+struct common_type<T1, T2, T3, Ts...>
+{
+    using type = typename common_type<
+        typename common_type<T1, T2>::type, T3, Ts...>::type;
+};
+template<typename... Ts>
+using common_type_t = typename common_type<Ts...>::type;
+template<typename T> struct make_signed { using type = T; };
+template<> struct make_signed<uint8_t> { using type = int8_t; };
+template<> struct make_signed<uint16_t> { using type = int16_t; };
+template<> struct make_signed<uint32_t> { using type = int32_t; };
+template<> struct make_signed<uint64_t> { using type = int64_t; };
+template<typename T>
+using make_signed_t = typename make_signed<T>::type;
+template<typename T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 template<typename T>
 struct is_array : std::false_type {};
 template<typename T, size_t R>
@@ -202,38 +217,6 @@ template<typename Iter>
 struct is_argument_pack<argument_pack<Iter>> : std::true_type {};
 template<typename Iter>
 constexpr auto is_argument_pack_v = is_argument_pack<Iter>::value;
-/*
-template<typename Fn, typename ArgsTuple>
-struct tuple_invoke_result;
-template<typename Fn, typename... Args>
-struct tuple_invoke_result<Fn, std::tuple<Args...>> :
-    std::invoke_result<Fn, Args...> {};
-template<typename Fn, typename ArgsTuple>
-using tuple_invoke_result_t = typename tuple_invoke_result<Fn, ArgsTuple>::type;
-template<typename Fn, typename ArgsTuple, typename = void>
-struct _can_be_invoked_impl : std::false_type {};
-template<typename Fn, typename ArgsTuple>
-struct _can_be_invoked_impl<Fn, ArgsTuple, std::void_t<tuple_invoke_result_t<Fn, ArgsTuple>>> : std::true_type {};
-template<typename Fn, typename... Args>
-struct can_be_invoked : _can_be_invoked_impl<Fn, std::tuple<Args...>> {};
-template<typename Fn, typename... Args>
-constexpr auto can_be_invoked_v = can_be_invoked<Fn, Args...>::value;
-template<typename Fn, typename T, typename... Ts>
-struct _argc_can_be_invoked_impl
-{
-    static constexpr auto value =
-        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) :
-        _argc_can_be_invoked_impl<Fn, T, T, Ts...>::value;
-};
-constexpr size_t invalid_apply_argc = 8u;
-template<typename Fn, typename T>
-struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> :
-    std::integral_constant<size_t, invalid_apply_argc> {};
-template<typename Fn, typename T>
-struct argc_can_be_invoked : _argc_can_be_invoked_impl<Fn, T> {};
-template<typename Fn, typename T>
-constexpr auto argc_can_be_invoked_v = argc_can_be_invoked<Fn, T>::value;
-*/
 }
 namespace wl
 {
@@ -3461,41 +3444,48 @@ auto abs_arg(X&& x)
 }
 namespace wl
 {
-#define WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(name, expr)                     \
+template<typename X>
+auto _scalar_inv(const X& x)
+{
+    static_assert(is_real_v<X> || is_complex_v<X>, "internal");
+    using P = promote_integral_t<X>;
+    return P(1) / P(x);
+}
+#define WL_DEFINE_UNARY_MATH_FUNCTION(name, expr)                           \
 template<typename X>                                                        \
 auto name(X&& x)                                                            \
 {                                                                           \
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
-    return utils::listable_function([](const auto& x) { return expr; },     \
+    return utils::listable_function([](auto x) { return expr; },            \
         std::forward<decltype(x)>(x));                                      \
 }
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(log, std::log(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(exp, std::exp(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sqrt, std::sqrt(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sin, std::sin(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(cos, std::cos(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(tan, std::tan(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(cot, divide(int8_t(1), std::tan(x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sec, divide(int8_t(1), std::cos(x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(csc, divide(int8_t(1), std::sin(x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsin, std::asin(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccos, std::acos(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arctan, std::atan(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccot, std::atan(divide(int8_t(1), x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsec, std::acos(divide(int8_t(1), x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccsc, std::asin(divide(int8_t(1), x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sinh, std::sinh(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(cosh, std::cosh(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(tanh, std::tanh(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(coth, divide(int8_t(1), std::tanh(x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(sech, divide(int8_t(1), std::cosh(x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(csch, divide(int8_t(1), std::sinh(x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsinh, std::asinh(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccosh, std::acosh(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arctanh, std::atanh(x))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccoth, std::atanh(divide(int8_t(1), x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arcsech, std::acosh(divide(int8_t(1), x)))
-WL_DEFINE_UNARY_ELEMENTARY_FUNCTION(arccsch, std::asinh(divide(int8_t(1), x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sin, _wl_sin(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(tan, std::tan(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(cot, _scalar_inv(std::tan(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(sec, _scalar_inv(std::cos(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(csc, _scalar_inv(std::sin(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsin, std::asin(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccos, std::acos(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arctan, std::atan(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccot, std::atan(_scalar_inv(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsec, std::acos(_scalar_inv(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccsc, std::asin(_scalar_inv(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(sinh, std::sinh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(cosh, std::cosh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(tanh, std::tanh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(coth, _scalar_inv(std::tanh(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(sech, _scalar_inv(std::cosh(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(csch, _scalar_inv(std::sinh(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsinh, std::asinh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccosh, std::acosh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arctanh, std::atanh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccoth, std::atanh(_scalar_inv(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsech, std::acosh(_scalar_inv(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccsch, std::asinh(_scalar_inv(x)))
 template<typename Base, typename X>
 auto log(Base&& b, X&& x)
 {
@@ -3503,7 +3493,9 @@ auto log(Base&& b, X&& x)
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     auto scalar_log = [](const auto& b, const auto& x)
     {
-        return divide(std::log(x), std::log(b));
+        using P = promote_integral_t<common_type_t<
+            remove_cvref_t<decltype(b)>, remove_cvref_t<decltype(x)>>>;
+        return std::log(P(x)) / std::log(P(b));
     };
     return utils::listable_function(scalar_log, 
         std::forward<decltype(b)>(b), std::forward<decltype(x)>(x));
@@ -3512,13 +3504,11 @@ template<typename X>
 auto log2(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    constexpr auto log2_inv = double(1.4426950408889634074);
     auto scalar_log2 = [=](const auto& x)
     {
-        if constexpr (is_complex_v<remove_cvref_t<decltype(x)>>)
-            return log2_inv * std::log(x);
-        else
-            return std::log2(x);
+        using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
+        constexpr auto log2_inv = P(1.4426950408889634074);
+        return log2_inv * std::log(x);
     };
     return utils::listable_function(scalar_log2, 
         std::forward<decltype(x)>(x));
@@ -3527,13 +3517,11 @@ template<typename X>
 auto log10(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    constexpr auto log10_inv = double(0.43429448190325182765);
     auto scalar_log10 = [=](const auto& x)
     {
-        if constexpr (is_complex_v<remove_cvref_t<decltype(x)>>)
-            return log10_inv * std::log(x);
-        else
-            return std::log10(x);
+        using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
+        constexpr auto log10_inv = P(0.43429448190325182765);
+        return log10_inv * std::log(x);
     };
     return utils::listable_function(scalar_log10, 
         std::forward<decltype(x)>(x));
@@ -3557,10 +3545,10 @@ auto arctan(X&& x, Y&& y)
     static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
     auto scalar_arctan = [](const auto& x, const auto& y)
     {
-        using XT = remove_cvref_t<decltype(x)>;
-        using YT = remove_cvref_t<decltype(y)>;
-        static_assert(is_real_v<XT> && is_real_v<YT>, "badargtype");
-        return std::atan2(x, y);
+        using P = promote_integral_t<common_type_t<
+            remove_cvref_t<decltype(b)>, remove_cvref_t<decltype(x)>>>;
+        static_assert(is_real_v<P>, "badargtype");
+        return std::atan2(P(x), P(y));
     };
     return utils::listable_function(scalar_arctan,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
@@ -3572,12 +3560,11 @@ auto sinc(X&& x)
     constexpr auto log2_inv = double(1.4426950408889634074);
     auto scalar_sinc = [=](const auto& x)
     {
-        using XT = remove_cvref_t<decltype(x)>;
-        using RT = decltype(divide(std::sin(x), x));
-        if (x == XT(0))
-            return RT(1.0);
+        using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
+        if (x == 0)
+            return P(1);
         else
-            return divide(std::sin(x), x);
+            return std::sin(x) / P(x);
     };
     return utils::listable_function(scalar_sinc,
         std::forward<decltype(x)>(x));
@@ -4743,6 +4730,15 @@ auto foldr_list(Function f, Any&&... any)
     return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
 }
 }
+#if defined(_MSC_VER)
+#define WL_INLINE __forceinline
+#elif defined(__INTEL_COMPILER)
+#define WL_INLINE __forceinline
+#elif defined(__clang__)
+#define WL_INLINE __attribute__((always_inline))
+#elif defined(__GNUC__)
+#define WL_INLINE __attribute__((always_inline))
+#endif
 namespace wl
 {
 }

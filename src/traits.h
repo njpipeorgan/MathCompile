@@ -57,63 +57,9 @@ struct argument_pack;
 template<typename Normal, typename Variadic>
 struct variadic;
 
-
 template<typename...>
 constexpr auto always_false_v = false;
 
-template<typename T> struct _type_to_index : std::integral_constant<int, -1> {};
-template<> struct _type_to_index<double> : std::integral_constant<int, 1> {};
-template<> struct _type_to_index<float> : std::integral_constant<int, 2> {};
-template<> struct _type_to_index<uint64_t> : std::integral_constant<int, 3> {};
-template<> struct _type_to_index<int64_t> : std::integral_constant<int, 4> {};
-template<> struct _type_to_index<uint32_t> : std::integral_constant<int, 5> {};
-template<> struct _type_to_index<int32_t> : std::integral_constant<int, 6> {};
-template<> struct _type_to_index<uint16_t> : std::integral_constant<int, 7> {};
-template<> struct _type_to_index<int16_t> : std::integral_constant<int, 8> {};
-template<> struct _type_to_index<uint8_t> : std::integral_constant<int, 9> {};
-template<> struct _type_to_index<int8_t> : std::integral_constant<int, 10> {};
-
-template<int I> struct _index_to_type { using type = void; };
-template<> struct _index_to_type<1> { using type = double; };
-template<> struct _index_to_type<2> { using type = float; };
-template<> struct _index_to_type<3> { using type = uint64_t; };
-template<> struct _index_to_type<4> { using type = int64_t; };
-template<> struct _index_to_type<5> { using type = uint32_t; };
-template<> struct _index_to_type<6> { using type = int32_t; };
-template<> struct _index_to_type<7> { using type = uint16_t; };
-template<> struct _index_to_type<8> { using type = int16_t; };
-template<> struct _index_to_type<9> { using type = uint8_t; };
-template<> struct _index_to_type<10> { using type = int8_t; };
-
-template<typename... Ts>
-struct common_type;
-
-template<typename T, typename U>
-struct common_type<T, U> :
-    _index_to_type<std::min(_type_to_index<T>::value,
-        _type_to_index<U>::value)> {};
-
-template<typename T1, typename T2, typename T3, typename... Ts>
-struct common_type<T1, T2, T3, Ts...>
-{
-    using type = typename common_type<
-        typename common_type<T1, T2>::type, T3, Ts...>::type;
-};
-
-template<typename... Ts>
-using common_type_t = typename common_type<Ts...>::type;
-
-template<typename T> struct make_signed { using type = T; };
-template<> struct make_signed<uint8_t> { using type = int8_t; };
-template<> struct make_signed<uint16_t> { using type = int16_t; };
-template<> struct make_signed<uint32_t> { using type = int32_t; };
-template<> struct make_signed<uint64_t> { using type = int64_t; };
-
-template<typename T>
-using make_signed_t = typename make_signed<T>::type;
-
-template<typename T>
-using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
@@ -140,6 +86,79 @@ constexpr auto is_real_v = is_integral_v<T> || is_float_v<T>;
 template<typename T>
 constexpr auto is_arithmetic_v = is_real_v<T> || is_complex_v<T>;
 
+template<typename T>
+struct promote_integral
+{
+    using type = std::conditional_t<is_integral_v<T>, double, T>;
+};
+
+template<typename T>
+using promote_integral_t = typename promote_integral<T>::type;
+
+template<typename T, typename U>
+struct _common_type_impl
+{
+    using type = std::conditional_t<is_float_v<T>, T, U>;
+};
+
+template<> struct _common_type_impl<double, double> { using type = double; };
+template<> struct _common_type_impl<float, double> { using type = double; };
+template<> struct _common_type_impl<double, float> { using type = double; };
+template<> struct _common_type_impl<float, float> { using type = float; };
+
+
+template<typename... Ts>
+struct common_type;
+
+template<typename T, typename U>
+struct common_type<T, U>
+{
+    using type = std::conditional_t<
+        is_float_v<T> || is_float_v<U>,
+        typename _common_type_impl<T, U>::type,
+        std::conditional_t<(sizeof(T) > sizeof(U)), T,
+        std::conditional_t<(sizeof(U) > sizeof(T)), U,
+        std::conditional_t<std::is_unsigned_v<T>, T, U
+        >>>>;
+};
+
+template<typename T, typename U>
+struct common_type<T, complex<U>> : common_type<complex<U>, T> {};
+
+template<typename T, typename U>
+struct common_type<complex<T>, U>
+{
+    using type = std::conditional_t<is_integral_v<U>, 
+        complex<T>, complex<typename common_type<T, U>::type>>;
+};
+
+template<typename T, typename U>
+struct common_type<complex<T>, complex<U>>
+{
+    using type = complex<typename common_type<T, U>::type>;
+};
+
+template<typename T1, typename T2, typename T3, typename... Ts>
+struct common_type<T1, T2, T3, Ts...>
+{
+    using type = typename common_type<
+        typename common_type<T1, T2>::type, T3, Ts...>::type;
+};
+
+template<typename... Ts>
+using common_type_t = typename common_type<Ts...>::type;
+
+template<typename T> struct make_signed { using type = T; };
+template<> struct make_signed<uint8_t> { using type = int8_t; };
+template<> struct make_signed<uint16_t> { using type = int16_t; };
+template<> struct make_signed<uint32_t> { using type = int32_t; };
+template<> struct make_signed<uint64_t> { using type = int64_t; };
+
+template<typename T>
+using make_signed_t = typename make_signed<T>::type;
+
+template<typename T>
+using remove_cvref_t = std::remove_cv_t<std::remove_reference_t<T>>;
 
 template<typename T>
 struct is_array : std::false_type {};
@@ -283,50 +302,5 @@ struct is_argument_pack<argument_pack<Iter>> : std::true_type {};
 
 template<typename Iter>
 constexpr auto is_argument_pack_v = is_argument_pack<Iter>::value;
-
-/*
-template<typename Fn, typename ArgsTuple>
-struct tuple_invoke_result;
-
-template<typename Fn, typename... Args>
-struct tuple_invoke_result<Fn, std::tuple<Args...>> :
-    std::invoke_result<Fn, Args...> {};
-
-template<typename Fn, typename ArgsTuple>
-using tuple_invoke_result_t = typename tuple_invoke_result<Fn, ArgsTuple>::type;
-
-template<typename Fn, typename ArgsTuple, typename = void>
-struct _can_be_invoked_impl : std::false_type {};
-
-template<typename Fn, typename ArgsTuple>
-struct _can_be_invoked_impl<Fn, ArgsTuple, std::void_t<tuple_invoke_result_t<Fn, ArgsTuple>>> : std::true_type {};
-
-template<typename Fn, typename... Args>
-struct can_be_invoked : _can_be_invoked_impl<Fn, std::tuple<Args...>> {};
-
-template<typename Fn, typename... Args>
-constexpr auto can_be_invoked_v = can_be_invoked<Fn, Args...>::value;
-
-template<typename Fn, typename T, typename... Ts>
-struct _argc_can_be_invoked_impl
-{
-    static constexpr auto value =
-        _can_be_invoked_impl<Fn, std::tuple<Ts...>>::value ? sizeof...(Ts) :
-        _argc_can_be_invoked_impl<Fn, T, T, Ts...>::value;
-};
-
-constexpr size_t invalid_apply_argc = 8u;
-
-template<typename Fn, typename T>
-struct _argc_can_be_invoked_impl<Fn, T, T, T, T, T, T, T, T, T, T> :
-    std::integral_constant<size_t, invalid_apply_argc> {};
-
-template<typename Fn, typename T>
-struct argc_can_be_invoked : _argc_can_be_invoked_impl<Fn, T> {};
-
-template<typename Fn, typename T>
-constexpr auto argc_can_be_invoked_v = argc_can_be_invoked<Fn, T>::value;
-*/
-
 
 }

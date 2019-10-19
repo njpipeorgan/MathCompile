@@ -673,7 +673,8 @@ EXTERN_C DLLEXPORT int `funcid`_func(WolframLibraryData lib_data,
 Options[compilelink]={
   "LibraryDirectory"->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],
   "WorkingDirectory"->Automatic,
-  "Debug"->False
+  "Debug"->False, 
+  "CompileOptions"->""
 };
 Options[CompileToBinary]=Options[compilelink];
 
@@ -709,7 +710,7 @@ compilelink[f_,OptionsPattern[]]:=
       "Language"->"C++",
       "CompileOptions"->
         If[OptionValue["Debug"],$debugcompileroptions,$compileroptions][
-          CCompilerDriver`DefaultCCompiler[]],
+          CCompilerDriver`DefaultCCompiler[]]<>OptionValue["CompileOptions"],
       "CleanIntermediate"->!OptionValue["Debug"],
       "IncludeDirectories"->{$packagepath<>"/src"},
       "WorkingDirectory"->workdir,
@@ -723,15 +724,20 @@ compilelink[f_,OptionsPattern[]]:=
 
 
 $compileroptions=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O3 -ffast-math",
-  CCompilerDriver`IntelCompiler`IntelCompiler->"-std=c++17 -Kc++ -O3 -fp-model fast=2",
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Ox /Oi /Gy /fp:fast"
+  CCompilerDriver`GCCCompiler`GCCCompiler->
+    "-std=c++1z -O3 -ffast-math -march=native",
+  CCompilerDriver`IntelCompiler`IntelCompiler->
+    "-std=c++17 -Kc++ -O3 -fp-model fast=2 -march=native",
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
+    "/std:c++17 /EHsc /Ox /Oi /Ob2 /Gy /fp:fast /DNDEBUG"
 |>;
 $debugcompileroptions=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler->"-std=c++1z -O0 -g3",
+  CCompilerDriver`GCCCompiler`GCCCompiler->
+    "-std=c++1z -O0 -g3 -march=native",
   CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O0 -g -debug all -traceback -check-uninit",
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->"/std:c++17 /EHsc /Od"
+    "-std=c++17 -Kc++ -O0 -g  -march=native -debug all -traceback -check-uninit",
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
+    "/std:c++17 /EHsc /Od"
 |>
 
 

@@ -113,7 +113,7 @@ void _copy_list_array_elements(Iter& ret_iter,
             const auto& item = first.get(i);
             if (!utils::check_dims(item.dims(), dims))
                 throw std::logic_error("baddims");
-            item.copy_to(ret_iter->begin());
+            item.copy_to(ret_iter.begin());
         }
     }
     else
@@ -123,7 +123,7 @@ void _copy_list_array_elements(Iter& ret_iter,
         static_assert(is_convertible_v<ValueType, T>, "badargtype");
         if (!utils::check_dims(first.dims(), dims))
             throw std::logic_error("baddims");
-        first.copy_to(ret_iter->begin());
+        first.copy_to(ret_iter.begin());
         ++ret_iter;
     }
     _copy_list_array_elements(ret_iter, dims,

@@ -17,20 +17,15 @@
 
 #pragma once
 
-#include "macros.h"
-#include "types.h"
-#include "ndarray.h"
-#include "const.h"
-#include "control.h"
-#include "clause.h"
-#include "arithmetic.h"
-#include "complex.h"
-#include "mathfunction.h"
-#include "numerical.h"
-#include "boolean.h"
-#include "random.h"
-#include "arrayfn.h"
-#include "functional.h"
+#if defined(_MSC_VER)
+#define WL_INLINE __forceinline
+#elif defined(__INTEL_COMPILER)
+#define WL_INLINE __forceinline
+#elif defined(__clang__)
+#define WL_INLINE __attribute__((always_inline))
+#elif defined(__GNUC__)
+#define WL_INLINE __attribute__((always_inline))
+#endif
 
 namespace wl
 {

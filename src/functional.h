@@ -70,19 +70,19 @@ struct variadic
     }
 
     template<typename... Args>
-    auto operator()(Args&&... args) -> decltype(auto)
+    auto operator()(Args&&... args) const -> decltype(auto)
     {
         return nf_(std::forward<decltype(args)>(args)...);
     }
 
     template<typename T>
-    auto operator()(const argument_pack<T>& args)
+    auto operator()(const argument_pack<T>& args) const
     {
         return vf_(args);
     }
 
     template<typename T>
-    auto operator()(argument_pack<T>&& args)
+    auto operator()(argument_pack<T>&& args) const
     {
         return vf_(args);
     }
@@ -287,6 +287,59 @@ template<typename Function, typename X>
 auto map(Function f, X&& x)
 {
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
+}
+
+template<typename Function, typename... Iters>
+auto _map_thread_impl2(Function f, size_t size, Iters... iters)
+{
+    using RT = remove_cvref_t<decltype(f(*iters...))>;
+    if constexpr (array_rank_v<RT> == 0u)
+    {
+        ndarray<RT, 1u> ret(std::array<size_t, 1u>{size});
+        auto ret_iter = ret.begin();
+        for (size_t i = 0u; i < size; ++i, ++ret_iter, (++iters, ...))
+            *ret_iter = f(*iters...);
+        return ret;
+    }
+    else
+    {
+        auto first_item = f(*iters...);
+        const auto item_dims = first_item.dims();
+        ndarray<value_type_t<RT>, array_rank_v<RT> + 1u> ret(
+            utils::dims_join(std::array<size_t, 1u>{size}, item_dims));
+        auto ret_iter = ret.template view_begin<1u>();
+        first_item.copy_to(ret_iter.begin());
+        (++iters, ...);
+        ++ret_iter;
+        for (size_t i = 1; i < size; ++i, ++ret_iter, (++iters, ...))
+        {
+            auto item = f(*iters...);
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error("baddims");
+            item.copy_to(ret_iter.begin());
+        }
+        return ret;
+    }
+}
+
+template<typename Fn, typename T1, size_t R1, typename... Ts, size_t... Rs>
+auto _map_thread_impl1(Fn f, 
+    const ndarray<T1, R1>& arg1, const ndarray<Ts, Rs>&... args)
+{
+    const auto size = arg1.dims()[0];
+    if (!((args.dims()[0] == size) && ...))
+        throw std::logic_error("baddims");
+    return _map_thread_impl2(f, size, 
+        arg1.template view_begin<1u>(), args.template view_begin<1u>()...);
+}
+
+template<typename Function, typename... Args>
+auto map_thread(Function f, varg_tag, Args&&... args)
+{
+    static_assert(sizeof...(Args) >= 1u, "badargc");
+    static_assert(((array_rank_v<remove_cvref_t<Args>> >= 1u) && ...),
+        "badargtype");
+    return _map_thread_impl1(f, val(std::forward<decltype(args)>(args))...);
 }
 
 template<typename Function, typename X>

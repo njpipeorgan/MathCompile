@@ -20,6 +20,7 @@
 //#include "mkl.h"
 #include <immintrin.h>
 
+#include "macros.h"
 #include "types.h"
 #include "traits.h"
 #include "utils.h"
@@ -28,7 +29,7 @@ namespace wl
 {
 
 template<typename X>
-auto _scalar_inv(const X& x)
+WL_INLINE auto _scalar_inv(const X& x)
 {
     static_assert(is_real_v<X> || is_complex_v<X>, "internal");
     using P = promote_integral_t<X>;
@@ -48,7 +49,7 @@ WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
 
-WL_DEFINE_UNARY_MATH_FUNCTION(sin, _wl_sin(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(tan, std::tan(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cot, _scalar_inv(std::tan(x)))
@@ -75,6 +76,11 @@ WL_DEFINE_UNARY_MATH_FUNCTION(arctanh, std::atanh(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(arccoth, std::atanh(_scalar_inv(x)))
 WL_DEFINE_UNARY_MATH_FUNCTION(arcsech, std::acosh(_scalar_inv(x)))
 WL_DEFINE_UNARY_MATH_FUNCTION(arccsch, std::asinh(_scalar_inv(x)))
+
+WL_DEFINE_UNARY_MATH_FUNCTION(gamma, std::tgamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
 
 template<typename Base, typename X>
 auto log(Base&& b, X&& x)

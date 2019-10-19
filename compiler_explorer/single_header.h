@@ -2807,6 +2807,18 @@ auto iterator(Any&& any)
     return make_step_iterator<false>(int8_t(1), any, int8_t(1));
 }
 }
+#if defined(_MSC_VER)
+#define WL_INLINE __forceinline
+#elif defined(__INTEL_COMPILER)
+#define WL_INLINE __forceinline
+#elif defined(__clang__)
+#define WL_INLINE __attribute__((always_inline))
+#elif defined(__GNUC__)
+#define WL_INLINE __attribute__((always_inline))
+#endif
+namespace wl
+{
+}
 namespace wl
 {
 auto _scalar_plus = [](const auto& x, const auto& y)
@@ -3445,7 +3457,7 @@ auto abs_arg(X&& x)
 namespace wl
 {
 template<typename X>
-auto _scalar_inv(const X& x)
+WL_INLINE auto _scalar_inv(const X& x)
 {
     static_assert(is_real_v<X> || is_complex_v<X>, "internal");
     using P = promote_integral_t<X>;
@@ -3462,7 +3474,7 @@ auto name(X&& x)                                                            \
 WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(sin, _wl_sin(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(tan, std::tan(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cot, _scalar_inv(std::tan(x)))
@@ -3486,6 +3498,10 @@ WL_DEFINE_UNARY_MATH_FUNCTION(arctanh, std::atanh(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(arccoth, std::atanh(_scalar_inv(x)))
 WL_DEFINE_UNARY_MATH_FUNCTION(arcsech, std::acosh(_scalar_inv(x)))
 WL_DEFINE_UNARY_MATH_FUNCTION(arccsch, std::asinh(_scalar_inv(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(gamma, std::tgamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
 template<typename Base, typename X>
 auto log(Base&& b, X&& x)
 {
@@ -3822,7 +3838,7 @@ void _copy_list_array_elements(Iter& ret_iter,
             const auto& item = first.get(i);
             if (!utils::check_dims(item.dims(), dims))
                 throw std::logic_error("baddims");
-            item.copy_to(ret_iter->begin());
+            item.copy_to(ret_iter.begin());
         }
     }
     else
@@ -3832,7 +3848,7 @@ void _copy_list_array_elements(Iter& ret_iter,
         static_assert(is_convertible_v<ValueType, T>, "badargtype");
         if (!utils::check_dims(first.dims(), dims))
             throw std::logic_error("baddims");
-        first.copy_to(ret_iter->begin());
+        first.copy_to(ret_iter.begin());
         ++ret_iter;
     }
     _copy_list_array_elements(ret_iter, dims,
@@ -4339,17 +4355,17 @@ struct variadic
     {
     }
     template<typename... Args>
-    auto operator()(Args&&... args) -> decltype(auto)
+    auto operator()(Args&&... args) const -> decltype(auto)
     {
         return nf_(std::forward<decltype(args)>(args)...);
     }
     template<typename T>
-    auto operator()(const argument_pack<T>& args)
+    auto operator()(const argument_pack<T>& args) const
     {
         return vf_(args);
     }
     template<typename T>
-    auto operator()(argument_pack<T>&& args)
+    auto operator()(argument_pack<T>&& args) const
     {
         return vf_(args);
     }
@@ -4543,6 +4559,56 @@ auto map(Function f, X&& x)
 {
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
 }
+template<typename Function, typename... Iters>
+auto _map_thread_impl2(Function f, size_t size, Iters... iters)
+{
+    using RT = remove_cvref_t<decltype(f(*iters...))>;
+    if constexpr (array_rank_v<RT> == 0u)
+    {
+        ndarray<RT, 1u> ret(std::array<size_t, 1u>{size});
+        auto ret_iter = ret.begin();
+        for (size_t i = 0u; i < size; ++i, ++ret_iter, (++iters, ...))
+            *ret_iter = f(*iters...);
+        return ret;
+    }
+    else
+    {
+        auto first_item = f(*iters...);
+        const auto item_dims = first_item.dims();
+        ndarray<value_type_t<RT>, array_rank_v<RT> + 1u> ret(
+            utils::dims_join(std::array<size_t, 1u>{size}, item_dims));
+        auto ret_iter = ret.template view_begin<1u>();
+        first_item.copy_to(ret_iter.begin());
+        (++iters, ...);
+        ++ret_iter;
+        for (size_t i = 1; i < size; ++i, ++ret_iter, (++iters, ...))
+        {
+            auto item = f(*iters...);
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error("baddims");
+            item.copy_to(ret_iter.begin());
+        }
+        return ret;
+    }
+}
+template<typename Fn, typename T1, size_t R1, typename... Ts, size_t... Rs>
+auto _map_thread_impl1(Fn f, 
+    const ndarray<T1, R1>& arg1, const ndarray<Ts, Rs>&... args)
+{
+    const auto size = arg1.dims()[0];
+    if (!((args.dims()[0] == size) && ...))
+        throw std::logic_error("baddims");
+    return _map_thread_impl2(f, size, 
+        arg1.template view_begin<1u>(), args.template view_begin<1u>()...);
+}
+template<typename Function, typename... Args>
+auto map_thread(Function f, varg_tag, Args&&... args)
+{
+    static_assert(sizeof...(Args) >= 1u, "badargc");
+    static_assert(((array_rank_v<remove_cvref_t<Args>> >= 1u) && ...),
+        "badargtype");
+    return _map_thread_impl1(f, val(std::forward<decltype(args)>(args))...);
+}
 template<typename Function, typename X>
 auto nest(Function f, X&& x, const int64_t n)
 {
@@ -4730,15 +4796,6 @@ auto foldr_list(Function f, Any&&... any)
     return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
 }
 }
-#if defined(_MSC_VER)
-#define WL_INLINE __forceinline
-#elif defined(__INTEL_COMPILER)
-#define WL_INLINE __forceinline
-#elif defined(__clang__)
-#define WL_INLINE __attribute__((always_inline))
-#elif defined(__GNUC__)
-#define WL_INLINE __attribute__((always_inline))
-#endif
 namespace wl
 {
 }

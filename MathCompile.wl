@@ -357,6 +357,11 @@ $builtinfunctions=native/@
   "ArcCsch"         ->"arccsch",
   "ArcSech"         ->"arcsech",
   "ArcCoth"         ->"arccoth",
+(* special functions *)
+  "Gamma"           ->"gamma",
+  "LogGamma"        ->"log_gamma",
+  "Erf"             ->"erf",
+  "Erfc"            ->"erfc",
 (* random number *)
     (*"RandomInteger"*)
     (*"RandomReal"*)
@@ -366,11 +371,12 @@ $builtinfunctions=native/@
   "SandomSample"    ->"random_sample",*)
 (* array operation *)
     (*"ConstantArray"*)
+  "List"            ->"list",
   "Set"             ->"set",
   "Dimensions"      ->"dimensions",
   "Part"            ->"part",
   "Span"            ->"make_span",
-    (*"Total"*)
+  "Total"           ->"total",
   "Mean"            ->"mean",
   "Range"           ->"range",
   "Reverse"         ->"reverse",
@@ -446,6 +452,7 @@ functionmacro[code_]:=code//.{
     id["FoldList"][func_,id["Reverse"][y_]]:>native["foldr_list"][func,y],
     id["Apply"][func_,list[args___]]:>func[args],
     id["Apply"][func_,array_,list[literal[i_Integer]]]:>native["apply"][func,array,const[i]],
+    id["MapThread"][func_,list[arrays__]]:>native["map_thread"][func,vargtag,arrays],
     id["Part"][array_,specs___]:>id["Part"][array,
       Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]]
   }

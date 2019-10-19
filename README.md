@@ -47,7 +47,7 @@ auto main_function(int64_t v37, int64_t v38) {
     return wl::val(wl::plus(v37, v38));
 }
 ```
-You can see the C++ code compiled from this Compiler Explorer [link](https://godbolt.org/z/iT7usM).
+You can see the C++ code compiled from this Compiler Explorer [link](https://godbolt.org/z/vUTW2c).
 
 ## Compilable constants and functions
 

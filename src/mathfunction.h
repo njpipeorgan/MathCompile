@@ -140,7 +140,7 @@ auto arctan(X&& x, Y&& y)
     auto scalar_arctan = [](const auto& x, const auto& y)
     {
         using P = promote_integral_t<common_type_t<
-            remove_cvref_t<decltype(b)>, remove_cvref_t<decltype(x)>>>;
+            remove_cvref_t<decltype(x)>, remove_cvref_t<decltype(y)>>>;
         static_assert(is_real_v<P>, "badargtype");
         return std::atan2(P(x), P(y));
     };

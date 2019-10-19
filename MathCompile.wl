@@ -508,7 +508,7 @@ nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A
 getargtypes[function[_,types_,__]]:=types
 
 codegen[args[vars_,types_],___]:=
-  MapThread[codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}]
+  MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}]
 codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString[i-1]<>")"
 codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString[i-1]<>")"
 

@@ -2931,7 +2931,7 @@ auto _variadic_plus(const argument_pack<Iter>& args)
     assert(size > 0u);
     auto ret = val(args.get(0));
     for (size_t i = 1u; i < size; ++i)
-        add_to(ret, args.get(i));
+        ret = plus(ret, args.get(i));
     return ret;
 }
 template<typename X, typename Y>
@@ -2982,7 +2982,7 @@ auto _variadic_times(const argument_pack<Iter>& args)
     assert(size > 0u);
     auto ret = val(args.get(0));
     for (size_t i = 1u; i < size; ++i)
-        times_by(ret, args.get(i));
+        ret = times(ret, args.get(i));
     return ret;
 }
 template<typename X, typename Y>

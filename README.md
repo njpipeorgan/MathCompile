@@ -27,27 +27,27 @@ First, load the package:
 Compile a function using `CompileToBinary`: (make sure you have a C++ compiler installed)
 ```
 cf=CompileToBinary[
-  Function[{Typed[x,"Integer"],Typed[y,"Integer"]},x+y]
+  Function[{Typed[x,{Integer,1}]},Apply[Times,x]];
 ]
 ```
 Use this compiled function just like a normal Wolfram Language funcion:
 ```
-cf[2,3]    (* gives 5 *)
+cf[{1,2,3,4}]    (* gives 24 *)
 ```
 
 You can also check the C++ code using `CompileToCode`:
 ```
 CompileToCode[
-  Function[{Typed[x,"Integer"],Typed[y,"Integer"]},x+y]
+  Function[{Typed[x,{Integer,1}]},Apply[Times,x]];
 ]
 ```
 The result is a C++ function named `main_function`:
 ```c++
-auto main_function(int64_t v37, int64_t v38) {
-    return wl::val(wl::plus(v37, v38));
+auto main_function(const wl::ndarray<int64_t, 1>& v35) {
+    return wl::val(wl::apply(WL_FUNCTION(wl::times), WL_PASS(v35)));
 }
 ```
-You can see the C++ code compiled from this Compiler Explorer [link](https://godbolt.org/z/vUTW2c).
+You can see the C++ code compiled from this Compiler Explorer [link](https://godbolt.org/z/7A9O5O).
 
 ## Compilable constants and functions
 

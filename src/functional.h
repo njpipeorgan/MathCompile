@@ -59,7 +59,7 @@ struct argument_pack
         if (i >= size_)
             throw std::logic_error("badargc");
         if constexpr (HasStride)
-            return argument_pack(iter_ + i * stride_, size_ - i);
+            return argument_pack(iter_ + i * stride_, size_ - i, stride_);
         else
             return argument_pack(iter_ + i, size_ - i);
     }

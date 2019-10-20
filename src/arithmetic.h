@@ -127,136 +127,6 @@ auto _scalar_divide = [](const auto& x, const auto& y)
     }
 };
 
-template<typename X>
-auto minus(X&& x)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    return utils::listable_function([](const auto& x) { return -x; },
-        std::forward<decltype(x)>(x));
-}
-
-template<typename X, typename Y>
-auto _nonvariadic_plus(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_plus,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-
-template<typename Iter>
-auto _variadic_plus(const argument_pack<Iter>& args)
-{
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
-    assert(size > 0u);
-    auto ret = val(args.get(0));
-    for (size_t i = 1u; i < size; ++i)
-        ret = _nonvariadic_plus(ret, args.get(i));
-    return ret;
-}
-
-template<typename X, typename Y>
-auto plus(X&& x, Y&& y)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
-    else
-        return _nonvariadic_plus(
-            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-
-template<typename X>
-auto plus(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_plus(x);
-    else
-        return std::forward<decltype(x)>(x);
-}
-
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return plus(plus(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
-
-template<typename X, typename Y>
-auto subtract(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_subtract,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-
-template<typename X, typename Y>
-auto _nonvariadic_times(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_times,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-
-template<typename Iter>
-auto _variadic_times(const argument_pack<Iter>& args)
-{
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
-    assert(size > 0u);
-    auto ret = val(args.get(0));
-    for (size_t i = 1u; i < size; ++i)
-        ret = _nonvariadic_times(ret, args.get(i));
-    return ret;
-}
-
-template<typename X, typename Y>
-auto times(X&& x, Y&& y)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_times(y));
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_times(x), std::forward<decltype(y)>(y));
-    else
-        return _nonvariadic_times(
-            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-
-template<typename X>
-auto times(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_times(x);
-    else
-        return std::forward<decltype(x)>(x);
-}
-
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return times(times(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
-
-template<typename X, typename Y>
-auto divide(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_divide,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-
 
 #define WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(name, func)                 \
 template<typename X, typename Y>                                        \
@@ -319,5 +189,126 @@ WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
+
+
+template<typename X>
+auto minus(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    return utils::listable_function([](const auto& x) { return -x; },
+        std::forward<decltype(x)>(x));
+}
+
+template<typename Iter, bool HasStride>
+auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
+{
+    using ArgType = remove_cvref_t<decltype(args.get(0))>;
+    constexpr auto rank = array_rank_v<ArgType>;
+    const auto size = args.size();
+    assert(size > 0u);
+    auto ret = val(args.get(0));
+    for (size_t i = 1u; i < size; ++i)
+        add_to(ret, args.get(i));
+    return ret;
+}
+
+template<typename X, typename Y>
+auto plus(X&& x, Y&& y)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
+        return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
+    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
+    else
+    {
+        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        return utils::listable_function(_scalar_plus,
+            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    }
+}
+
+template<typename X>
+auto plus(X&& x)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return _variadic_plus(x);
+    else
+        return std::forward<decltype(x)>(x);
+}
+
+template<typename X1, typename X2, typename X3, typename... Xs>
+auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
+{
+    return plus(plus(std::forward<decltype(x1)>(x1),
+        std::forward<decltype(x2)>(x2)),
+        std::forward<decltype(x3)>(x3),
+        std::forward<decltype(xs)>(xs)...);
+}
+
+template<typename X, typename Y>
+auto subtract(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_subtract,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+
+template<typename Iter, bool HasStride>
+auto _variadic_times(const argument_pack<Iter, HasStride>& args)
+{
+    using ArgType = remove_cvref_t<decltype(args.get(0))>;
+    constexpr auto rank = array_rank_v<ArgType>;
+    const auto size = args.size();
+    assert(size > 0u);
+    auto ret = val(args.get(0));
+    for (size_t i = 1u; i < size; ++i)
+        times_by(ret, args.get(i));
+    return ret;
+}
+
+template<typename X, typename Y>
+auto times(X&& x, Y&& y)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
+        return plus(std::forward<decltype(x)>(x), _variadic_times(y));
+    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return plus(_variadic_times(x), std::forward<decltype(y)>(y));
+    else
+    {
+        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        return utils::listable_function(_scalar_times,
+            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    }
+}
+
+template<typename X>
+auto times(X&& x)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return _variadic_times(x);
+    else
+        return std::forward<decltype(x)>(x);
+}
+
+template<typename X1, typename X2, typename X3, typename... Xs>
+auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
+{
+    return times(times(std::forward<decltype(x1)>(x1),
+        std::forward<decltype(x2)>(x2)),
+        std::forward<decltype(x3)>(x3),
+        std::forward<decltype(xs)>(xs)...);
+}
+
+template<typename X, typename Y>
+auto divide(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_divide,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
 
 }

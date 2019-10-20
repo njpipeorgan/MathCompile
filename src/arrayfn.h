@@ -164,8 +164,8 @@ auto _list_length_by_args_impl(const Any& any)
     return size_t(1);
 }
 
-template<typename Iter>
-auto _list_length_by_args_impl(const argument_pack<Iter>& args)
+template<typename Iter, bool HasStride>
+auto _list_length_by_args_impl(const argument_pack<Iter, HasStride>& args)
 {
     return args.size();
 }

@@ -25,16 +25,17 @@
 namespace wl
 {
 
-template<typename ArgIter>
+template<typename ArgIter, bool HasStride>
 struct argument_pack
 {
     using value_type = remove_cvref_t<decltype(*std::declval<ArgIter>())>;
 
     const ArgIter iter_;
     const size_t size_;
+    const size_t stride_;
 
-    argument_pack(ArgIter iter, size_t size) :
-        iter_{iter}, size_{size}
+    argument_pack(ArgIter iter, size_t size, size_t stride = 1u) :
+        iter_{iter}, size_{size}, stride_{stride}
     {
     }
 
@@ -47,14 +48,20 @@ struct argument_pack
     {
         if (i >= size_)
             throw std::logic_error("badargc");
-        return *(this->iter_ + i);
+        if constexpr (HasStride)
+            return *(this->iter_ + i * stride_);
+        else
+            return *(this->iter_ + i);
     }
 
     auto get_pack(size_t i) const
     {
         if (i >= size_)
             throw std::logic_error("badargc");
-        return argument_pack(iter_ + i, size_ - i);
+        if constexpr (HasStride)
+            return argument_pack(iter_ + i * stride_, size_ - i);
+        else
+            return argument_pack(iter_ + i, size_ - i);
     }
 };
 
@@ -111,7 +118,7 @@ auto apply(Function f, const X& x, const_int<I>)
     }
     else if constexpr (array_rank_v<RT> == 0u)
     {
-        ndarray<value_type_t<RT>, 1u> ret(apply_dims);
+        ndarray<value_type_t<RT>, Level> ret(apply_dims);
         auto ret_iter = ret.begin();
         auto ret_size = ret.size();
         for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
@@ -289,13 +296,14 @@ auto map(Function f, X&& x)
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
 }
 
-template<typename Function, typename... Iters>
-auto _map_thread_impl2(Function f, size_t size, Iters... iters)
+template<typename Function, size_t R, typename... Iters>
+auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims, 
+    Iters... iters)
 {
     using RT = remove_cvref_t<decltype(f(*iters...))>;
     if constexpr (array_rank_v<RT> == 0u)
     {
-        ndarray<RT, 1u> ret(std::array<size_t, 1u>{size});
+        ndarray<RT, 1u> ret(std::array<size_t, R>{size});
         auto ret_iter = ret.begin();
         for (size_t i = 0u; i < size; ++i, ++ret_iter, (++iters, ...))
             *ret_iter = f(*iters...);
@@ -305,13 +313,14 @@ auto _map_thread_impl2(Function f, size_t size, Iters... iters)
     {
         auto first_item = f(*iters...);
         const auto item_dims = first_item.dims();
-        ndarray<value_type_t<RT>, array_rank_v<RT> + 1u> ret(
-            utils::dims_join(std::array<size_t, 1u>{size}, item_dims));
-        auto ret_iter = ret.template view_begin<1u>();
+        ndarray<value_type_t<RT>, R + array_rank_v<RT>> ret(
+            utils::dims_join(map_dims, item_dims));
+        const auto ret_size = utils::size_of_dims(map_dims);
+        auto ret_iter = ret.template view_begin<R>();
         first_item.copy_to(ret_iter.begin());
         (++iters, ...);
         ++ret_iter;
-        for (size_t i = 1; i < size; ++i, ++ret_iter, (++iters, ...))
+        for (size_t i = 1; i < ret_size; ++i, ++ret_iter, (++iters, ...))
         {
             auto item = f(*iters...);
             if (!utils::check_dims(item.dims(), item_dims))
@@ -322,24 +331,90 @@ auto _map_thread_impl2(Function f, size_t size, Iters... iters)
     }
 }
 
-template<typename Fn, typename T1, size_t R1, typename... Ts, size_t... Rs>
-auto _map_thread_impl1(Fn f, 
-    const ndarray<T1, R1>& arg1, const ndarray<Ts, Rs>&... args)
+template<size_t I, typename Function, typename Arg1, typename... Args>
+auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
 {
-    const auto size = arg1.dims()[0];
-    if (!((args.dims()[0] == size) && ...))
+    const auto dims = utils::dims_take<1u, I>(arg1.dims());
+    if (!(utils::check_dims(dims, utils::dims_take<1, I>(args.dims())) && ...))
         throw std::logic_error("baddims");
-    return _map_thread_impl2(f, size, 
-        arg1.template view_begin<1u>(), args.template view_begin<1u>()...);
+    return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(), 
+        args.template view_begin<size_t(I)>()...);
+}
+
+template<typename Function, int64_t I, typename... Args>
+auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
+{
+    static_assert(sizeof...(Args) >= 1u, "badargc");
+    static_assert(1 <= I, "badlevel");
+    static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
+        "badargtype");
+    return _map_thread_impl1<size_t(I)>(f, 
+        val(std::forward<decltype(args)>(args))...);
 }
 
 template<typename Function, typename... Args>
 auto map_thread(Function f, varg_tag, Args&&... args)
 {
-    static_assert(sizeof...(Args) >= 1u, "badargc");
-    static_assert(((array_rank_v<remove_cvref_t<Args>> >= 1u) && ...),
-        "badargtype");
-    return _map_thread_impl1(f, val(std::forward<decltype(args)>(args))...);
+    return map_thread(f, const_int<1>{}, varg_tag{}, 
+        std::forward<decltype(args)>(args)...);
+}
+
+template<typename Function, typename X, int64_t I>
+auto map_thread(Function f, X&& x, const_int<I>)
+{
+    static_assert(is_variadic_function_v<Function>, "badargtype");
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 2u, "badrank");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(1 <= Level && Level < int64_t(R), "badlevel");
+
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    const auto map_dims = utils::dims_take<2u, Level + 1u>(valx.dims());
+    const auto pack_size = valx.dims()[0];
+    const auto pack_stride = utils::size_of_dims(map_dims);
+    auto x_iter = valx.template view_begin<Level + 1u>();
+    using IterType = remove_cvref_t<decltype(x_iter)>;
+    using RT = remove_cvref_t<
+        decltype(f(std::declval<argument_pack<IterType, true>>()))>;
+        
+    if constexpr (array_rank_v<RT> == 0u)
+    {
+        ndarray<RT, Level> ret(map_dims);
+        auto ret_iter = ret.begin();
+        const auto ret_size = ret.size();
+        for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
+            *ret_iter = f(argument_pack<IterType, true>(
+                x_iter, pack_size, pack_stride));
+        return ret;
+    }
+    else
+    {
+        auto first_item = f(argument_pack<IterType, true>(
+            x_iter, pack_size, pack_stride));
+        const auto item_dims = first_item.dims();
+        ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+            utils::dims_join(map_dims, item_dims));
+        auto ret_iter = ret.template view_begin<Level>();
+        first_item.copy_to(ret_iter.begin());
+        ++x_iter;
+        ++ret_iter;
+        for (size_t i = 1; i < pack_stride; ++i, ++x_iter, ++ret_iter)
+        {
+            auto item = f(argument_pack<IterType, true>(
+                x_iter, pack_size, pack_stride));
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error("baddims");
+            item.copy_to(ret_iter.begin());
+        }
+        return ret;
+    }
+}
+
+template<typename Function, typename X, int64_t I>
+auto map_thread(Function f, X&& x)
+{
+    return map_thread(f, std::forward<decltype(x)>(x), const_int<1>{});
 }
 
 template<typename Function, typename X>

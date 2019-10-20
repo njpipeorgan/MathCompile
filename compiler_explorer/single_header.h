@@ -14,6 +14,7 @@
 #include <numeric>
 #include <variant>
 #include <cmath>
+#include <limits>
 #include <immintrin.h>
 #include <random>
 namespace wl
@@ -32,12 +33,21 @@ using string = std::string;
 struct void_type;
 struct all_type;
 struct boolean;
-template<typename ArgIter>
+template<typename ArgIter, bool HasStride = false>
 struct argument_pack;
 template<typename Normal, typename Variadic>
 struct variadic;
 template<typename...>
 constexpr auto always_false_v = false;
+template<typename...>
+struct undefined_type;
+template<size_t...>
+struct undefined_integral;
+template<typename T>
+struct identity_type
+{
+    using type = T;
+};
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
 template<typename T>
@@ -213,8 +223,8 @@ template<typename Fn>
 constexpr auto is_variadic_function_v = is_variadic_function<Fn>::value;
 template<typename T>
 struct is_argument_pack : std::false_type {};
-template<typename Iter>
-struct is_argument_pack<argument_pack<Iter>> : std::true_type {};
+template<typename Iter, bool HasStride>
+struct is_argument_pack<argument_pack<Iter, HasStride>> : std::true_type {};
 template<typename Iter>
 constexpr auto is_argument_pack_v = is_argument_pack<Iter>::value;
 }
@@ -1845,14 +1855,14 @@ struct ndarray
     {
     }
     template<typename DimsT>
-    ndarray(std::array<DimsT, rank> dims, const T& val) :
-        data_{utils::size_of_dims(dims)}
+    ndarray(const std::array<DimsT, rank>& dims, const T& val) :
+        data_(utils::size_of_dims(dims), val)
     {
         std::copy(dims.begin(), dims.end(), this->dims_.data());
     }
     template<typename DimsT>
-    ndarray(std::array<DimsT, rank> dims) : 
-        data_{utils::size_of_dims(dims)}
+    ndarray(const std::array<DimsT, rank>& dims) : 
+        data_(utils::size_of_dims(dims))
     {
         std::copy(dims.begin(), dims.end(), this->dims_.data());
     }
@@ -1862,7 +1872,7 @@ struct ndarray
     {
     }
     ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
-        dims_{dims}, data_{std::move(movable)}
+        dims_{dims}, data_(std::move(movable))
     {
     }
     
@@ -2689,6 +2699,137 @@ auto unit_step(X&& x)
     return utils::listable_function(scalar_sign,
         std::forward<decltype(x)>(x));
 }
+auto min()
+{
+    return std::numeric_limits<double>::max();
+}
+template<typename X>
+auto min(const X& x)
+{
+    if constexpr (is_argument_pack_v<X>)
+    {
+        using XV = value_type_t<value_type_t<X>>;
+        const auto pack_size = x.size();
+        auto ret = std::numeric_limits<XV>::max();
+        for (size_t i = 0u; i < pack_size; ++i)
+            ret = std::min(ret, min(x.get(i)));
+        return ret;
+    }
+    else if constexpr (array_rank_v<X> == 0u)
+    {
+        static_assert(is_real_v<X>, "badargtype");
+        return x;
+    }
+    else
+    {
+        static_assert(is_real_v<value_type_t<X>>, "badargtype");
+        using XV = value_type_t<X>;
+        auto ret = std::numeric_limits<XV>::max();
+        x.for_each([&](const auto& a) { ret = std::min(ret, a); });
+        return ret;
+    }
+}
+template<typename X1, typename X2, typename... Xs>
+auto min(const X1& x1, const X2& x2, const Xs&... xs)
+{
+    using MinType1 = decltype(min(x1));
+    using MinType2 = decltype(min(x2));
+    using LimitType = common_type_t<MinType1, MinType2, uint64_t>;
+    constexpr auto signed1 =
+        std::is_signed_v<MinType1> && std::is_unsigned_v<MinType2>;
+    constexpr auto signed2 =
+        std::is_signed_v<MinType2> && std::is_unsigned_v<MinType1>;
+    constexpr auto high1 = LimitType(std::numeric_limits<MinType1>::max());
+    constexpr auto high2 = LimitType(std::numeric_limits<MinType2>::max());
+    using RT =
+        std::conditional_t<signed1, MinType1,
+        std::conditional_t<signed2, MinType2,
+        std::conditional_t<(high1 > high2), MinType1, MinType2>>>;
+    if constexpr (signed1)
+    {
+        auto min1 = min(x1);
+        if (min1 <= MinType1(0))
+            return min(RT(min1), xs...);
+        else
+        {
+            auto min2 = min(x2);
+            if (LimitType(min2) > LimitType(high1))
+                return min(RT(min1), xs...);
+            else
+                return min((RT(min1) < RT(min2)) ? RT(min1) : RT(min2), xs...);
+        }
+    }
+    else if constexpr (signed2)
+        return min(x2, x1, xs...);
+    else
+    {
+        auto min1 = min(x1);
+        auto min2 = min(x2);
+        return min((RT(min1) < RT(min2)) ? RT(min1) : RT(min2), xs...);
+    }
+}
+auto max()
+{
+    return std::numeric_limits<double>::min();
+}
+template<typename X>
+auto max(const X& x)
+{
+    if constexpr (is_argument_pack_v<X>)
+    {
+        using XV = value_type_t<value_type_t<X>>;
+        const auto pack_size = x.size();
+        auto ret = std::numeric_limits<XV>::min();
+        for (size_t i = 0u; i < pack_size; ++i)
+            ret = std::max(ret, max(x.get(i)));
+        return ret;
+    }
+    else if constexpr (array_rank_v<X> == 0u)
+    {
+        static_assert(is_real_v<X>, "badargtype");
+        return x;
+    }
+    else
+    {
+        static_assert(is_real_v<value_type_t<X>>, "badargtype");
+        using XV = value_type_t<X>;
+        auto ret = std::numeric_limits<XV>::min();
+        x.for_each([&](const auto& a) { ret = std::max(ret, a); });
+        return ret;
+    }
+}
+template<typename X1, typename X2, typename... Xs>
+auto max(const X1& x1, const X2& x2, const Xs&... xs)
+{
+    using MaxType1 = decltype(max(x1));
+    using MaxType2 = decltype(max(x2));
+    using LimitType = common_type_t<MaxType1, MaxType2, uint64_t>;
+    constexpr auto high1 = LimitType(std::numeric_limits<MaxType1>::max());
+    constexpr auto high2 = LimitType(std::numeric_limits<MaxType2>::max());
+    using RT = std::conditional_t<(high1 > high2), MaxType1, MaxType2>;
+    if constexpr (high1 < high2)
+    {
+        auto max2 = max(x2);
+        if (LimitType(max2) > LimitType(high1))
+            return max(RT(max2), xs...);
+        else
+        {
+            auto max1 = max(x1);
+            if (std::is_signed_v<MaxType1> && max1 <= MaxType1(0))
+                return max(RT(max2), xs...);
+            else
+                return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
+        }
+    }
+    else if constexpr (high1 > high2)
+        return max(x2, x1, xs...);
+    else
+    {
+        auto max1 = max(x1);
+        auto max2 = max(x2);
+        return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
+    }
+}
 }
 namespace wl
 {
@@ -2915,123 +3056,6 @@ auto _scalar_divide = [](const auto& x, const auto& y)
             return cast<C>(x) / cast<C>(y);
     }
 };
-template<typename X>
-auto minus(X&& x)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    return utils::listable_function([](const auto& x) { return -x; },
-        std::forward<decltype(x)>(x));
-}
-template<typename X, typename Y>
-auto _nonvariadic_plus(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_plus,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-template<typename Iter>
-auto _variadic_plus(const argument_pack<Iter>& args)
-{
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
-    assert(size > 0u);
-    auto ret = val(args.get(0));
-    for (size_t i = 1u; i < size; ++i)
-        ret = _nonvariadic_plus(ret, args.get(i));
-    return ret;
-}
-template<typename X, typename Y>
-auto plus(X&& x, Y&& y)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
-    else
-        return _nonvariadic_plus(
-            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-template<typename X>
-auto plus(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_plus(x);
-    else
-        return std::forward<decltype(x)>(x);
-}
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return plus(plus(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
-template<typename X, typename Y>
-auto subtract(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_subtract,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-template<typename X, typename Y>
-auto _nonvariadic_times(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_times,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-template<typename Iter>
-auto _variadic_times(const argument_pack<Iter>& args)
-{
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
-    assert(size > 0u);
-    auto ret = val(args.get(0));
-    for (size_t i = 1u; i < size; ++i)
-        ret = _nonvariadic_times(ret, args.get(i));
-    return ret;
-}
-template<typename X, typename Y>
-auto times(X&& x, Y&& y)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_times(y));
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_times(x), std::forward<decltype(y)>(y));
-    else
-        return _nonvariadic_times(
-            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
-template<typename X>
-auto times(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_times(x);
-    else
-        return std::forward<decltype(x)>(x);
-}
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return times(times(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
-template<typename X, typename Y>
-auto divide(X&& x, Y&& y)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    return utils::listable_function(_scalar_divide,
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-}
 #define WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(name, func)                 \
 template<typename X, typename Y>                                        \
 auto _scalar_##name(X& x, const Y& y)                                   \
@@ -3089,6 +3113,115 @@ WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
+template<typename X>
+auto minus(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    return utils::listable_function([](const auto& x) { return -x; },
+        std::forward<decltype(x)>(x));
+}
+template<typename Iter, bool HasStride>
+auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
+{
+    using ArgType = remove_cvref_t<decltype(args.get(0))>;
+    constexpr auto rank = array_rank_v<ArgType>;
+    const auto size = args.size();
+    assert(size > 0u);
+    auto ret = val(args.get(0));
+    for (size_t i = 1u; i < size; ++i)
+        add_to(ret, args.get(i));
+    return ret;
+}
+template<typename X, typename Y>
+auto plus(X&& x, Y&& y)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
+        return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
+    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
+    else
+    {
+        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        return utils::listable_function(_scalar_plus,
+            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    }
+}
+template<typename X>
+auto plus(X&& x)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return _variadic_plus(x);
+    else
+        return std::forward<decltype(x)>(x);
+}
+template<typename X1, typename X2, typename X3, typename... Xs>
+auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
+{
+    return plus(plus(std::forward<decltype(x1)>(x1),
+        std::forward<decltype(x2)>(x2)),
+        std::forward<decltype(x3)>(x3),
+        std::forward<decltype(xs)>(xs)...);
+}
+template<typename X, typename Y>
+auto subtract(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_subtract,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+template<typename Iter, bool HasStride>
+auto _variadic_times(const argument_pack<Iter, HasStride>& args)
+{
+    using ArgType = remove_cvref_t<decltype(args.get(0))>;
+    constexpr auto rank = array_rank_v<ArgType>;
+    const auto size = args.size();
+    assert(size > 0u);
+    auto ret = val(args.get(0));
+    for (size_t i = 1u; i < size; ++i)
+        times_by(ret, args.get(i));
+    return ret;
+}
+template<typename X, typename Y>
+auto times(X&& x, Y&& y)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
+        return plus(std::forward<decltype(x)>(x), _variadic_times(y));
+    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return plus(_variadic_times(x), std::forward<decltype(y)>(y));
+    else
+    {
+        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        return utils::listable_function(_scalar_times,
+            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    }
+}
+template<typename X>
+auto times(X&& x)
+{
+    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
+        return _variadic_times(x);
+    else
+        return std::forward<decltype(x)>(x);
+}
+template<typename X1, typename X2, typename X3, typename... Xs>
+auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
+{
+    return times(times(std::forward<decltype(x1)>(x1),
+        std::forward<decltype(x2)>(x2)),
+        std::forward<decltype(x3)>(x3),
+        std::forward<decltype(xs)>(xs)...);
+}
+template<typename X, typename Y>
+auto divide(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    return utils::listable_function(_scalar_divide,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
 }
 namespace wl
 {
@@ -3892,8 +4025,8 @@ auto _list_length_by_args_impl(const Any& any)
 {
     return size_t(1);
 }
-template<typename Iter>
-auto _list_length_by_args_impl(const argument_pack<Iter>& args)
+template<typename Iter, bool HasStride>
+auto _list_length_by_args_impl(const argument_pack<Iter, HasStride>& args)
 {
     return args.size();
 }
@@ -4326,14 +4459,15 @@ auto array_reshape(X&& x, varg_tag, const Dims&... dims)
 }
 namespace wl
 {
-template<typename ArgIter>
+template<typename ArgIter, bool HasStride>
 struct argument_pack
 {
     using value_type = remove_cvref_t<decltype(*std::declval<ArgIter>())>;
     const ArgIter iter_;
     const size_t size_;
-    argument_pack(ArgIter iter, size_t size) :
-        iter_{iter}, size_{size}
+    const size_t stride_;
+    argument_pack(ArgIter iter, size_t size, size_t stride = 1u) :
+        iter_{iter}, size_{size}, stride_{stride}
     {
     }
     size_t size() const
@@ -4344,13 +4478,19 @@ struct argument_pack
     {
         if (i >= size_)
             throw std::logic_error("badargc");
-        return *(this->iter_ + i);
+        if constexpr (HasStride)
+            return *(this->iter_ + i * stride_);
+        else
+            return *(this->iter_ + i);
     }
     auto get_pack(size_t i) const
     {
         if (i >= size_)
             throw std::logic_error("badargc");
-        return argument_pack(iter_ + i, size_ - i);
+        if constexpr (HasStride)
+            return argument_pack(iter_ + i * stride_, size_ - i);
+        else
+            return argument_pack(iter_ + i, size_ - i);
     }
 };
 template<typename Normal, typename Variadic>
@@ -4399,7 +4539,7 @@ auto apply(Function f, const X& x, const_int<I>)
     }
     else if constexpr (array_rank_v<RT> == 0u)
     {
-        ndarray<value_type_t<RT>, 1u> ret(apply_dims);
+        ndarray<value_type_t<RT>, Level> ret(apply_dims);
         auto ret_iter = ret.begin();
         auto ret_size = ret.size();
         for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
@@ -4567,13 +4707,14 @@ auto map(Function f, X&& x)
 {
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
 }
-template<typename Function, typename... Iters>
-auto _map_thread_impl2(Function f, size_t size, Iters... iters)
+template<typename Function, size_t R, typename... Iters>
+auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims, 
+    Iters... iters)
 {
     using RT = remove_cvref_t<decltype(f(*iters...))>;
     if constexpr (array_rank_v<RT> == 0u)
     {
-        ndarray<RT, 1u> ret(std::array<size_t, 1u>{size});
+        ndarray<RT, 1u> ret(std::array<size_t, R>{size});
         auto ret_iter = ret.begin();
         for (size_t i = 0u; i < size; ++i, ++ret_iter, (++iters, ...))
             *ret_iter = f(*iters...);
@@ -4583,13 +4724,14 @@ auto _map_thread_impl2(Function f, size_t size, Iters... iters)
     {
         auto first_item = f(*iters...);
         const auto item_dims = first_item.dims();
-        ndarray<value_type_t<RT>, array_rank_v<RT> + 1u> ret(
-            utils::dims_join(std::array<size_t, 1u>{size}, item_dims));
-        auto ret_iter = ret.template view_begin<1u>();
+        ndarray<value_type_t<RT>, R + array_rank_v<RT>> ret(
+            utils::dims_join(map_dims, item_dims));
+        const auto ret_size = utils::size_of_dims(map_dims);
+        auto ret_iter = ret.template view_begin<R>();
         first_item.copy_to(ret_iter.begin());
         (++iters, ...);
         ++ret_iter;
-        for (size_t i = 1; i < size; ++i, ++ret_iter, (++iters, ...))
+        for (size_t i = 1; i < ret_size; ++i, ++ret_iter, (++iters, ...))
         {
             auto item = f(*iters...);
             if (!utils::check_dims(item.dims(), item_dims))
@@ -4599,23 +4741,85 @@ auto _map_thread_impl2(Function f, size_t size, Iters... iters)
         return ret;
     }
 }
-template<typename Fn, typename T1, size_t R1, typename... Ts, size_t... Rs>
-auto _map_thread_impl1(Fn f, 
-    const ndarray<T1, R1>& arg1, const ndarray<Ts, Rs>&... args)
+template<size_t I, typename Function, typename Arg1, typename... Args>
+auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
 {
-    const auto size = arg1.dims()[0];
-    if (!((args.dims()[0] == size) && ...))
+    const auto dims = utils::dims_take<1u, I>(arg1.dims());
+    if (!(utils::check_dims(dims, utils::dims_take<1, I>(args.dims())) && ...))
         throw std::logic_error("baddims");
-    return _map_thread_impl2(f, size, 
-        arg1.template view_begin<1u>(), args.template view_begin<1u>()...);
+    return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(), 
+        args.template view_begin<size_t(I)>()...);
+}
+template<typename Function, int64_t I, typename... Args>
+auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
+{
+    static_assert(sizeof...(Args) >= 1u, "badargc");
+    static_assert(1 <= I, "badlevel");
+    static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
+        "badargtype");
+    return _map_thread_impl1<size_t(I)>(f, 
+        val(std::forward<decltype(args)>(args))...);
 }
 template<typename Function, typename... Args>
 auto map_thread(Function f, varg_tag, Args&&... args)
 {
-    static_assert(sizeof...(Args) >= 1u, "badargc");
-    static_assert(((array_rank_v<remove_cvref_t<Args>> >= 1u) && ...),
-        "badargtype");
-    return _map_thread_impl1(f, val(std::forward<decltype(args)>(args))...);
+    return map_thread(f, const_int<1>{}, varg_tag{}, 
+        std::forward<decltype(args)>(args)...);
+}
+template<typename Function, typename X, int64_t I>
+auto map_thread(Function f, X&& x, const_int<I>)
+{
+    static_assert(is_variadic_function_v<Function>, "badargtype");
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 2u, "badrank");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(1 <= Level && Level < int64_t(R), "badlevel");
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    const auto map_dims = utils::dims_take<2u, Level + 1u>(valx.dims());
+    const auto pack_size = valx.dims()[0];
+    const auto pack_stride = utils::size_of_dims(map_dims);
+    auto x_iter = valx.template view_begin<Level + 1u>();
+    using IterType = remove_cvref_t<decltype(x_iter)>;
+    using RT = remove_cvref_t<
+        decltype(f(std::declval<argument_pack<IterType, true>>()))>;
+        
+    if constexpr (array_rank_v<RT> == 0u)
+    {
+        ndarray<RT, Level> ret(map_dims);
+        auto ret_iter = ret.begin();
+        const auto ret_size = ret.size();
+        for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
+            *ret_iter = f(argument_pack<IterType, true>(
+                x_iter, pack_size, pack_stride));
+        return ret;
+    }
+    else
+    {
+        auto first_item = f(argument_pack<IterType, true>(
+            x_iter, pack_size, pack_stride));
+        const auto item_dims = first_item.dims();
+        ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+            utils::dims_join(map_dims, item_dims));
+        auto ret_iter = ret.template view_begin<Level>();
+        first_item.copy_to(ret_iter.begin());
+        ++x_iter;
+        ++ret_iter;
+        for (size_t i = 1; i < pack_stride; ++i, ++x_iter, ++ret_iter)
+        {
+            auto item = f(argument_pack<IterType, true>(
+                x_iter, pack_size, pack_stride));
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error("baddims");
+            item.copy_to(ret_iter.begin());
+        }
+        return ret;
+    }
+}
+template<typename Function, typename X, int64_t I>
+auto map_thread(Function f, X&& x)
+{
+    return map_thread(f, std::forward<decltype(x)>(x), const_int<1>{});
 }
 template<typename Function, typename X>
 auto nest(Function f, X&& x, const int64_t n)

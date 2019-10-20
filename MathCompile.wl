@@ -384,6 +384,7 @@ $builtinfunctions=native/@
   "Apply"           ->"apply",
   "Select"          ->"select",
   "Map"             ->"map",
+  "MapThread"       ->"map_thread",
   "Nest"            ->"nest",
   "NestList"        ->"nest_list",
   "Fold"            ->"fold",
@@ -453,6 +454,8 @@ functionmacro[code_]:=code//.{
     id["Apply"][func_,list[args___]]:>func[args],
     id["Apply"][func_,array_,list[literal[i_Integer]]]:>native["apply"][func,array,const[i]],
     id["MapThread"][func_,list[arrays__]]:>native["map_thread"][func,vargtag,arrays],
+    id["MapThread"][func_,list[arrays__],literal[i_Integer]]:>native["map_thread"][func,const[i],vargtag,arrays],
+    id["MapThread"][func_,array_,literal[i_Integer]]:>native["map_thread"][func,array,const[i]],
     id["Part"][array_,specs___]:>id["Part"][array,
       Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]]
   }

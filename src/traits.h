@@ -51,7 +51,7 @@ struct all_type;
 
 struct boolean;
 
-template<typename ArgIter>
+template<typename ArgIter, bool HasStride = false>
 struct argument_pack;
 
 template<typename Normal, typename Variadic>
@@ -59,6 +59,18 @@ struct variadic;
 
 template<typename...>
 constexpr auto always_false_v = false;
+
+template<typename...>
+struct undefined_type;
+
+template<size_t...>
+struct undefined_integral;
+
+template<typename T>
+struct identity_type
+{
+    using type = T;
+};
 
 
 template<typename T>
@@ -297,8 +309,8 @@ constexpr auto is_variadic_function_v = is_variadic_function<Fn>::value;
 template<typename T>
 struct is_argument_pack : std::false_type {};
 
-template<typename Iter>
-struct is_argument_pack<argument_pack<Iter>> : std::true_type {};
+template<typename Iter, bool HasStride>
+struct is_argument_pack<argument_pack<Iter, HasStride>> : std::true_type {};
 
 template<typename Iter>
 constexpr auto is_argument_pack_v = is_argument_pack<Iter>::value;

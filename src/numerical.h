@@ -18,8 +18,8 @@
 #pragma once
 
 #include <cmath>
-
 #include <complex>
+#include <limits>
 
 #include "types.h"
 #include "traits.h"
@@ -455,6 +455,145 @@ auto unit_step(X&& x)
     };
     return utils::listable_function(scalar_sign,
         std::forward<decltype(x)>(x));
+}
+
+auto min()
+{
+    return std::numeric_limits<double>::max();
+}
+
+template<typename X>
+auto min(const X& x)
+{
+    if constexpr (is_argument_pack_v<X>)
+    {
+        using XV = value_type_t<value_type_t<X>>;
+        const auto pack_size = x.size();
+        auto ret = std::numeric_limits<XV>::max();
+        for (size_t i = 0u; i < pack_size; ++i)
+            ret = std::min(ret, min(x.get(i)));
+        return ret;
+    }
+    else if constexpr (array_rank_v<X> == 0u)
+    {
+        static_assert(is_real_v<X>, "badargtype");
+        return x;
+    }
+    else
+    {
+        static_assert(is_real_v<value_type_t<X>>, "badargtype");
+        using XV = value_type_t<X>;
+        auto ret = std::numeric_limits<XV>::max();
+        x.for_each([&](const auto& a) { ret = std::min(ret, a); });
+        return ret;
+    }
+}
+
+template<typename X1, typename X2, typename... Xs>
+auto min(const X1& x1, const X2& x2, const Xs&... xs)
+{
+    using MinType1 = decltype(min(x1));
+    using MinType2 = decltype(min(x2));
+    using LimitType = common_type_t<MinType1, MinType2, uint64_t>;
+    constexpr auto signed1 =
+        std::is_signed_v<MinType1> && std::is_unsigned_v<MinType2>;
+    constexpr auto signed2 =
+        std::is_signed_v<MinType2> && std::is_unsigned_v<MinType1>;
+    constexpr auto high1 = LimitType(std::numeric_limits<MinType1>::max());
+    constexpr auto high2 = LimitType(std::numeric_limits<MinType2>::max());
+    using RT =
+        std::conditional_t<signed1, MinType1,
+        std::conditional_t<signed2, MinType2,
+        std::conditional_t<(high1 > high2), MinType1, MinType2>>>;
+
+    if constexpr (signed1)
+    {
+        auto min1 = min(x1);
+        if (min1 <= MinType1(0))
+            return min(RT(min1), xs...);
+        else
+        {
+            auto min2 = min(x2);
+            if (LimitType(min2) > LimitType(high1))
+                return min(RT(min1), xs...);
+            else
+                return min((RT(min1) < RT(min2)) ? RT(min1) : RT(min2), xs...);
+        }
+    }
+    else if constexpr (signed2)
+        return min(x2, x1, xs...);
+    else
+    {
+        auto min1 = min(x1);
+        auto min2 = min(x2);
+        return min((RT(min1) < RT(min2)) ? RT(min1) : RT(min2), xs...);
+    }
+}
+
+auto max()
+{
+    return std::numeric_limits<double>::min();
+}
+
+template<typename X>
+auto max(const X& x)
+{
+    if constexpr (is_argument_pack_v<X>)
+    {
+        using XV = value_type_t<value_type_t<X>>;
+        const auto pack_size = x.size();
+        auto ret = std::numeric_limits<XV>::min();
+        for (size_t i = 0u; i < pack_size; ++i)
+            ret = std::max(ret, max(x.get(i)));
+        return ret;
+    }
+    else if constexpr (array_rank_v<X> == 0u)
+    {
+        static_assert(is_real_v<X>, "badargtype");
+        return x;
+    }
+    else
+    {
+        static_assert(is_real_v<value_type_t<X>>, "badargtype");
+        using XV = value_type_t<X>;
+        auto ret = std::numeric_limits<XV>::min();
+        x.for_each([&](const auto& a) { ret = std::max(ret, a); });
+        return ret;
+    }
+}
+
+template<typename X1, typename X2, typename... Xs>
+auto max(const X1& x1, const X2& x2, const Xs&... xs)
+{
+    using MaxType1 = decltype(max(x1));
+    using MaxType2 = decltype(max(x2));
+    using LimitType = common_type_t<MaxType1, MaxType2, uint64_t>;
+    constexpr auto high1 = LimitType(std::numeric_limits<MaxType1>::max());
+    constexpr auto high2 = LimitType(std::numeric_limits<MaxType2>::max());
+    using RT = std::conditional_t<(high1 > high2), MaxType1, MaxType2>;
+
+    if constexpr (high1 < high2)
+    {
+        auto max2 = max(x2);
+        if (LimitType(max2) > LimitType(high1))
+            return max(RT(max2), xs...);
+        else
+        {
+            auto max1 = max(x1);
+            if (std::is_signed_v<MaxType1> && max1 <= MaxType1(0))
+                return max(RT(max2), xs...);
+            else
+                return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
+        }
+    }
+    else if constexpr (high1 > high2)
+        return max(x2, x1, xs...);
+    else
+    {
+        auto max1 = max(x1);
+        auto max2 = max(x2);
+        return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
+    }
 }
 
 }

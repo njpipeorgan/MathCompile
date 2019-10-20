@@ -219,15 +219,15 @@ struct ndarray
     }
 
     template<typename DimsT>
-    ndarray(std::array<DimsT, rank> dims, const T& val) :
-        data_{utils::size_of_dims(dims)}
+    ndarray(const std::array<DimsT, rank>& dims, const T& val) :
+        data_(utils::size_of_dims(dims), val)
     {
         std::copy(dims.begin(), dims.end(), this->dims_.data());
     }
 
     template<typename DimsT>
-    ndarray(std::array<DimsT, rank> dims) : 
-        data_{utils::size_of_dims(dims)}
+    ndarray(const std::array<DimsT, rank>& dims) : 
+        data_(utils::size_of_dims(dims))
     {
         std::copy(dims.begin(), dims.end(), this->dims_.data());
     }
@@ -239,7 +239,7 @@ struct ndarray
     }
 
     ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
-        dims_{dims}, data_{std::move(movable)}
+        dims_{dims}, data_(std::move(movable))
     {
     }
     

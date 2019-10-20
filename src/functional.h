@@ -303,9 +303,10 @@ auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
     using RT = remove_cvref_t<decltype(f(*iters...))>;
     if constexpr (array_rank_v<RT> == 0u)
     {
-        ndarray<RT, 1u> ret(std::array<size_t, R>{size});
+        ndarray<RT, 1u> ret(map_dims);
+        const auto ret_size = ret.size();
         auto ret_iter = ret.begin();
-        for (size_t i = 0u; i < size; ++i, ++ret_iter, (++iters, ...))
+        for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, (++iters, ...))
             *ret_iter = f(*iters...);
         return ret;
     }
@@ -411,7 +412,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
     }
 }
 
-template<typename Function, typename X, int64_t I>
+template<typename Function, typename X>
 auto map_thread(Function f, X&& x)
 {
     return map_thread(f, std::forward<decltype(x)>(x), const_int<1>{});

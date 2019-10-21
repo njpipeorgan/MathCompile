@@ -173,7 +173,7 @@ struct _small_vector
         return *this;
     }
 
-    _small_vector& operator=(_small_vector&&)
+    _small_vector& operator=(_small_vector&& other)
     {
         this->size_ = other.size_;
         if (other.is_static_)
@@ -320,7 +320,7 @@ struct ndarray
     {
     }
 
-    ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
+    ndarray(std::array<size_t, rank> dims, _data_t&& movable) :
         dims_{dims}, data_(std::move(movable))
     {
     }

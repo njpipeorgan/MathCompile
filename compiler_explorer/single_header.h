@@ -1823,7 +1823,7 @@ struct _small_vector
         }
         return *this;
     }
-    _small_vector& operator=(_small_vector&&)
+    _small_vector& operator=(_small_vector&& other)
     {
         this->size_ = other.size_;
         if (other.is_static_)
@@ -1952,7 +1952,7 @@ struct ndarray
         dims_{dims}, data_(begin, end)
     {
     }
-    ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
+    ndarray(std::array<size_t, rank> dims, _data_t&& movable) :
         dims_{dims}, data_(std::move(movable))
     {
     }
@@ -4537,6 +4537,39 @@ auto array_reshape(X&& x, varg_tag, const Dims&... dims)
     return array_reshape(std::forward<decltype(x)>(x),
         void_type{}, varg_tag{}, dims...);
 }
+template<uint64_t mask, size_t... Is>
+struct _is_valid_transpose_impl;
+template<uint64_t mask, size_t I1, size_t... Is>
+struct _is_valid_transpose_impl<mask, I1, Is...>
+{
+    static constexpr bool value = (mask & (uint64_t(1) << I1)) == 0 ? 
+        _is_valid_transpose_impl<(mask | (uint64_t(1) << I1)), Is...>::value :
+        false;
+};
+template<uint64_t mask>
+struct _is_valid_transpose_impl<mask>
+{
+    static constexpr bool value = 
+        ((mask >> 1u) & ((mask >> 1u) + uint64_t(1))) == 0;
+};
+template<size_t... Is>
+struct _is_valid_transpose : _is_valid_transpose_impl<0u, Is...> {};
+template<typename T, size_t R, size_t... Is>
+auto _transpose_impl(const ndarray<T, R>& a, std::index_sequence<Is...>)
+{
+}
+template<typename X, int64_t... Is>
+auto transpose(X&& x, const_int<Is>...)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto NL = sizeof...(Is);
+    static_assert(1 <= NL && NL <= XR, "badargtype");
+    static_assert(((1 <= Is && Is <= int64_t(NL)) && ...), "badlevel");
+    static_assert(_is_valid_transpose<size_t(Is)...>::value, "badlevel");
+    return 0;
+}
 }
 namespace wl
 {
@@ -4566,7 +4599,7 @@ struct argument_pack
     }
     auto get_pack(size_t i) const
     {
-        if (i >= size_)
+        if (i > size_)
             throw std::logic_error("badargc");
         if constexpr (HasStride)
             return argument_pack(iter_ + i * stride_, size_ - i, stride_);
@@ -4946,7 +4979,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
         ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
         auto ret_iter = ret.begin();
         *ret_iter = cast<XT2>(std::forward<decltype(x)>(x));
-        for (size_t i = 1; i < size_t(n); ++i, ++ret_iter)
+        for (size_t i = 1; i <= size_t(n); ++i, ++ret_iter)
             *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
         return ret;
     }
@@ -4973,7 +5006,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
                 throw std::logic_error("baddims");
             item.copy_to(view_iter.begin());
             ++view_iter;
-            for (int64_t i = 1; i < n; ++i, ++view_iter)
+            for (int64_t i = 2; i <= size_t(n); ++i, ++view_iter)
             {
                 auto temp = val(f(std::move(item)));
                 set(item, std::move(temp));

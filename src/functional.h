@@ -56,7 +56,7 @@ struct argument_pack
 
     auto get_pack(size_t i) const
     {
-        if (i >= size_)
+        if (i > size_)
             throw std::logic_error("badargc");
         if constexpr (HasStride)
             return argument_pack(iter_ + i * stride_, size_ - i, stride_);
@@ -464,7 +464,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
         ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
         auto ret_iter = ret.begin();
         *ret_iter = cast<XT2>(std::forward<decltype(x)>(x));
-        for (size_t i = 1; i < size_t(n); ++i, ++ret_iter)
+        for (size_t i = 1; i <= size_t(n); ++i, ++ret_iter)
             *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
         return ret;
     }
@@ -491,7 +491,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
                 throw std::logic_error("baddims");
             item.copy_to(view_iter.begin());
             ++view_iter;
-            for (int64_t i = 1; i < n; ++i, ++view_iter)
+            for (int64_t i = 2; i <= size_t(n); ++i, ++view_iter)
             {
                 auto temp = val(f(std::move(item)));
                 set(item, std::move(temp));

@@ -621,4 +621,46 @@ auto array_reshape(X&& x, varg_tag, const Dims&... dims)
         void_type{}, varg_tag{}, dims...);
 }
 
+
+template<uint64_t mask, size_t... Is>
+struct _is_valid_transpose_impl;
+
+template<uint64_t mask, size_t I1, size_t... Is>
+struct _is_valid_transpose_impl<mask, I1, Is...>
+{
+    static constexpr bool value = (mask & (uint64_t(1) << I1)) == 0 ? 
+        _is_valid_transpose_impl<(mask | (uint64_t(1) << I1)), Is...>::value :
+        false;
+};
+
+template<uint64_t mask>
+struct _is_valid_transpose_impl<mask>
+{
+    static constexpr bool value = 
+        ((mask >> 1u) & ((mask >> 1u) + uint64_t(1))) == 0;
+};
+
+template<size_t... Is>
+struct _is_valid_transpose : _is_valid_transpose_impl<0u, Is...> {};
+
+
+template<typename T, size_t R, size_t... Is>
+auto _transpose_impl(const ndarray<T, R>& a, std::index_sequence<Is...>)
+{
+
+}
+
+template<typename X, int64_t... Is>
+auto transpose(X&& x, const_int<Is>...)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto NL = sizeof...(Is);
+    static_assert(1 <= NL && NL <= XR, "badargtype");
+    static_assert(((1 <= Is && Is <= int64_t(NL)) && ...), "badlevel");
+    static_assert(_is_valid_transpose<size_t(Is)...>::value, "badlevel");
+    return 0;
+}
+
 }

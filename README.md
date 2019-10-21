@@ -6,6 +6,8 @@ It is written mostly in *Wolfram Language* and utilize a C++ library for type de
 
 **Note**: The project is in the progress of adding more functions.
 
+**Note**: Be aware that the compiled function may throw uncaught exceptions due to bugs and cause WolframKernel to crash. 
+
 ## Prerequisite
 
 - *Wolfram Mathematica* 11+

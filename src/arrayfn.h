@@ -187,7 +187,7 @@ auto list(First&& first, Rest&&... rest)
             if constexpr (sizeof...(rest) == 0u)
             {
                 using ItemType = value_type_t<FirstType>;
-                constexpr auto ret_rank = array_rank_v<ItemType> + 1u;
+                constexpr auto ret_rank = array_rank_v<ItemType> +1u;
                 return ndarray<value_type_t<ItemType>, ret_rank>{};
             }
             else
@@ -676,7 +676,7 @@ template<size_t... Is>
 struct _transpose_max_level;
 
 template<size_t I1, size_t I2, size_t... Is>
-struct _transpose_max_level<I1, I2, Is...> : 
+struct _transpose_max_level<I1, I2, Is...> :
     _transpose_max_level<(I1 > I2 ? I1 : I2), Is...> {};
 
 template<size_t I>
@@ -693,15 +693,58 @@ struct _padded_transpose_levels_impl<std::index_sequence<Pads...>, Is...>
 };
 
 template<size_t R, size_t... Is>
-struct _padded_transpose_levels : 
+struct _padded_transpose_levels :
     _padded_transpose_levels_impl<
     std::make_index_sequence<R - sizeof...(Is)>, Is...> {};
 
-
-template<typename T, size_t R, size_t... Is>
-auto _transpose_impl(const ndarray<T, R>& a, std::index_sequence<Is...>)
+template<size_t L, typename T>
+void _transpose_fill(const T* src, T*& dst,
+    const size_t* dims, const size_t* strides)
 {
-    return 0;
+    const size_t dim = *dims;
+    const size_t stride = *strides;
+    if constexpr (L > 1u)
+    {
+        WL_IGNORE_DEPENDENCIES
+        for (size_t i = 0u; i < dim; ++i, src += stride)
+            _transpose_fill<L - 1u>(src, dst, dims + 1, strides + 1);
+    }
+    else if (stride == 1u)
+    {
+        WL_IGNORE_DEPENDENCIES
+        for (size_t i = 0u; i < dim; ++i, ++src, ++dst)
+            *dst = *src;
+    }
+    else
+    {
+        WL_IGNORE_DEPENDENCIES
+        for (size_t i = 0u; i < dim; ++i, src += stride, ++dst)
+            *dst = *src;
+    }
+}
+
+template<typename T, size_t R, size_t... Is, size_t... Cs>
+auto _transpose_impl(const ndarray<T, R>& a,
+    std::index_sequence<Is...>, std::index_sequence<Cs...>)
+{
+    constexpr auto RetRank = _transpose_max_level<Is...>::value;
+    auto a_dims = a.dims().data();
+    std::array<size_t, R> strides;
+    std::array<size_t, RetRank> ret_dims{};
+    std::array<size_t, RetRank> ret_strides{};
+    strides[R - 1u] = 1u;
+    (((Cs < 1) || (strides[R - Cs - 1u] =
+        strides[R - Cs] * a_dims[R - Cs])), ...);
+    ((ret_dims[Is - 1] == 0u ?
+        (ret_dims[Is - 1] = a_dims[Cs], ret_strides[Is - 1] += strides[Cs]) :
+        ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
+        throw std::logic_error("baddims")), ...);
+
+    ndarray<T, RetRank> ret(ret_dims);
+    auto dst_ptr = ret.data();
+    _transpose_fill<RetRank>(a.data(), dst_ptr,
+        ret_dims.data(), ret_strides.data());
+    return ret;
 }
 
 template<typename X, int64_t... Is>
@@ -713,8 +756,16 @@ auto transpose(X&& x, const_int<Is>...)
     constexpr auto NL = sizeof...(Is);
     static_assert(1 <= NL && NL <= XR, "badargtype");
     static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
-    return _transpose_impl(val(x), 
-        typename _padded_transpose_levels<XR, Is...>::type{});
+    return _transpose_impl(val(x),
+        typename _padded_transpose_levels<XR, Is...>::type{},
+        std::make_index_sequence<XR>{});
+}
+
+template<typename X>
+auto transpose(X&& x)
+{
+    return transpose(std::forward<decltype(x)>(x), 
+        const_int<2>{}, const_int<1>{});
 }
 
 }

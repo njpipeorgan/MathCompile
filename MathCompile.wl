@@ -385,6 +385,7 @@ $builtinfunctions=native/@
   "Last"            ->"last",
   "Most"            ->"most",
   "Rest"            ->"rest",
+  "Transpose"       ->"transpose",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",
@@ -462,7 +463,9 @@ functionmacro[code_]:=code//.{
     id["MapThread"][func_,list[arrays__],literal[i_Integer]]:>native["map_thread"][func,const[i],vargtag,arrays],
     id["MapThread"][func_,array_,literal[i_Integer]]:>native["map_thread"][func,array,const[i]],
     id["Part"][array_,specs___]:>id["Part"][array,
-      Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]]
+      Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]],
+    id["Transpose"][array_,list[l:(literal[_Integer]..)]]:>
+      native["transpose"][array,Sequence@@(const/@{l}[[;;,1]])]
   }
 
 arithmeticmacro[code_]:=code//.{

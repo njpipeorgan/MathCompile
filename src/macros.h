@@ -19,12 +19,16 @@
 
 #if defined(_MSC_VER)
 #define WL_INLINE __forceinline
+#define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
 #elif defined(__INTEL_COMPILER)
 #define WL_INLINE __forceinline
+#define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #elif defined(__clang__)
 #define WL_INLINE __attribute__((always_inline))
+#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #elif defined(__GNUC__)
 #define WL_INLINE __attribute__((always_inline))
+#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #endif
 
 namespace wl

@@ -205,20 +205,34 @@ auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
     using ArgType = remove_cvref_t<decltype(args.get(0))>;
     constexpr auto rank = array_rank_v<ArgType>;
     const auto size = args.size();
-    assert(size > 0u);
     auto ret = val(args.get(0));
     for (size_t i = 1u; i < size; ++i)
         add_to(ret, args.get(i));
     return ret;
 }
 
+auto plus()
+{
+    return int64_t(0);
+}
+
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
+    {
+        if (y.size() == 0u)
+            return std::forward<decltype(x)>(x);
+        else
+            return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
+    }
     else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
+    {
+        if (x.size() == 0u)
+            return std::forward<decltype(y)>(y);
+        else
+            return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
+    }
     else
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -232,7 +246,12 @@ template<typename X>
 auto plus(X&& x)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_plus(x);
+    {
+        if (x.size() == 0u)
+            return plus();
+        else
+            return _variadic_plus(x);
+    }
     else
         return std::forward<decltype(x)>(x);
 }
@@ -268,13 +287,28 @@ auto _variadic_times(const argument_pack<Iter, HasStride>& args)
     return ret;
 }
 
+auto times()
+{
+    return int64_t(1);
+}
+
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_times(y));
+    {
+        if (y.size() == 0u)
+            return std::forward<decltype(x)>(x);
+        else
+            return times(std::forward<decltype(x)>(x), _variadic_times(y));
+    }
     else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_times(x), std::forward<decltype(y)>(y));
+    {
+        if (x.size() == 0u)
+            return std::forward<decltype(y)>(y);
+        else
+            return times(_variadic_times(x), std::forward<decltype(y)>(y));
+    }
     else
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -288,7 +322,12 @@ template<typename X>
 auto times(X&& x)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_times(x);
+    {
+        if (x.size() == 0u)
+            return times();
+        else
+            return _variadic_times(x);
+    }
     else
         return std::forward<decltype(x)>(x);
 }

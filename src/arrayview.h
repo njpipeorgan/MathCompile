@@ -453,7 +453,7 @@ struct simple_view
     }
 
     template<typename... Specs>
-    simple_view(const T* base_id, pointer_type base_data, 
+    simple_view(const void* base_id, pointer_type base_data, 
         const _base_dims_t& base_dims, const Specs&... specs) :
         identifier_{base_id}, size_{1u}
     {

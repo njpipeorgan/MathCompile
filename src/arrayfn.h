@@ -337,6 +337,43 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
         return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
 }
 
+template<typename Array>
+auto first(Array&& a)
+{
+    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1, "badargtype");
+    return part(a, cidx(0));
+}
+
+template<typename Array>
+auto last(Array&& a)
+{
+    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1, "badargtype");
+    return part(a, int64_t(-1));
+}
+
+template<typename Array>
+auto most(Array&& a)
+{
+    using AT = remove_cvref_t<Array>;
+    constexpr auto AR = array_rank_v<AT>;
+    static_assert(AR >= 1, "badargtype");
+    const auto size = a.dims()[0];
+    if (size <= 1u)
+        throw std::logic_error("baddims");
+    return part(a, make_span(const_all, int64_t(-2)));
+}
+
+template<typename Array>
+auto rest(Array&& a)
+{
+    using AT = remove_cvref_t<Array>;
+    static_assert(array_rank_v<AT> >= 1, "badargtype");
+    const auto size = a.dims()[0];
+    if (size <= 1u)
+        throw std::logic_error("baddims");
+    return part(a, make_span(int64_t(2), const_all));
+}
+
 template<typename Begin, typename End, typename Step>
 auto range(Begin begin, End end, Step step)
 {
@@ -513,6 +550,12 @@ auto dimensions(const Array& a)
             a.dims_ptr(), a.dims_ptr() + rank);
 }
 
+template<typename Any>
+auto array_depth(const Any& any)
+{
+    return int64_t(array_rank_v<Any>);
+}
+
 template<typename T, size_t R>
 void _reverse_inplace(ndarray<T, R>& a,
     size_t outer_size, size_t inter_size, size_t inner_size)
@@ -621,33 +664,44 @@ auto array_reshape(X&& x, varg_tag, const Dims&... dims)
         void_type{}, varg_tag{}, dims...);
 }
 
-
-template<uint64_t mask, size_t... Is>
-struct _is_valid_transpose_impl;
-
-template<uint64_t mask, size_t I1, size_t... Is>
-struct _is_valid_transpose_impl<mask, I1, Is...>
+template<size_t R, size_t... Is>
+struct _is_valid_transpose
 {
-    static constexpr bool value = (mask & (uint64_t(1) << I1)) == 0 ? 
-        _is_valid_transpose_impl<(mask | (uint64_t(1) << I1)), Is...>::value :
-        false;
-};
-
-template<uint64_t mask>
-struct _is_valid_transpose_impl<mask>
-{
-    static constexpr bool value = 
-        ((mask >> 1u) & ((mask >> 1u) + uint64_t(1))) == 0;
+    static constexpr auto between = ((1u <= Is && Is <= R) && ...);
+    static constexpr auto mask = ((uint64_t(1) << (Is - 1u)) | ...);
+    static constexpr auto value = between && ((mask & (mask + 1u)) == 0);
 };
 
 template<size_t... Is>
-struct _is_valid_transpose : _is_valid_transpose_impl<0u, Is...> {};
+struct _transpose_max_level;
+
+template<size_t I1, size_t I2, size_t... Is>
+struct _transpose_max_level<I1, I2, Is...> : 
+    _transpose_max_level<(I1 > I2 ? I1 : I2), Is...> {};
+
+template<size_t I>
+struct _transpose_max_level<I> : std::integral_constant<size_t, I> {};
+
+template<typename T, size_t... Is>
+struct _padded_transpose_levels_impl;
+
+template<size_t... Is, size_t... Pads>
+struct _padded_transpose_levels_impl<std::index_sequence<Pads...>, Is...>
+{
+    static constexpr auto max_level = _transpose_max_level<Is...>::value;
+    using type = std::index_sequence<Is..., (Pads + max_level + 1u)...>;
+};
+
+template<size_t R, size_t... Is>
+struct _padded_transpose_levels : 
+    _padded_transpose_levels_impl<
+    std::make_index_sequence<R - sizeof...(Is)>, Is...> {};
 
 
 template<typename T, size_t R, size_t... Is>
 auto _transpose_impl(const ndarray<T, R>& a, std::index_sequence<Is...>)
 {
-
+    return 0;
 }
 
 template<typename X, int64_t... Is>
@@ -658,9 +712,9 @@ auto transpose(X&& x, const_int<Is>...)
     constexpr auto XR = array_rank_v<XT>;
     constexpr auto NL = sizeof...(Is);
     static_assert(1 <= NL && NL <= XR, "badargtype");
-    static_assert(((1 <= Is && Is <= int64_t(NL)) && ...), "badlevel");
-    static_assert(_is_valid_transpose<size_t(Is)...>::value, "badlevel");
-    return 0;
+    static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
+    return _transpose_impl(val(x), 
+        typename _padded_transpose_levels<XR, Is...>::type{});
 }
 
 }

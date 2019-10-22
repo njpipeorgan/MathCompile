@@ -1142,7 +1142,7 @@ struct simple_view
         this->size_ = utils::size_of_dims(this->dims_);
     }
     template<typename... Specs>
-    simple_view(const T* base_id, pointer_type base_data, 
+    simple_view(const void* base_id, pointer_type base_data, 
         const _base_dims_t& base_dims, const Specs&... specs) :
         identifier_{base_id}, size_{1u}
     {
@@ -3031,12 +3031,16 @@ auto iterator(Any&& any)
 }
 #if defined(_MSC_VER)
 #define WL_INLINE __forceinline
+#define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
 #elif defined(__INTEL_COMPILER)
 #define WL_INLINE __forceinline
+#define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #elif defined(__clang__)
 #define WL_INLINE __attribute__((always_inline))
+#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #elif defined(__GNUC__)
 #define WL_INLINE __attribute__((always_inline))
+#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #endif
 namespace wl
 {
@@ -3207,19 +3211,32 @@ auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
     using ArgType = remove_cvref_t<decltype(args.get(0))>;
     constexpr auto rank = array_rank_v<ArgType>;
     const auto size = args.size();
-    assert(size > 0u);
     auto ret = val(args.get(0));
     for (size_t i = 1u; i < size; ++i)
         add_to(ret, args.get(i));
     return ret;
 }
+auto plus()
+{
+    return int64_t(0);
+}
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
+    {
+        if (y.size() == 0u)
+            return std::forward<decltype(x)>(x);
+        else
+            return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
+    }
     else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
+    {
+        if (x.size() == 0u)
+            return std::forward<decltype(y)>(y);
+        else
+            return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
+    }
     else
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -3232,7 +3249,12 @@ template<typename X>
 auto plus(X&& x)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_plus(x);
+    {
+        if (x.size() == 0u)
+            return plus();
+        else
+            return _variadic_plus(x);
+    }
     else
         return std::forward<decltype(x)>(x);
 }
@@ -3264,13 +3286,27 @@ auto _variadic_times(const argument_pack<Iter, HasStride>& args)
         times_by(ret, args.get(i));
     return ret;
 }
+auto times()
+{
+    return int64_t(1);
+}
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-        return plus(std::forward<decltype(x)>(x), _variadic_times(y));
+    {
+        if (y.size() == 0u)
+            return std::forward<decltype(x)>(x);
+        else
+            return times(std::forward<decltype(x)>(x), _variadic_times(y));
+    }
     else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return plus(_variadic_times(x), std::forward<decltype(y)>(y));
+    {
+        if (x.size() == 0u)
+            return std::forward<decltype(y)>(y);
+        else
+            return times(_variadic_times(x), std::forward<decltype(y)>(y));
+    }
     else
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -3283,7 +3319,12 @@ template<typename X>
 auto times(X&& x)
 {
     if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-        return _variadic_times(x);
+    {
+        if (x.size() == 0u)
+            return times();
+        else
+            return _variadic_times(x);
+    }
     else
         return std::forward<decltype(x)>(x);
 }
@@ -4269,6 +4310,39 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
     else
         return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
 }
+template<typename Array>
+auto first(Array&& a)
+{
+    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1, "badargtype");
+    return part(a, cidx(0));
+}
+template<typename Array>
+auto last(Array&& a)
+{
+    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1, "badargtype");
+    return part(a, int64_t(-1));
+}
+template<typename Array>
+auto most(Array&& a)
+{
+    using AT = remove_cvref_t<Array>;
+    constexpr auto AR = array_rank_v<AT>;
+    static_assert(AR >= 1, "badargtype");
+    const auto size = a.dims()[0];
+    if (size <= 1u)
+        throw std::logic_error("baddims");
+    return part(a, make_span(const_all, int64_t(-2)));
+}
+template<typename Array>
+auto rest(Array&& a)
+{
+    using AT = remove_cvref_t<Array>;
+    static_assert(array_rank_v<AT> >= 1, "badargtype");
+    const auto size = a.dims()[0];
+    if (size <= 1u)
+        throw std::logic_error("baddims");
+    return part(a, make_span(int64_t(2), const_all));
+}
 template<typename Begin, typename End, typename Step>
 auto range(Begin begin, End end, Step step)
 {
@@ -4436,6 +4510,11 @@ auto dimensions(const Array& a)
         return ndarray<int64_t, 1>(std::array<size_t, 1>{rank},
             a.dims_ptr(), a.dims_ptr() + rank);
 }
+template<typename Any>
+auto array_depth(const Any& any)
+{
+    return int64_t(array_rank_v<Any>);
+}
 template<typename T, size_t R>
 void _reverse_inplace(ndarray<T, R>& a,
     size_t outer_size, size_t inter_size, size_t inner_size)
@@ -4537,26 +4616,36 @@ auto array_reshape(X&& x, varg_tag, const Dims&... dims)
     return array_reshape(std::forward<decltype(x)>(x),
         void_type{}, varg_tag{}, dims...);
 }
-template<uint64_t mask, size_t... Is>
-struct _is_valid_transpose_impl;
-template<uint64_t mask, size_t I1, size_t... Is>
-struct _is_valid_transpose_impl<mask, I1, Is...>
+template<size_t R, size_t... Is>
+struct _is_valid_transpose
 {
-    static constexpr bool value = (mask & (uint64_t(1) << I1)) == 0 ? 
-        _is_valid_transpose_impl<(mask | (uint64_t(1) << I1)), Is...>::value :
-        false;
-};
-template<uint64_t mask>
-struct _is_valid_transpose_impl<mask>
-{
-    static constexpr bool value = 
-        ((mask >> 1u) & ((mask >> 1u) + uint64_t(1))) == 0;
+    static constexpr auto between = ((1u <= Is && Is <= R) && ...);
+    static constexpr auto mask = ((uint64_t(1) << (Is - 1u)) | ...);
+    static constexpr auto value = between && ((mask & (mask + 1u)) == 0);
 };
 template<size_t... Is>
-struct _is_valid_transpose : _is_valid_transpose_impl<0u, Is...> {};
+struct _transpose_max_level;
+template<size_t I1, size_t I2, size_t... Is>
+struct _transpose_max_level<I1, I2, Is...> : 
+    _transpose_max_level<(I1 > I2 ? I1 : I2), Is...> {};
+template<size_t I>
+struct _transpose_max_level<I> : std::integral_constant<size_t, I> {};
+template<typename T, size_t... Is>
+struct _padded_transpose_levels_impl;
+template<size_t... Is, size_t... Pads>
+struct _padded_transpose_levels_impl<std::index_sequence<Pads...>, Is...>
+{
+    static constexpr auto max_level = _transpose_max_level<Is...>::value;
+    using type = std::index_sequence<Is..., (Pads + max_level + 1u)...>;
+};
+template<size_t R, size_t... Is>
+struct _padded_transpose_levels : 
+    _padded_transpose_levels_impl<
+    std::make_index_sequence<R - sizeof...(Is)>, Is...> {};
 template<typename T, size_t R, size_t... Is>
 auto _transpose_impl(const ndarray<T, R>& a, std::index_sequence<Is...>)
 {
+    return 0;
 }
 template<typename X, int64_t... Is>
 auto transpose(X&& x, const_int<Is>...)
@@ -4566,9 +4655,9 @@ auto transpose(X&& x, const_int<Is>...)
     constexpr auto XR = array_rank_v<XT>;
     constexpr auto NL = sizeof...(Is);
     static_assert(1 <= NL && NL <= XR, "badargtype");
-    static_assert(((1 <= Is && Is <= int64_t(NL)) && ...), "badlevel");
-    static_assert(_is_valid_transpose<size_t(Is)...>::value, "badlevel");
-    return 0;
+    static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
+    return _transpose_impl(val(x), 
+        typename _padded_transpose_levels<XR, Is...>::type{});
 }
 }
 namespace wl

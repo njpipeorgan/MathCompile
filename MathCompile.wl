@@ -23,6 +23,7 @@ Begin["`Private`"];
 
 $packagepath=DirectoryName[$InputFileName];
 $slotmaximum=10;
+$rankmaximum=16;
 
 
 parse::unknown="`1` cannot be parsed.";
@@ -386,6 +387,7 @@ $builtinfunctions=native/@
   "Most"            ->"most",
   "Rest"            ->"rest",
   "Transpose"       ->"transpose",
+  "Flatten"         ->"flatten",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",
@@ -465,7 +467,20 @@ functionmacro[code_]:=code//.{
     id["Part"][array_,specs___]:>id["Part"][array,
       Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]],
     id["Transpose"][array_,list[l:(literal[_Integer]..)]]:>
-      native["transpose"][array,Sequence@@(const/@{l}[[;;,1]])]
+      native["transpose"][array,Sequence@@(const/@{l}[[;;,1]])],
+    id["Flatten"][array_,literal[i_Integer]]:>
+      native["flatten"][array,
+        If[i<=$rankmaximum,consts@@Range[i],
+          (Message[semantics::bad,tostring@id["Flatten"][array,literal[i]]];Throw["semantics"])]],
+    id["Flatten"][array_,l:list[literal[_Integer]..]]:>id["Flatten"][array,list[l]],
+    id["Flatten"][array_,l:list[list[literal[_Integer]..]..]]:>
+      Module[{levels=l/.{list->List,literal->Identity},ints,maxlevel},
+        ints=Cases[levels,_Integer,-1];
+        If[(maxlevel=Max[ints])<=$rankmaximum&&DuplicateFreeQ[ints],
+        native["flatten"][array,Sequence@@(consts@@@Join[levels,
+          List/@Complement[Range[maxlevel],ints]])],
+        (Message[semantics::bad,tostring@id["Flatten"][array,l]];Throw["semantics"])]
+      ]
   }
 
 arithmeticmacro[code_]:=code//.{
@@ -542,6 +557,7 @@ codegen[literal[s_String],___]:=ToString@CForm[s]<>"_s"
 codegen[literal[i_Integer],___]:=ToString@CForm[i]<>"_i"
 codegen[literal[r_Real],___]:=ToString@CForm[r]<>"_r"
 codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
+codegen[c:consts[(_Integer)..],___]:="wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">{}"
 codegen[const[s_String],___]:="wl::const_"<>s
 
 codegen[native[name_],"Function"]:="wl::"<>name

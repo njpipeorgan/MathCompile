@@ -723,8 +723,8 @@ void _transpose_fill(const T* src, T*& dst,
     }
 }
 
-template<typename T, size_t R, size_t... Is, size_t... Cs>
-auto _transpose_impl(const ndarray<T, R>& a,
+template<typename T, size_t R, typename Output, size_t... Is, size_t... Cs>
+auto _transpose_impl(const ndarray<T, R>& a, Output ptr, 
     std::index_sequence<Is...>, std::index_sequence<Cs...>)
 {
     constexpr auto RetRank = _transpose_max_level<Is...>::value;
@@ -740,11 +740,20 @@ auto _transpose_impl(const ndarray<T, R>& a,
         ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
         throw std::logic_error("baddims")), ...);
 
-    ndarray<T, RetRank> ret(ret_dims);
-    auto dst_ptr = ret.data();
-    _transpose_fill<RetRank>(a.data(), dst_ptr,
-        ret_dims.data(), ret_strides.data());
-    return ret;
+    if constexpr (std::is_pointer_v<Output>)
+    {
+        auto dst_ptr = ptr;
+        _transpose_fill<RetRank>(a.data(), dst_ptr,
+            ret_dims.data(), ret_strides.data());
+    }
+    else
+    {
+        ndarray<T, RetRank> ret(ret_dims);
+        auto dst_ptr = ret.data();
+        _transpose_fill<RetRank>(a.data(), dst_ptr,
+            ret_dims.data(), ret_strides.data());
+        return ret;
+    }
 }
 
 template<typename X, int64_t... Is>
@@ -756,16 +765,15 @@ auto transpose(X&& x, const_int<Is>...)
     constexpr auto NL = sizeof...(Is);
     static_assert(1 <= NL && NL <= XR, "badargtype");
     static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
-    return _transpose_impl(val(x),
+    return _transpose_impl(val(x), void_type{}, 
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
 }
 
-template<typename X>
-auto transpose(X&& x)
+template<typename X, typename... Levels>
+auto flatten(X&& x, Levels...)
 {
-    return transpose(std::forward<decltype(x)>(x), 
-        const_int<2>{}, const_int<1>{});
+    
 }
 
 }

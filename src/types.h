@@ -21,6 +21,7 @@
 #include <cstdint>
 
 #include <string>
+#include <tuple>
 
 #include "traits.h"
 
@@ -79,6 +80,15 @@ template<int64_t I>
 struct const_int
 {
     static constexpr auto value = I;
+};
+
+template<int64_t... Is>
+struct const_ints
+{
+    template<size_t N>
+    static constexpr auto value = 
+        std::tuple_element_t<N, 
+        std::tuple<std::integral_constant<int64_t, Is>...>>::value;
 };
 
 namespace literal

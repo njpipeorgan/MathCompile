@@ -4677,9 +4677,9 @@ auto _transpose_impl(const ndarray<T, R>& a,
     std::array<size_t, RetRank> ret_dims{};
     std::array<size_t, RetRank> ret_strides{};
     strides[R - 1u] = 1u;
-    (((Cs < 1) || (strides[R - Cs - 1u] =
-        strides[R - Cs] * a_dims[R - Cs])), ...);
-    ((ret_dims[Is - 1] == 0u ?
+    [[maybe_unused]] auto unused1 = ((Cs > 0 ? (strides[R - Cs - 1u] =
+        strides[R - Cs] * a_dims[R - Cs]) : size_t()), ...);
+    [[maybe_unused]] auto unused2 = ((ret_dims[Is - 1] == 0u ?
         (ret_dims[Is - 1] = a_dims[Cs], ret_strides[Is - 1] += strides[Cs]) :
         ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
         throw std::logic_error("baddims")), ...);

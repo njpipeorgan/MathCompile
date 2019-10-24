@@ -65,33 +65,31 @@ struct argument_pack
     }
 };
 
-template<typename Normal, typename Variadic>
+template<typename Fn>
 struct variadic
 {
-    Normal nf_;
-    Variadic vf_;
+    Fn fn_;
 
-    variadic(Normal nf, Variadic vf) :
-        nf_{std::move(nf)}, vf_{std::move(vf)}
+    variadic(Fn fn) : fn_{std::move(fn)}
     {
     }
 
     template<typename... Args>
     auto operator()(Args&&... args) const -> decltype(auto)
     {
-        return nf_(std::forward<decltype(args)>(args)...);
+        return fn_(std::forward<decltype(args)>(args)...);
     }
 
     template<typename T>
     auto operator()(const argument_pack<T>& args) const
     {
-        return vf_(args);
+        return fn_(args);
     }
 
     template<typename T>
     auto operator()(argument_pack<T>&& args) const
     {
-        return vf_(args);
+        return fn_(args);
     }
 };
 
@@ -297,7 +295,7 @@ auto map(Function f, X&& x)
 }
 
 template<typename Function, size_t R, typename... Iters>
-auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims, 
+auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
     Iters... iters)
 {
     using RT = remove_cvref_t<decltype(f(*iters...))>;
@@ -338,7 +336,7 @@ auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
     const auto dims = utils::dims_take<1u, I>(arg1.dims());
     if (!(utils::check_dims(dims, utils::dims_take<1, I>(args.dims())) && ...))
         throw std::logic_error("baddims");
-    return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(), 
+    return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(),
         args.template view_begin<size_t(I)>()...);
 }
 
@@ -349,14 +347,14 @@ auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
     static_assert(1 <= I, "badlevel");
     static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
         "badargtype");
-    return _map_thread_impl1<size_t(I)>(f, 
+    return _map_thread_impl1<size_t(I)>(f,
         val(std::forward<decltype(args)>(args))...);
 }
 
 template<typename Function, typename... Args>
 auto map_thread(Function f, varg_tag, Args&&... args)
 {
-    return map_thread(f, const_int<1>{}, varg_tag{}, 
+    return map_thread(f, const_int<1>{}, varg_tag{},
         std::forward<decltype(args)>(args)...);
 }
 
@@ -378,7 +376,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
     using IterType = remove_cvref_t<decltype(x_iter)>;
     using RT = remove_cvref_t<
         decltype(f(std::declval<argument_pack<IterType, true>>()))>;
-        
+
     if constexpr (array_rank_v<RT> == 0u)
     {
         ndarray<RT, Level> ret(map_dims);
@@ -614,6 +612,77 @@ template<typename Function, typename... Any>
 auto foldr_list(Function f, Any&&... any)
 {
     return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
+}
+
+template<typename Arg>
+auto identity(Arg&& arg) -> decltype(auto)
+{
+    return std::forward<decltype(arg)>(arg);
+}
+
+template<bool Reverse, typename... Fs>
+struct composite_function
+{
+    static constexpr auto N = sizeof...(Fs);
+    std::tuple<Fs...> fs_;
+
+    composite_function(Fs... fs) :
+        fs_{std::make_tuple(std::move(fs)...)}
+    {
+    }
+
+    template<typename... Args>
+    auto operator()(Args&&... args) const -> decltype(auto)
+    {
+        return _apply<0u>(std::forward<decltype(args)>(args)...);
+    }
+
+    template<size_t I, typename... Args>
+    auto _apply(Args&&... args) const -> decltype(auto)
+    {
+        if constexpr (I + 1u < N)
+            return std::get<(Reverse ? (N - 1u - I) : I)>(fs_)(
+                _apply<I + 1u>(std::forward<decltype(args)>(args)...));
+        else
+            return std::get<(Reverse ? (N - 1u - I) : I)>(fs_)(
+                std::forward<decltype(args)>(args)...);
+    }
+
+};
+
+template<bool Reverse, typename... Fn>
+auto _composition_impl(Fn&&... fn)
+{
+    static constexpr auto N = sizeof...(Fn);
+    constexpr auto is_variadic = is_variadic_function_v<
+        std::tuple_element_t<N - 1u, std::tuple<remove_cvref_t<Fn>...>>>;
+    auto ret = composite_function<Reverse, remove_cvref_t<Fn>...>(
+        std::forward<decltype(fn)>(fn)...);
+    if constexpr (is_variadic)
+        return variadic<decltype(ret)>(std::move(ret));
+    else
+        return ret;
+}
+
+template<bool Reverse>
+auto _composition_impl()
+{
+    return [](auto&&... args) -> decltype(auto)
+    {
+        return std::forward<decltype(arg)>(arg);
+    };
+}
+
+template<typename... Fn>
+auto composition(Fn&&... fn) -> decltype(auto)
+{
+    return _composition_impl<false>(std::forward<decltype(fn)>(fn)...);
+}
+
+template<typename... Fn>
+auto right_composition(Fn&&... fn) -> decltype(auto)
+{
+    return _composition_impl<true>(std::forward<decltype(fn)>(fn)...);
 }
 
 }

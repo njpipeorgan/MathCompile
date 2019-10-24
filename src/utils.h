@@ -89,9 +89,8 @@ auto cast(const complex<X>& x)
 namespace utils
 {
 
-#define WL_FUNCTION(fn) wl::variadic(                                         \
-    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
-    [](auto&& args) { return fn(std::forward<decltype(args)>(args)); })
+#define WL_FUNCTION(fn) wl::variadic( \
+    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); })
 
 #define WL_PASS(var) std::forward<decltype(var)>(var)
 

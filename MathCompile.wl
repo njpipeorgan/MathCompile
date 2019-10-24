@@ -396,7 +396,10 @@ $builtinfunctions=native/@
   "Nest"            ->"nest",
   "NestList"        ->"nest_list",
   "Fold"            ->"fold",
-  "FoldList"        ->"fold_list"
+  "FoldList"        ->"fold_list",
+  "Identity"        ->"identity",
+  "Composition"     ->"composition",
+  "RightComposition"->"right_composition"
     (*"Count"*)
 |>;
 
@@ -481,7 +484,11 @@ functionmacro[code_]:=code//.{
         native[If[#==Range[Length@#]&@Flatten[out],"flatten_copy","flatten"]][
           array,Sequence@@(consts@@@out)],
         (Message[semantics::bad,tostring@id["Flatten"][array,l]];Throw["semantics"])]
-      ]
+      ],
+    id["Composition"][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
+    id["RightComposition"][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
+    id["Composition"][]:>native["identity"],
+    id["RightComposition"][]:>native["identity"]
   }
 
 arithmeticmacro[code_]:=code//.{

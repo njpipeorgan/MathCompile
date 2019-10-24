@@ -275,6 +275,14 @@ struct const_int
 {
     static constexpr auto value = I;
 };
+template<int64_t... Is>
+struct const_ints
+{
+    template<size_t N>
+    static constexpr auto value = 
+        std::tuple_element_t<N, 
+        std::tuple<std::integral_constant<int64_t, Is>...>>::value;
+};
 namespace literal
 {
 inline auto operator ""_i(unsigned long long i)
@@ -4667,27 +4675,36 @@ void _transpose_fill(const T* src, T*& dst,
             *dst = *src;
     }
 }
-template<typename T, size_t R, size_t... Is, size_t... Cs>
-auto _transpose_impl(const ndarray<T, R>& a,
+template<typename T, size_t R, typename Output, size_t... Is, size_t... Cs>
+auto _transpose_impl(const ndarray<T, R>& a, Output ptr, 
     std::index_sequence<Is...>, std::index_sequence<Cs...>)
 {
-    constexpr auto RetRank = _transpose_max_level<Is...>::value;
+    constexpr auto RetRank = _transpose_max_level<size_t(Is)...>::value;
     auto a_dims = a.dims().data();
     std::array<size_t, R> strides;
     std::array<size_t, RetRank> ret_dims{};
     std::array<size_t, RetRank> ret_strides{};
     strides[R - 1u] = 1u;
-    [[maybe_unused]] auto unused1 = ((Cs > 0 ? (strides[R - Cs - 1u] =
+    [[maybe_unused]] auto _1 = ((Cs > 0 ? (strides[R - Cs - 1u] =
         strides[R - Cs] * a_dims[R - Cs]) : size_t()), ...);
-    [[maybe_unused]] auto unused2 = ((ret_dims[Is - 1] == 0u ?
+    [[maybe_unused]] auto _2 = ((ret_dims[Is - 1] == 0u ?
         (ret_dims[Is - 1] = a_dims[Cs], ret_strides[Is - 1] += strides[Cs]) :
         ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
         throw std::logic_error("baddims")), ...);
-    ndarray<T, RetRank> ret(ret_dims);
-    auto dst_ptr = ret.data();
-    _transpose_fill<RetRank>(a.data(), dst_ptr,
-        ret_dims.data(), ret_strides.data());
-    return ret;
+    if constexpr (std::is_pointer_v<Output>)
+    {
+        auto dst_ptr = ptr;
+        _transpose_fill<RetRank>(a.data(), dst_ptr,
+            ret_dims.data(), ret_strides.data());
+    }
+    else
+    {
+        ndarray<T, RetRank> ret(ret_dims);
+        auto dst_ptr = ret.data();
+        _transpose_fill<RetRank>(a.data(), dst_ptr,
+            ret_dims.data(), ret_strides.data());
+        return ret;
+    }
 }
 template<typename X, int64_t... Is>
 auto transpose(X&& x, const_int<Is>...)
@@ -4698,15 +4715,131 @@ auto transpose(X&& x, const_int<Is>...)
     constexpr auto NL = sizeof...(Is);
     static_assert(1 <= NL && NL <= XR, "badargtype");
     static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
-    return _transpose_impl(val(x),
+    return _transpose_impl(val(x), void_type{}, 
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
 }
-template<typename X>
-auto transpose(X&& x)
+template<typename Level>
+struct _flatten_max_level_impl;
+template<int64_t... Is>
+struct _flatten_max_level_impl<const_ints<Is...>> : 
+    _transpose_max_level<size_t(Is)...> {};
+template<typename... Levels>
+struct _flatten_max_level :
+    _transpose_max_level<_flatten_max_level_impl<Levels>::value...> {};
+template<>
+struct _flatten_max_level<> : std::integral_constant<size_t, 0> {};
+template<typename... Levels>
+struct _flatten_levels_join;
+template<int64_t... Is, int64_t... Js, typename... Levels>
+struct _flatten_levels_join<const_ints<Is...>, const_ints<Js...>, Levels...> :
+    _flatten_levels_join<const_ints<Is..., Js...>, Levels...> {};
+template<int64_t... Is>
+struct _flatten_levels_join<const_ints<Is...>>
 {
-    return transpose(std::forward<decltype(x)>(x), 
-        const_int<2>{}, const_int<1>{});
+    using type = const_ints<Is...>;
+};
+template<int64_t... Is, typename... Levels>
+void _flatten_get_dims(const size_t* input_dims, size_t* ret_dims, 
+    const_ints<Is...>, Levels...)
+{
+    *ret_dims = (input_dims[Is - 1u] * ...);
+    if constexpr (sizeof...(Levels) > 0u)
+        _flatten_get_dims(input_dims, ret_dims + 1, Levels{}...);
+}
+template<size_t MaxLevel, typename X, size_t... Pads, typename... Levels>
+auto _flatten_copy_impl(X&& x, std::index_sequence<Pads...>, Levels...)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto RetRank = sizeof...(Pads) + sizeof...(Levels);
+    std::array<size_t, RetRank> ret_dims;
+    _flatten_get_dims(x.dims().data(), ret_dims.data(), 
+        Levels{}..., const_ints<int64_t(Pads + MaxLevel + 1u)>{}...);
+    if constexpr (is_movable_v<X&&>)
+        return ndarray<XV, RetRank>(ret_dims, std::move(x.data_vector()));
+    else if constexpr (XT::category != view_category::General)
+        return ndarray<XV, RetRank>(ret_dims, x.begin(), x.begin() + x.size());
+    else
+    {
+        ndarray<XV, RetRank> ret(ret_dims);
+        x.copy_to(ret.data());
+        return ret;
+    }
+}
+template<typename X, typename... Levels>
+auto flatten_copy(X&& x, Levels...)
+{
+    constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
+    constexpr auto MaxLevel = _flatten_max_level<Levels...>::value;
+    static_assert(1 <= MaxLevel && MaxLevel <= XR, "badlevel");
+    return _flatten_copy_impl<MaxLevel>(std::forward<decltype(x)>(x),
+        std::make_index_sequence<XR - MaxLevel>{}, Levels{}...);
+}
+template<typename T, int64_t... Is, size_t... Cs>
+void _flatten_impl3(const size_t* dims, const T* src, T* dst, 
+    const_ints<Is...>, std::index_sequence<Cs...>)
+{
+    constexpr auto R = sizeof...(Is);
+    std::array<size_t, R> strides;
+    std::array<size_t, R> ret_dims;
+    std::array<size_t, R> ret_strides;
+    strides[R - 1u] = 1u;
+    [[maybe_unused]] auto _1 = ((Cs > 0 ? (strides[R - Cs - 1u] =
+        strides[R - Cs] * dims[R - Cs]) : size_t()), ...);
+    [[maybe_unused]] auto _2 = ((ret_strides[Cs] = strides[Is - 1],
+        ret_dims[Cs] = dims[Is - 1]), ...);
+    _transpose_fill<R>(src, dst, ret_dims.data(), ret_strides.data());
+}
+template<typename X, size_t... Pads, typename... Levels>
+auto _flatten_impl2(X&& x, Levels...)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto RetRank = sizeof...(Levels);
+    std::array<size_t, RetRank> ret_dims;
+    _flatten_get_dims(x.dims().data(), ret_dims.data(), Levels{}...);
+    ndarray<XV, RetRank> ret(ret_dims);
+    const auto& valx = val(x);
+    _flatten_impl3(valx.dims().data(), valx.data(), ret.data(), 
+        typename _flatten_levels_join<Levels...>::type{}, 
+        std::make_index_sequence<XR>{});
+    return ret;
+}
+template<size_t MaxLevel, typename X, size_t... Pads, typename... Levels>
+auto _flatten_impl1(X&& x, std::index_sequence<Pads...>, Levels...)
+{
+    return _flatten_impl2(std::forward<decltype(x)>(x),
+        Levels{}..., const_ints<int64_t(Pads + MaxLevel + 1u)>{}...);
+}
+template<typename X, typename... Levels>
+auto flatten(X&& x, Levels...)
+{
+    constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
+    constexpr auto MaxLevel = _flatten_max_level<Levels...>::value;
+    static_assert(1 <= MaxLevel && MaxLevel <= XR, "badlevel");
+    return _flatten_impl1<MaxLevel>(std::forward<decltype(x)>(x),
+        std::make_index_sequence<XR - MaxLevel>{}, Levels{}...);
+}
+template<typename X>
+auto flatten(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(1 <= XR, "badlevel");
+    std::array<size_t, 1u> ret_dims{utils::size_of_dims(x.dims())};
+    if constexpr (is_movable_v<X&&>)
+        return ndarray<XV, 1u>(ret_dims, std::move(x.data_vector()));
+    else if constexpr (XT::category != view_category::General)
+        return ndarray<XV, 1u>(ret_dims, x.begin(), x.begin() + x.size());
+    else
+    {
+        ndarray<XV, 1u> ret(ret_dims);
+        x.copy_to(ret.data());
+        return ret;
+    }
 }
 }
 namespace wl

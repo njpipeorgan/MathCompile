@@ -470,15 +470,16 @@ functionmacro[code_]:=code//.{
       native["transpose"][array,Sequence@@(const/@{l}[[;;,1]])],
     id["Flatten"][array_,literal[i_Integer]]:>
       native["flatten"][array,
-        If[i<=$rankmaximum,consts@@Range[i],
+        If[0<=i<$rankmaximum,consts@@Range[i+1],
           (Message[semantics::bad,tostring@id["Flatten"][array,literal[i]]];Throw["semantics"])]],
     id["Flatten"][array_,l:list[literal[_Integer]..]]:>id["Flatten"][array,list[l]],
     id["Flatten"][array_,l:list[list[literal[_Integer]..]..]]:>
-      Module[{levels=l/.{list->List,literal->Identity},ints,maxlevel},
+      Module[{levels=l/.{list->List,literal->Identity},ints,maxlevel,out},
         ints=Cases[levels,_Integer,-1];
-        If[(maxlevel=Max[ints])<=$rankmaximum&&DuplicateFreeQ[ints],
-        native["flatten"][array,Sequence@@(consts@@@Join[levels,
-          List/@Complement[Range[maxlevel],ints]])],
+        If[1<=Min[ints]&&(maxlevel=Max[ints])<=$rankmaximum&&DuplicateFreeQ[ints],
+        out=Join[levels,List/@Complement[Range[maxlevel],ints]];
+        native[If[#==Range[Length@#]&@Flatten[out],"flatten_copy","flatten"]][
+          array,Sequence@@(consts@@@out)],
         (Message[semantics::bad,tostring@id["Flatten"][array,l]];Throw["semantics"])]
       ]
   }

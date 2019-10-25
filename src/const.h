@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <limits>
+
 #include "types.h"
 
 namespace wl
@@ -31,5 +33,10 @@ constexpr auto const_euler_gamma = double(5.7721566490153286061e-1);
 constexpr auto const_i           = complex<double>(0.f, 1.f);
 constexpr auto const_true        = boolean(true);
 constexpr auto const_false       = boolean(false);
+
+constexpr auto MaximumArrayRank = 16;
+constexpr auto MaximumArgCount  = 16;
+constexpr auto const_int_infinity  = std::numeric_limits<int64_t>::max();
+constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 
 }

@@ -22,7 +22,7 @@ Begin["`Private`"];
 
 
 $packagepath=DirectoryName[$InputFileName];
-$slotmaximum=10;
+$slotmaximum=16;
 $rankmaximum=16;
 
 
@@ -309,7 +309,11 @@ $builtinfunctions=native/@
   "Sign"            ->"sign<int64_t>",
   "Clip"            ->"clip",
   "Unitize"         ->"unitize<int64_t>",
-  "UnitStep"        ->"unit_step<int64_t>",(*
+  "UnitStep"        ->"unit_step<int64_t>",
+  "Positive"        ->"positive",
+  "Negative"        ->"negative",
+  "NonPositive"     ->"non_positive",
+  "NonNegative"     ->"non_negative",(*
   "Min"             ->"min",
   "Max"             ->"max",
   "Chop"            ->"chop",
@@ -317,6 +321,10 @@ $builtinfunctions=native/@
   "LogisticSigmoid" ->"logistic_sigmoid",
   "Ramp"            ->"ramp",
   "NumericalOrder"  ->"numerical_order",*)
+(* integral functions *)
+  "EvenQ"           ->"even_q",
+  "OddQ"            ->"odd_q",
+  "Divisible"       ->"divisible",
 (* boolean functions *)
   "Not"             ->"bool_not",
   "And"             ->"bool_and",
@@ -397,6 +405,8 @@ $builtinfunctions=native/@
   "NestList"        ->"nest_list",
   "Fold"            ->"fold",
   "FoldList"        ->"fold_list",
+  "NestWhile"       ->"nest_while",
+  "NestWhileList"   ->"nest_while_list",
   "Identity"        ->"identity",
   "Composition"     ->"composition",
   "RightComposition"->"right_composition"
@@ -488,7 +498,15 @@ functionmacro[code_]:=code//.{
     id["Composition"][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
     id["RightComposition"][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
     id["Composition"][]:>native["identity"],
-    id["RightComposition"][]:>native["identity"]
+    id["RightComposition"][]:>native["identity"],
+    id["NestWhile"][func_,expr_,test_,literal[i_Integer],id["Infinity"],any___]:>
+      native["nest_while"][func,expr,test,const[i],const["int_infinity"],any],
+    id["NestWhileList"][func_,expr_,test_,literal[i_Integer],id["Infinity"],any___]:>
+      native["nest_while_list"][func,expr,test,const[i],const["int_infinity"],any],
+    id["NestWhile"][func_,expr_,test_,literal[i_Integer],any___]:>
+      native["nest_while"][func,expr,test,const[i],any],
+    id["NestWhileList"][func_,expr_,test_,literal[i_Integer],any___]:>
+      native["nest_while_list"][func,expr,test,const[i],any]
   }
 
 arithmeticmacro[code_]:=code//.{

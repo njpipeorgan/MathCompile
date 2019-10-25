@@ -44,6 +44,10 @@ struct loop_break
 {
 };
 
+struct dim_checked
+{
+};
+
 struct boolean
 {
     bool val_ = false;

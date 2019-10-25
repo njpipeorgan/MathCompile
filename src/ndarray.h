@@ -266,8 +266,8 @@ struct _small_vector
             std::copy_n(data_.static_.data(), size_, new_data.data());
             new(&data_.dynamic_) dynamic_t(std::move(new_data));
             is_static_ = false;
-            size_ = new_size;
         }
+        size_ = new_size;
     }
 
     const void* identifier() const
@@ -280,7 +280,7 @@ struct _small_vector
 template<typename T, size_t R>
 struct ndarray
 {
-    static_assert(1u <= R && R <= 1024u, "badrank");
+    static_assert(1u <= R && R <= MaximumArrayRank, "badrank");
     static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
     static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>,
         "badargtype");
@@ -308,7 +308,7 @@ struct ndarray
     }
 
     template<typename DimsT>
-    ndarray(const std::array<DimsT, rank>& dims) : 
+    ndarray(const std::array<DimsT, rank>& dims) :
         data_(utils::size_of_dims(dims))
     {
         std::copy(dims.begin(), dims.end(), this->dims_.data());
@@ -324,7 +324,7 @@ struct ndarray
         dims_{dims}, data_(std::move(movable))
     {
     }
-    
+
     size_t size() const
     {
         return data_.size();
@@ -414,7 +414,7 @@ struct ndarray
             return this->end();
         else
         {
-            auto iter = this->view_begin();
+            auto iter = this->template view_begin<Level>();
             iter.apply_pointer_offset(this->size());
             return iter;
         }
@@ -438,19 +438,67 @@ struct ndarray
             return this->end();
         else
         {
-            auto iter = this->view_begin();
+            auto iter = this->template view_begin<Level>();
             iter.apply_pointer_offset(this->size());
             return iter;
         }
     }
 
-    void resize(size_t new_dim0, ptrdiff_t size_diff)
+    void uninitialized_resize(const _dims_t& new_dims, size_t new_size)
     {
-        assert(size_diff ==
-            ptrdiff_t((new_dim0 - dims_[0]) * partial_size<1u>()));
-        this->size_ += size_diff;
-        this->dims_[0] = new_dim0;
+        this->dims_ = new_dims;
         this->data_.resize(this->size_);
+    }
+
+    template<typename X>
+    void _append_scalar(X&& x)
+    {
+        size_t prev_size = this->size();
+        this->data_.resize(prev_size + 1u);
+        *(this->data_.data() + prev_size) = std::forward<decltype(x)>(x);
+        ++this->dims_[0];
+    }
+
+    template<typename X>
+    void _append_array(X&& x)
+    {
+        if (this->size() == 0u)
+        {
+            this->dims_ = utils::dims_join(
+                std::array<size_t, 1u>{1u}, x.dims());
+            this->data_ = cast<ndarray<T, R - 1u>>(
+                std::forward<decltype(x)>(x)).data_vector();
+        }
+        else
+        {
+            size_t prev_size = this->size();
+            this->data_.resize(prev_size + x.size());
+            auto dst_ptr = this->data_.data() + prev_size;
+            x.copy_to(dst_ptr);
+            ++this->dims_[0];
+        }
+    }
+
+    template<typename X>
+    void append(X&& x, dim_checked)
+    {
+        if constexpr (R > 1u)
+            _append_array(std::forward<decltype(x)>(x));
+        else
+            _append_scalar(std::forward<decltype(x)>(x));
+    }
+
+    template<typename X>
+    void append(X&& x)
+    {
+        static_assert(array_rank_v<remove_cvref_t<X>> == R - 1u, "badrank");
+        if constexpr (R > 1u)
+        {
+            if (this->size() > 0u && !utils::check_dims<R - 1u>(
+                this->dims_ptr() + 1, x.dims().data()))
+                throw std::logic_error("baddims");
+        }
+        this->append(std::forward<decltype(x)>(x), dim_checked{});
     }
 
     template<typename... Is>
@@ -532,7 +580,7 @@ struct ndarray
 {
     static_assert(1u <= R && R <= 1024u, "badrank");
     static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
-    static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>, 
+    static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>,
         "badargtype");
 
     using value_type = T;

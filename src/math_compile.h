@@ -26,6 +26,7 @@
 #include "arithmetic.h"
 #include "complex.h"
 #include "mathfunction.h"
+#include "integral.h"
 #include "numerical.h"
 #include "boolean.h"
 #include "random.h"

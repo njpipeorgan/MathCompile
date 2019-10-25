@@ -21,6 +21,7 @@
 #include "types.h"
 #include "ndarray.h"
 #include "utils.h"
+#include "const.h"
 
 namespace wl
 {
@@ -155,22 +156,16 @@ template<typename T, size_t R, typename Function>
 auto _select_impl(const ndarray<T, R>& a, Function f)
 {
     static_assert(R >= 2u, "internal");
-    auto ret_dims = a.dims();
-    ret_dims[0] = 0u;
-    ndarray<T, R> ret(ret_dims);
-    size_t item_count = 0;
+    ndarray<T, R> ret;
     auto view_iter = a.template view_begin<1u>();
     auto view_end = a.template view_end<1u>();
     size_t item_size = view_iter.size();
-    for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
+    for (; view_iter != view_end; ++view_iter)
     {
-        auto out = f(view_iter);
+        auto out = f(*view_iter);
         static_assert(is_boolean_v<decltype(out)>, "badfunctype");
         if (out)
-        {
-            ret.resize(++item_count, item_size);
-            view_iter.copy_to(ret.begin() + (item_count - 1u) * item_size);
-        }
+            ret.append(*view_iter);
     }
     return ret;
 }
@@ -203,11 +198,12 @@ auto _count_impl(const ndarray<T, R>& a, Function f)
     size_t item_count = 0;
     auto view_iter = a.template view_begin<1u>();
     auto view_end = a.template view_end<1u>();
-    for (; !view_iter.view_pos_equal(view_end); view_iter.step_forward())
+    for (; view_iter != view_end; ++view_iter)
     {
-        auto out = f(view_iter);
+        auto out = f(*view_iter);
         static_assert(is_boolean_v<decltype(out)>, "badfunctype");
-        if (out) ++item_count;
+        if (out)
+            ++item_count;
     }
     return item_count;
 }
@@ -439,7 +435,7 @@ auto nest(Function f, X&& x, const int64_t n)
             else
             {
                 auto temp = val(f(std::move(ret)));
-                set(ret, std::move(temp));
+                ret = std::move(temp);
             }
         }
         return ret;
@@ -489,10 +485,10 @@ auto nest_list(Function f, X&& x, const int64_t n)
                 throw std::logic_error("baddims");
             item.copy_to(view_iter.begin());
             ++view_iter;
-            for (int64_t i = 2; i <= size_t(n); ++i, ++view_iter)
+            for (size_t i = 2; i <= size_t(n); ++i, ++view_iter)
             {
                 auto temp = val(f(std::move(item)));
-                set(item, std::move(temp));
+                item = std::move(temp);
                 if (!utils::check_dims(item.dims(), item_dims))
                     throw std::logic_error("baddims");
                 item.copy_to(view_iter.begin());
@@ -500,6 +496,276 @@ auto nest_list(Function f, X&& x, const int64_t n)
             return ret;
         }
     }
+}
+
+template<typename T, size_t R>
+struct _nest_while_queue
+{
+    static constexpr auto _is_scalar = (R == 0u);
+    using _elem_t = std::conditional_t<_is_scalar, T, ndarray<T, R>>;
+    const size_t size_;
+    size_t current_;
+    std::vector<_elem_t> queue_;
+
+    _nest_while_queue(size_t size) :
+        size_{size}, current_ {0u}, queue_(size)
+    {
+    }
+
+    template<typename X>
+    void push(X&& x)
+    {
+        using XT = remove_cvref_t<X>;
+        static_assert(array_rank_v<XT> == R, "badrank");
+        ++current_;
+        if (current_ == size_)
+            current_ = 0u;
+        auto& dst = queue_[current_];
+        if constexpr (_is_scalar)
+        {
+            static_assert(is_convertible_v<XT, T>, "badargtype");
+            dst = std::forward<decltype(x)>(x);
+        }
+        else
+        {
+            using XV = value_type_t<XT>;
+            static_assert(is_convertible_v<XV, T>, "badargtype");
+            if constexpr (std::is_same_v<XV, T> && is_movable_v<X&&>)
+                dst = std::move(x);
+            else
+            {
+                dst.uninitialized_resize(x.dims(), x.size());
+                x.copy_to(dst.data());
+            }
+        }
+    }
+
+    auto last() const & -> const auto&
+    {
+        return queue_[current_];
+    }
+
+    auto last() && -> auto&&
+    {
+        return std::move(queue_[current_]);
+    }
+
+    auto get(size_t i) const & -> const auto& 
+    {
+        return queue_.at(current_ - i + (i > current_ ? size_ : size_t(0)));
+    }
+
+    auto get(size_t i) && -> auto&&
+    {
+        return std::move(
+            queue_.at(current_ - i + (i > current_ ? size_ : size_t(0))));
+    }
+
+    template<typename Fn, size_t... Is>
+    auto _apply_test_impl(Fn&& fn, std::index_sequence<Is...>) const
+    {
+        auto res = std::forward<decltype(fn)>(fn)(
+            queue_[current_ - Is + (Is > current_ ? size_ : size_t(0))]...);
+        static_assert(is_boolean_v<decltype(res)>, "badfunctype");
+        return res;
+    }
+
+    template<size_t N, typename Fn>
+    auto apply_test(Fn&& fn) const
+    {
+        return _apply_test_impl(std::forward<decltype(fn)>(fn),
+            std::make_index_sequence<N>{});
+    }
+};
+
+template<typename Function, typename X, typename Test, int64_t N>
+auto nest_while(Function f, X&& x, Test test, const_int<N>,
+    const int64_t input_max = const_int_infinity,
+    const int64_t offset = 0u)
+{
+    static_assert(0 <= N && N <= MaximumArgCount, "badargv");
+    const auto history_size = size_t(std::max(N, -offset) + 1);
+    const auto max_steps = size_t(std::max(input_max, int64_t(0)));
+    constexpr auto num_args = size_t(N);
+
+    using XT0 = remove_cvref_t<decltype(val(x))>;
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
+        "badargtype");
+    constexpr auto XR = array_rank_v<XT0>;
+
+    if (max_steps < num_args)
+    {
+        return nest(f, std::forward<decltype(x)>(x), max_steps);
+    }
+    else if (num_args <= 1u && offset == 0u)
+    {
+        auto ret = cast<XT2>(std::forward<decltype(x)>(x));
+        bool continue_flag = false;
+        if constexpr (num_args == 0u)
+            continue_flag = test();
+        else if constexpr (num_args == 1u)
+            continue_flag = test(ret);
+        for (size_t i = 0u; i < max_steps && continue_flag; ++i)
+        {
+            if constexpr (XR == 0u)
+                ret = cast<XT2>(f(ret));
+            else
+            {
+                auto temp = val(f(std::move(ret)));
+                set(ret, std::move(temp));
+            }
+            if constexpr (num_args == 0u)
+                continue_flag = test();
+            else if constexpr (num_args == 1u)
+                continue_flag = test(ret);
+        }
+        return ret;
+    }
+    else
+    {
+        using XV = std::conditional_t<XR == 0u, XT2, value_type_t<XT2>>;
+        _nest_while_queue<XV, XR> queue(history_size);
+        queue.push(std::forward<decltype(x)>(x));
+        size_t i = 1u;
+        for (; i < num_args; ++i)
+        {
+            queue.push(f(queue.last()));
+        }
+        bool continue_flag = queue.apply_test<num_args>(test);
+        for (; i <= max_steps && continue_flag; ++i)
+        {
+            queue.push(f(queue.last()));
+            continue_flag = queue.apply_test<num_args>(test);
+        }
+        if (offset <= -int64_t(i))
+            throw std::logic_error("badargv");
+        else if (offset <= 0)
+            return std::move(queue).get(size_t(-offset));
+        else
+            return nest(f, std::move(queue).last(), offset);
+    }
+}
+
+template<typename Function, typename X, typename Test>
+auto nest_while(Function f, X&& x, Test test)
+{
+    return nest_while(f, std::forward<decltype(x)>(x), test, const_int<1>{});
+}
+
+template<typename Test, typename Iter, size_t... Is>
+auto _nest_while_list_apply_test(Test test, Iter iter,
+    std::index_sequence<Is...>)
+{
+    constexpr auto N = sizeof...(Is);
+    return test(*(iter + int64_t(Is - N + 1u))...);
+}
+
+template<typename Function, typename X, typename Test, int64_t N>
+auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
+    const int64_t input_max = const_int_infinity)
+{
+    static_assert(0 <= N && N <= MaximumArgCount, "badargv");
+    const auto max_steps = size_t(std::max(input_max, int64_t(0)));
+    constexpr auto num_args = size_t(N);
+
+    using XT0 = remove_cvref_t<decltype(val(x))>;
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
+        "badargtype");
+    constexpr auto XR = array_rank_v<XT0>;
+
+    if (max_steps < num_args)
+    {
+        return nest_list(f, std::forward<decltype(x)>(x), max_steps);
+    }
+    else if constexpr (XR == 0u)
+    {
+        ndarray<XT2, 1u> ret;
+        auto last = cast<XT2>(std::forward<decltype(x)>(x));
+        ret.append(last);
+        size_t i = 1u;
+        for (; i < num_args; ++i)
+        {
+            auto temp = f(std::move(last));
+            last = std::move(temp);
+            ret.append(last);
+        }
+        bool continue_flag = false;
+        if constexpr (num_args == 0u)
+            continue_flag = test();
+        else if constexpr (num_args == 1u)
+            continue_flag = test(last);
+        else
+            continue_flag = _nest_while_list_apply_test(test,
+                ret.begin() + i - 1, std::make_index_sequence<num_args>{});
+        for (; i <= max_steps && continue_flag; ++i)
+        {
+            auto temp = f(std::move(last));
+            last = std::move(temp);
+            ret.append(last);
+            if constexpr (num_args == 0u)
+                continue_flag = test();
+            else if constexpr (num_args == 1u)
+                continue_flag = test(last);
+            else
+                continue_flag = _nest_while_list_apply_test(test,
+                    ret.begin() + i, std::make_index_sequence<num_args>{});
+        }
+        return ret;
+    }
+    else
+    {
+        using XV = value_type_t<XT2>;
+        ndarray<XV, XR + 1u> ret;
+        auto last = cast<XT2>(std::forward<decltype(x)>(x));
+        const auto item_dims = last.dims();
+        ret.append(last);
+        size_t i = 1u;
+        for (; i < num_args; ++i)
+        {
+            auto temp = val(f(std::move(last)));
+            last = std::move(temp);
+            if (!utils::check_dims(item_dims, last.dims()))
+                throw std::logic_error("baddims");
+            ret.append(last);
+        }
+        bool continue_flag = false;
+        if constexpr (num_args == 0u)
+            continue_flag = test();
+        else if constexpr (false && num_args == 1u)
+            continue_flag = test(last);
+        else
+            continue_flag = _nest_while_list_apply_test(test,
+                ret.template view_begin<1u>() + i - 1,
+                std::make_index_sequence<num_args>{});
+        for (; i <= max_steps && continue_flag; ++i)
+        {
+            auto temp = val(f(std::move(last)));
+            last = std::move(temp);
+            if (!utils::check_dims(item_dims, last.dims()))
+                throw std::logic_error("baddims");
+            ret.append(last);
+            if constexpr (num_args == 0u)
+                continue_flag = test();
+            else if constexpr (false && num_args == 1u)
+                continue_flag = test(last);
+            else
+                continue_flag = _nest_while_list_apply_test(test,
+                    ret.template view_begin<1u>() + i,
+                    std::make_index_sequence<num_args>{});
+        }
+        return ret;
+    }
+}
+
+template<typename Function, typename X, typename Test>
+auto nest_while_list(Function f, X&& x, Test test)
+{
+    return nest_while_list(
+        f, std::forward<decltype(x)>(x), test, const_int<1>{});
 }
 
 template<typename Function, typename X, typename YIter, typename YInc>

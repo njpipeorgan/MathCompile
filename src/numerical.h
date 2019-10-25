@@ -255,7 +255,7 @@ auto mod(X&& x, Y&& y)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    auto scalar_mod = [](const auto& x, const auto& y)
+    auto pure = [](const auto& x, const auto& y)
     {
         using XV = remove_cvref_t<decltype(x)>;
         using YV = remove_cvref_t<decltype(y)>;
@@ -294,7 +294,7 @@ auto mod(X&& x, Y&& y)
             }
         }
     };
-    return utils::listable_function(scalar_mod,
+    return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
@@ -303,7 +303,7 @@ auto sign(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     static_assert(is_arithmetic_v<Ret>, "badrettype");
-    auto scalar_sign = [](const auto& x)
+    auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         if constexpr (is_complex_v<XV>)
@@ -320,8 +320,59 @@ auto sign(X&& x)
                 return Ret(-1);
         }
     };
-    return utils::listable_function(scalar_sign,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+
+template<typename X>
+auto positive(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        return boolean(x > XV(0));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+
+template<typename X>
+auto negative(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        return boolean(x < XV(0));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+
+template<typename X>
+auto non_positive(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        return boolean(x <= XV(0));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+
+template<typename X>
+auto non_negative(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, "badargtype");
+        return boolean(x >= XV(0));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
 template<typename X, typename L>
@@ -354,7 +405,7 @@ template<typename X>
 auto clip(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    auto scalar_clip = [](const auto& x)
+    auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         static_assert(is_real_v<XV>, "badargtype");
@@ -365,8 +416,7 @@ auto clip(X&& x)
         else
             return x;
     };
-    return utils::listable_function(scalar_clip,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
 template<typename X, typename Min, typename Max>
@@ -379,7 +429,7 @@ auto clip(X&& x, varg_tag, Min min, Max max)
 
     const auto cmin = cast<C>(min);
     const auto cmax = cast<C>(max);
-    auto scalar_clip = [=](const auto& x)
+    auto pure = [=](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         static_assert(is_real_v<XV>, "badargtype");
@@ -391,8 +441,7 @@ auto clip(X&& x, varg_tag, Min min, Max max)
         else
             return cx;
     };
-    return utils::listable_function(scalar_clip,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
 template<typename X, typename Min, typename Max, typename VMin, typename VMax>
@@ -409,7 +458,7 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
     const auto cmax = cast<C>(max);
     const auto cvmin = cast<C>(vmin);
     const auto cvmax = cast<C>(vmax);
-    auto scalar_clip = [=](const auto& x)
+    auto pure = [=](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         static_assert(is_real_v<XV>, "badargtype");
@@ -421,8 +470,7 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
         else
             return cx;
     };
-    return utils::listable_function(scalar_clip,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
 template<typename Ret, typename X>
@@ -430,13 +478,12 @@ auto unitize(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     static_assert(is_arithmetic_v<Ret>, "badrettype");
-    auto scalar_unitize = [](const auto& x)
+    auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         return Ret(int8_t(x != XV(0)));
     };
-    return utils::listable_function(scalar_unitize,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
 template<typename Ret, typename X>
@@ -444,7 +491,7 @@ auto unit_step(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     static_assert(is_arithmetic_v<Ret>, "badrettype");
-    auto scalar_sign = [](const auto& x)
+    auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         static_assert(is_real_v<XV>, "badargtype");
@@ -453,13 +500,12 @@ auto unit_step(X&& x)
         else
             return Ret(0);
     };
-    return utils::listable_function(scalar_sign,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
-auto min()
+constexpr auto min()
 {
-    return std::numeric_limits<double>::max();
+    return const_real_infinity;
 }
 
 template<typename X>
@@ -530,9 +576,9 @@ auto min(const X1& x1, const X2& x2, const Xs&... xs)
     }
 }
 
-auto max()
+constexpr auto max()
 {
-    return std::numeric_limits<double>::min();
+    return -const_real_infinity;
 }
 
 template<typename X>

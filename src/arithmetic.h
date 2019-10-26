@@ -49,7 +49,7 @@ auto _scalar_plus = [](const auto& x, const auto& y)
         if constexpr (is_complex_v<YT>)
             return complex<C>(cast<C>(x) + std::real(y), std::imag(y));
         else
-            return cast<C>(x) + cast<C>(y);
+            return cast<C>(cast<C>(x) + cast<C>(y));
     }
 };
 
@@ -73,7 +73,7 @@ auto _scalar_subtract = [](const auto& x, const auto& y)
         if constexpr (is_complex_v<YT>)
             return complex<C>(cast<C>(x) - std::real(y), -std::imag(y));
         else
-            return cast<C>(x) - cast<C>(y);
+            return cast<C>(cast<C>(x) - cast<C>(y));
     }
 };
 
@@ -98,7 +98,7 @@ auto _scalar_times = [](const auto& x, const auto& y)
             return complex<C>(cast<C>(x) * std::real(y),
                 cast<C>(x) * std::imag(y));
         else
-            return cast<C>(x) * cast<C>(y);
+            return cast<C>(cast<C>(x) * cast<C>(y));
     }
 };
 

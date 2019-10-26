@@ -933,7 +933,7 @@ auto _composition_impl(Fn&&... fn)
 template<bool Reverse>
 auto _composition_impl()
 {
-    return [](auto&&... args) -> decltype(auto)
+    return [](auto&& arg) -> decltype(auto)
     {
         return std::forward<decltype(arg)>(arg);
     };

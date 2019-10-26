@@ -4106,7 +4106,7 @@ auto bit_not(X&& x)
     {
         using XV = decltype(x);
         static_assert(is_integral_v<XV>, "badargtype");
-        return XV(~expr);
+        return XV(~x);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
@@ -6293,7 +6293,7 @@ auto _composition_impl(Fn&&... fn)
 template<bool Reverse>
 auto _composition_impl()
 {
-    return [](auto&&... args) -> decltype(auto)
+    return [](auto&& arg) -> decltype(auto)
     {
         return std::forward<decltype(arg)>(arg);
     };

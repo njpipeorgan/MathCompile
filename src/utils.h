@@ -395,7 +395,7 @@ else
 constexpr auto name()                                               \
 {                                                                   \
     return expr;                                                    \
-}                                                                   \
+}
 
 #define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(name)             \
 template<typename X>                                                \
@@ -421,7 +421,6 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
         std::forward<decltype(x3)>(x3),                             \
         std::forward<decltype(xs)>(xs)...);                         \
 }
-
 
 }
 

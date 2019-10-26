@@ -833,7 +833,7 @@ else
 constexpr auto name()                                               \
 {                                                                   \
     return expr;                                                    \
-}                                                                   \
+}
 #define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(name)             \
 template<typename X>                                                \
 auto name(X&& x)                                                    \

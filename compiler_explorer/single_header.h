@@ -550,6 +550,12 @@ auto cast(const complex<X>& x)
     static_assert(is_complex_v<Y>, "badcast");
     return std::complex<value_type_t<Y>>(x);
 }
+template<typename Y>
+auto cast(const boolean& x)
+{
+    static_assert(is_boolean_v<Y>, "badcast");
+    return x;
+}
 namespace utils
 {
 #define WL_FUNCTION(fn) wl::variadic( \
@@ -794,6 +800,62 @@ auto listable_function(Fn fn, X&& x, Y&& y)
             }
         }
     }
+}
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(name)          \
+template<typename Iter, bool HasStride>                             \
+auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
+{                                                                   \
+    auto ret = val(args.get(0));                                    \
+    const auto size = args.size();                                  \
+    for (size_t i = 1u; i < size; ++i)                              \
+        ret = name(std::move(ret), args.get(i));                    \
+    return ret;                                                     \
+}
+#define WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(name)        \
+if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)                \
+{                                                                   \
+    if (y.size() == 0u)                                             \
+        return std::forward<decltype(x)>(x);                        \
+    else                                                            \
+        return name(std::forward<decltype(x)>(x),                   \
+            _variadic_##name(y));                                   \
+}                                                                   \
+else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)           \
+{                                                                   \
+    if (x.size() == 0u)                                             \
+        return std::forward<decltype(y)>(y);                        \
+    else                                                            \
+        return name(_variadic_##name(x),                            \
+            std::forward<decltype(y)>(y));                          \
+}                                                                   \
+else
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(name, expr)     \
+constexpr auto name()                                               \
+{                                                                   \
+    return expr;                                                    \
+}                                                                   \
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(name)             \
+template<typename X>                                                \
+auto name(X&& x)                                                    \
+{                                                                   \
+    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)            \
+    {                                                               \
+        if (x.size() == 0u)                                         \
+            return name();                                          \
+        else                                                        \
+            return _variadic_##name(x);                             \
+    }                                                               \
+    else                                                            \
+        return std::forward<decltype(x)>(x);                        \
+}
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(name)              \
+template<typename X1, typename X2, typename X3, typename... Xs>     \
+auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
+{                                                                   \
+    return name(name(std::forward<decltype(x1)>(x1),                \
+        std::forward<decltype(x2)>(x2)),                            \
+        std::forward<decltype(x3)>(x3),                             \
+        std::forward<decltype(xs)>(xs)...);                         \
 }
 }
 }
@@ -2688,7 +2750,7 @@ auto mod(X&& x, Y&& y)
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
-template<typename Ret, typename X>
+template<typename Ret = int64_t, typename X>
 auto sign(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -2851,7 +2913,7 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
-template<typename Ret, typename X>
+template<typename Ret = int64_t, typename X>
 auto unitize(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -2863,7 +2925,7 @@ auto unitize(X&& x)
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
-template<typename Ret, typename X>
+template<typename Ret = int64_t, typename X>
 auto unit_step(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -3129,17 +3191,28 @@ auto iterator(Any&& any)
 }
 }
 #if defined(_MSC_VER)
-#define WL_INLINE __forceinline
-#define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  ifdef __AVX2__
+#    define __AVX__ 1
+#    define __BMI__ 1
+#    define __BMI2__ 1
+#  endif
+#  ifdef __AVX__
+#    define __POPCNT__ 1
+#    define __LZCNT__ 1
+#  endif
+#  define _wl_popcnt64 __popcnt64
 #elif defined(__INTEL_COMPILER)
-#define WL_INLINE __forceinline
-#define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #elif defined(__clang__)
-#define WL_INLINE __attribute__((always_inline))
-#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #elif defined(__GNUC__)
-#define WL_INLINE __attribute__((always_inline))
-#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define _wl_popcnt64 __builtin_popcountll
 #endif
 namespace wl
 {
@@ -3307,36 +3380,16 @@ auto minus(X&& x)
 template<typename Iter, bool HasStride>
 auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
 {
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
     auto ret = val(args.get(0));
+    const auto size = args.size();
     for (size_t i = 1u; i < size; ++i)
         add_to(ret, args.get(i));
     return ret;
 }
-auto plus()
-{
-    return int64_t(0);
-}
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
 {
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-    {
-        if (y.size() == 0u)
-            return std::forward<decltype(x)>(x);
-        else
-            return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
-    }
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return std::forward<decltype(y)>(y);
-        else
-            return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
-    }
-    else
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(plus)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
         static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
@@ -3344,27 +3397,9 @@ auto plus(X&& x, Y&& y)
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
 }
-template<typename X>
-auto plus(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return plus();
-        else
-            return _variadic_plus(x);
-    }
-    else
-        return std::forward<decltype(x)>(x);
-}
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return plus(plus(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(plus, int64_t(0))
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(plus)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(plus)
 template<typename X, typename Y>
 auto subtract(X&& x, Y&& y)
 {
@@ -3376,37 +3411,16 @@ auto subtract(X&& x, Y&& y)
 template<typename Iter, bool HasStride>
 auto _variadic_times(const argument_pack<Iter, HasStride>& args)
 {
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
-    assert(size > 0u);
     auto ret = val(args.get(0));
+    const auto size = args.size();
     for (size_t i = 1u; i < size; ++i)
         times_by(ret, args.get(i));
     return ret;
 }
-auto times()
-{
-    return int64_t(1);
-}
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)
 {
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-    {
-        if (y.size() == 0u)
-            return std::forward<decltype(x)>(x);
-        else
-            return times(std::forward<decltype(x)>(x), _variadic_times(y));
-    }
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return std::forward<decltype(y)>(y);
-        else
-            return times(_variadic_times(x), std::forward<decltype(y)>(y));
-    }
-    else
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(times)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
         static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
@@ -3414,27 +3428,9 @@ auto times(X&& x, Y&& y)
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
 }
-template<typename X>
-auto times(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return times();
-        else
-            return _variadic_times(x);
-    }
-    else
-        return std::forward<decltype(x)>(x);
-}
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return times(times(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(times, int64_t(1))
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(times)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(times)
 template<typename X, typename Y>
 auto divide(X&& x, Y&& y)
 {
@@ -4010,33 +4006,231 @@ auto divisible(X&& x, Y&& y)
 }
 namespace wl
 {
-#define WL_DEFINE_UNARY_BOOLEAN_FUNCTION(name, expr)                    \
-template<typename X>                                                    \
-auto name(X&& x)                                                        \
-{                                                                       \
-    static_assert(is_boolean_type_v<remove_cvref_t<X>>, "badargtype");  \
-    return utils::listable_function([](boolean x) { return expr; },     \
-        std::forward<decltype(x)>(x));                                  \
+constexpr auto bool_not(boolean x)
+{
+    return !x;
 }
-#define WL_DEFINE_BINARY_BOOLEAN_FUNCTION(name, expr)                   \
-template<typename X, typename Y>                                        \
-auto name(X&& x, Y&& y)                                                 \
-{                                                                       \
-    static_assert(is_boolean_type_v<remove_cvref_t<X>> &&               \
-        is_boolean_type_v<remove_cvref_t<Y>>, "badargtype");            \
-    return utils::listable_function(                                    \
-        [](boolean x, boolean y) { return expr; },                      \
-        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));    \
+constexpr auto implies(boolean x, boolean y)
+{
+    return !x || y;
 }
-WL_DEFINE_UNARY_BOOLEAN_FUNCTION(bool_not, !x)
-WL_DEFINE_UNARY_BOOLEAN_FUNCTION(boole, int64_t(x))
-WL_DEFINE_BINARY_BOOLEAN_FUNCTION(bool_and, x && y)
-WL_DEFINE_BINARY_BOOLEAN_FUNCTION(bool_or, x || y)
-WL_DEFINE_BINARY_BOOLEAN_FUNCTION(bool_xor, x ^ y)
-WL_DEFINE_BINARY_BOOLEAN_FUNCTION(bool_nand, !(x && y))
-WL_DEFINE_BINARY_BOOLEAN_FUNCTION(bool_nor, !(x || y))
-WL_DEFINE_BINARY_BOOLEAN_FUNCTION(bool_xnor, !(x ^ y))
-WL_DEFINE_BINARY_BOOLEAN_FUNCTION(implies, !x || y)
+template<typename Iter, bool HasStride>
+auto _variadic_bool_and(const argument_pack<Iter, HasStride>& args)
+{
+    boolean ret = val(args.get(0));
+    const auto size = args.size();
+    for (size_t i = 1u; i < size && ret; ++i)
+        ret = bool_and(ret, args.get(i));
+    return ret;
+}
+template<typename X, typename Y>
+auto bool_and(X&& x, Y&& y)
+{
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_and)
+    {
+        static_assert(is_boolean_v<remove_cvref_t<X>> &&
+            is_boolean_v<remove_cvref_t<Y>>, "badargtype");
+        return x && y;
+    }
+}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_and, const_true)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bool_and)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_and)
+template<typename Iter, bool HasStride>
+auto _variadic_bool_or(const argument_pack<Iter, HasStride>& args)
+{
+    boolean ret = val(args.get(0));
+    const auto size = args.size();
+    for (size_t i = 1u; i < size && !ret; ++i)
+        ret = bool_or(ret, args.get(i));
+    return ret;
+}
+template<typename X, typename Y>
+auto bool_or(X&& x, Y&& y)
+{
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_or)
+    {
+        static_assert(is_boolean_v<remove_cvref_t<X>> &&
+            is_boolean_v<remove_cvref_t<Y>>, "badargtype");
+        return x || y;
+    }
+}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_or, const_false)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bool_or)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_or)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bool_xor)
+template<typename X, typename Y>
+auto bool_xor(X&& x, Y&& y)
+{
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_xor)
+    {
+        static_assert(is_boolean_v<remove_cvref_t<X>> &&
+            is_boolean_v<remove_cvref_t<Y>>, "badargtype");
+        return x ^ y;
+    }
+}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_xor, const_false)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bool_xor)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_xor)
+template<typename... Args>
+auto bool_nand(Args&&... args)
+{
+    return !bool_and(std::forward<decltype(args)>(args)...);
+}
+template<typename... Args>
+auto bool_nor(Args&&... args)
+{
+    return !bool_or(std::forward<decltype(args)>(args)...);
+}
+template<typename... Args>
+auto bool_xnor(Args&&... args)
+{
+    return !bool_xor(std::forward<decltype(args)>(args)...);
+}
+template<typename Ret = int64_t, typename X>
+auto boole(X&& x)
+{
+    static_assert(is_boolean_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_arithmetic_v<Ret>, "badrettype");
+    auto pure = [](boolean x) { return Ret(x); };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+template<typename X>
+auto bit_not(X&& x)
+{
+    auto pure = [](auto x)
+    {
+        using XV = decltype(x);
+        static_assert(is_integral_v<XV>, "badargtype");
+        return XV(~expr);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+template<typename X>
+auto _lzcnt(X x) -> std::enable_if_t<std::is_unsigned_v<X>, int64_t>
+{
+#if defined(__LZCNT__)
+    return _lzcnt_u64(uint64_t(x));
+#elif defined(__POPCNT__)
+    uint64_t y = int64_t(x);
+    y |= (y >> 1);
+    y |= (y >> 2);
+    y |= (y >> 4);
+    if constexpr (sizeof(X) >= 2) y |= (y >> 8);
+    if constexpr (sizeof(X) >= 4) y |= (y >> 16);
+    if constexpr (sizeof(X) >= 8) y |= (y >> 32);
+    return _mm_popcnt_u64(~y);
+#else
+    int64_t n = 64;
+    uint64_t y = x;
+    if constexpr (sizeof(X) >= 8) if (y >> 32) { n -= 32; y >>= 32; }
+    if constexpr (sizeof(X) >= 4) if (y >> 16) { n -= 16; y >>= 16; }
+    if constexpr (sizeof(X) >= 2) if (y >> 8) { n -= 8; y >>= 8; }
+    if (y >> 4) { n -= 4; y >>= 4; }
+    if (y >> 2) { n -= 2; y >>= 2; }
+    return n - ((y >> 1) ? int64_t(2) : int64_t(y));
+#endif
+}
+template<typename Ret = int64_t, typename X>
+auto bit_length(X&& x)
+{
+    auto pure = [](auto x)
+    {
+        using XV = decltype(x);
+        static_assert(is_integral_v<XV>, "badargtype");
+        if constexpr (std::is_unsigned_v<XV>)
+            return Ret(64) - Ret(_lzcnt(x));
+        else
+            return Ret(64) - Ret(_lzcnt(
+                std::make_unsigned_t<XV>(x >= XV(0) ? x : ~x)));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_and)
+template<typename X, typename Y>
+auto bit_and(X&& x, Y&& y)
+{
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_and)
+    {
+        using XV = remove_cvref_t<X>;
+        using YV = remove_cvref_t<Y>;
+        static_assert(is_integral_v<XV> && is_integral_v<YV>, "badargtype");
+        using C = common_type_t<XV, YV>;
+        return C(C(x) & C(y));
+    }
+}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_and, int64_t(-1))
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_and)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_and)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_or)
+template<typename X, typename Y>
+auto bit_or(X&& x, Y&& y)
+{
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_or)
+    {
+        using XV = remove_cvref_t<X>;
+        using YV = remove_cvref_t<Y>;
+        static_assert(is_integral_v<XV> && is_integral_v<YV>, "badargtype");
+        using C = common_type_t<XV, YV>;
+        return C(C(x) | C(y));
+    }
+}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_or, int64_t(0))
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_or)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_or)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_xor)
+template<typename X, typename Y>
+auto bit_xor(X&& x, Y&& y)
+{
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_xor)
+    {
+        using XV = remove_cvref_t<X>;
+        using YV = remove_cvref_t<Y>;
+        static_assert(is_integral_v<XV> && is_integral_v<YV>, "badargtype");
+        using C = common_type_t<XV, YV>;
+        return C(C(x) ^ C(y));
+    }
+}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_xor, int64_t(0))
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_xor)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_xor)
+template<bool ShiftLeft, typename X, typename Y>
+auto _bit_shift_impl(X&& x, Y&& y)
+{
+    auto pure = [](auto x, auto y)
+    {
+        using XV = decltype(x);
+        using YV = decltype(y);
+        static_assert(is_integral_v<XV> && is_integral_v<YV>,
+            "badargtype");
+        if constexpr (ShiftLeft)
+        {
+            return (std::is_unsigned_v<YV> || y >= YV(0)) ? XV(x << y) :
+                (std::is_unsigned_v<XV> || x >= XV(0)) ? XV(x >> -y) :
+                XV(-(-x >> -y));
+        }
+        else
+        {
+            return (std::is_signed_v<YV> && y < YV(0)) ? XV(x << -y) :
+                (std::is_unsigned_v<XV> || x >= XV(0)) ? XV(x >> y) :
+                XV(-(-x >> y));
+        }
+    };
+    return utils::listable_function(pure,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+template<typename X, typename Y>
+auto bit_shift_left(X&& x, Y&& y)
+{
+    return _bit_shift_impl<true>(
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+template<typename X, typename Y>
+auto bit_shift_right(X&& x, Y&& y)
+{
+    return _bit_shift_impl<false>(
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
 }
 namespace wl
 {

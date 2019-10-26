@@ -17,19 +17,33 @@
 
 #pragma once
 
+#include <immintrin.h>
+
 #if defined(_MSC_VER)
-#define WL_INLINE __forceinline
-#define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  ifdef __AVX2__
+#    define __AVX__ 1
+#    define __BMI__ 1
+#    define __BMI2__ 1
+#  endif
+#  ifdef __AVX__
+#    define __POPCNT__ 1
+#    define __LZCNT__ 1
+#  endif
+#  define _wl_popcnt64 __popcnt64
 #elif defined(__INTEL_COMPILER)
-#define WL_INLINE __forceinline
-#define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #elif defined(__clang__)
-#define WL_INLINE __attribute__((always_inline))
-#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #elif defined(__GNUC__)
-#define WL_INLINE __attribute__((always_inline))
-#define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define _wl_popcnt64 __builtin_popcountll
 #endif
+
 
 namespace wl
 {

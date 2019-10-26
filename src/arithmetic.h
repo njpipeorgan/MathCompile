@@ -202,38 +202,16 @@ auto minus(X&& x)
 template<typename Iter, bool HasStride>
 auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
 {
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
     auto ret = val(args.get(0));
+    const auto size = args.size();
     for (size_t i = 1u; i < size; ++i)
         add_to(ret, args.get(i));
     return ret;
 }
-
-auto plus()
-{
-    return int64_t(0);
-}
-
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
 {
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-    {
-        if (y.size() == 0u)
-            return std::forward<decltype(x)>(x);
-        else
-            return plus(std::forward<decltype(x)>(x), _variadic_plus(y));
-    }
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return std::forward<decltype(y)>(y);
-        else
-            return plus(_variadic_plus(x), std::forward<decltype(y)>(y));
-    }
-    else
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(plus)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
         static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
@@ -241,29 +219,9 @@ auto plus(X&& x, Y&& y)
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
 }
-
-template<typename X>
-auto plus(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return plus();
-        else
-            return _variadic_plus(x);
-    }
-    else
-        return std::forward<decltype(x)>(x);
-}
-
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto plus(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return plus(plus(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(plus, int64_t(0))
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(plus)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(plus)
 
 template<typename X, typename Y>
 auto subtract(X&& x, Y&& y)
@@ -277,39 +235,16 @@ auto subtract(X&& x, Y&& y)
 template<typename Iter, bool HasStride>
 auto _variadic_times(const argument_pack<Iter, HasStride>& args)
 {
-    using ArgType = remove_cvref_t<decltype(args.get(0))>;
-    constexpr auto rank = array_rank_v<ArgType>;
-    const auto size = args.size();
-    assert(size > 0u);
     auto ret = val(args.get(0));
+    const auto size = args.size();
     for (size_t i = 1u; i < size; ++i)
         times_by(ret, args.get(i));
     return ret;
 }
-
-auto times()
-{
-    return int64_t(1);
-}
-
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)
 {
-    if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)
-    {
-        if (y.size() == 0u)
-            return std::forward<decltype(x)>(x);
-        else
-            return times(std::forward<decltype(x)>(x), _variadic_times(y));
-    }
-    else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return std::forward<decltype(y)>(y);
-        else
-            return times(_variadic_times(x), std::forward<decltype(y)>(y));
-    }
-    else
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(times)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
         static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
@@ -317,29 +252,9 @@ auto times(X&& x, Y&& y)
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
 }
-
-template<typename X>
-auto times(X&& x)
-{
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)
-    {
-        if (x.size() == 0u)
-            return times();
-        else
-            return _variadic_times(x);
-    }
-    else
-        return std::forward<decltype(x)>(x);
-}
-
-template<typename X1, typename X2, typename X3, typename... Xs>
-auto times(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)
-{
-    return times(times(std::forward<decltype(x1)>(x1),
-        std::forward<decltype(x2)>(x2)),
-        std::forward<decltype(x3)>(x3),
-        std::forward<decltype(xs)>(xs)...);
-}
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(times, int64_t(1))
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(times)
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(times)
 
 template<typename X, typename Y>
 auto divide(X&& x, Y&& y)

@@ -86,6 +86,13 @@ auto cast(const complex<X>& x)
     return std::complex<value_type_t<Y>>(x);
 }
 
+template<typename Y>
+auto cast(const boolean& x)
+{
+    static_assert(is_boolean_v<Y>, "badcast");
+    return x;
+}
+
 namespace utils
 {
 
@@ -352,6 +359,69 @@ auto listable_function(Fn fn, X&& x, Y&& y)
         }
     }
 }
+
+
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(name)          \
+template<typename Iter, bool HasStride>                             \
+auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
+{                                                                   \
+    auto ret = val(args.get(0));                                    \
+    const auto size = args.size();                                  \
+    for (size_t i = 1u; i < size; ++i)                              \
+        ret = name(std::move(ret), args.get(i));                    \
+    return ret;                                                     \
+}
+
+#define WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(name)        \
+if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)                \
+{                                                                   \
+    if (y.size() == 0u)                                             \
+        return std::forward<decltype(x)>(x);                        \
+    else                                                            \
+        return name(std::forward<decltype(x)>(x),                   \
+            _variadic_##name(y));                                   \
+}                                                                   \
+else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)           \
+{                                                                   \
+    if (x.size() == 0u)                                             \
+        return std::forward<decltype(y)>(y);                        \
+    else                                                            \
+        return name(_variadic_##name(x),                            \
+            std::forward<decltype(y)>(y));                          \
+}                                                                   \
+else
+
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(name, expr)     \
+constexpr auto name()                                               \
+{                                                                   \
+    return expr;                                                    \
+}                                                                   \
+
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(name)             \
+template<typename X>                                                \
+auto name(X&& x)                                                    \
+{                                                                   \
+    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)            \
+    {                                                               \
+        if (x.size() == 0u)                                         \
+            return name();                                          \
+        else                                                        \
+            return _variadic_##name(x);                             \
+    }                                                               \
+    else                                                            \
+        return std::forward<decltype(x)>(x);                        \
+}
+
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(name)              \
+template<typename X1, typename X2, typename X3, typename... Xs>     \
+auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
+{                                                                   \
+    return name(name(std::forward<decltype(x1)>(x1),                \
+        std::forward<decltype(x2)>(x2)),                            \
+        std::forward<decltype(x3)>(x3),                             \
+        std::forward<decltype(xs)>(xs)...);                         \
+}
+
 
 }
 

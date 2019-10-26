@@ -298,7 +298,7 @@ auto mod(X&& x, Y&& y)
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
-template<typename Ret, typename X>
+template<typename Ret = int64_t, typename X>
 auto sign(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -473,7 +473,7 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
-template<typename Ret, typename X>
+template<typename Ret = int64_t, typename X>
 auto unitize(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
@@ -486,7 +486,7 @@ auto unitize(X&& x)
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
-template<typename Ret, typename X>
+template<typename Ret = int64_t, typename X>
 auto unit_step(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");

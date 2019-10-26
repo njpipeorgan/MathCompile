@@ -100,7 +100,7 @@ auto apply(Function f, const X& x, const_int<I>)
     static_assert(is_variadic_function_v<Function>, "badargtype");
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 1, "badrank");
+    static_assert(R >= 1u, "badrank");
     constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
     static_assert(0 <= Level && Level < int64_t(R), "badlevel");
 
@@ -949,6 +949,66 @@ template<typename... Fn>
 auto right_composition(Fn&&... fn) -> decltype(auto)
 {
     return _composition_impl<true>(std::forward<decltype(fn)>(fn)...);
+}
+
+template<typename X, typename Test, int64_t I>
+auto all_true(X&& x, Test test, const_int<I>)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, "badrank");
+    static_assert(1 <= I && I <= XR, "badlevel");
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<I>();
+    const auto x_end = valx.template view_end<I>();
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
+        "badfunctype");
+    auto ret = boolean(true);
+    for (; ret && x_iter != x_end; ++x_iter)
+        ret = ret && test(*x_iter);
+    return ret;
+}
+
+template<typename X, typename Test>
+auto all_true(X&& x, Test test)
+{
+    return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+}
+
+template<typename X, typename Test, int64_t I>
+auto any_true(X&& x, Test test, const_int<I>)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, "badrank");
+    static_assert(1 <= I && I <= XR, "badlevel");
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<I>();
+    const auto x_end = valx.template view_end<I>();
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
+        "badfunctype");
+    auto ret = boolean(false);
+    for (; !ret && x_iter != x_end; ++x_iter)
+        ret = ret || test(*x_iter);
+    return ret;
+}
+
+template<typename X, typename Test>
+auto any_true(X&& x, Test test)
+{
+    return any_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+}
+
+template<typename X, typename Test, int64_t I>
+auto none_true(X&& x, Test test, const_int<I>)
+{
+    return !any_true(std::forward<decltype(x)>(x), test, const_int<I>{});
+}
+
+template<typename X, typename Test>
+auto none_true(X&& x, Test test)
+{
+    return none_true(std::forward<decltype(x)>(x), test, const_int<1>{});
 }
 
 }

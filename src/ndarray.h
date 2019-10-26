@@ -325,6 +325,11 @@ struct ndarray
     {
     }
 
+    ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
+        dims_{dims}, data_(std::move(movable))
+    {
+    }
+
     size_t size() const
     {
         return data_.size();

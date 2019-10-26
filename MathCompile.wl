@@ -400,6 +400,9 @@ $builtinfunctions=native/@
   "Rest"            ->"rest",
   "Transpose"       ->"transpose",
   "Flatten"         ->"flatten",
+  "Order"           ->"order",
+  "Ordering"        ->"ordering",
+  "Sort"            ->"sort",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",
@@ -413,7 +416,10 @@ $builtinfunctions=native/@
   "NestWhileList"   ->"nest_while_list",
   "Identity"        ->"identity",
   "Composition"     ->"composition",
-  "RightComposition"->"right_composition"
+  "RightComposition"->"right_composition",
+  "AllTrue"         ->"all_true",
+  "AnyTrue"         ->"any_true",
+  "NoneTrue"        ->"none_true"
     (*"Count"*)
 |>;
 
@@ -510,7 +516,10 @@ functionmacro[code_]:=code//.{
     id["NestWhile"][func_,expr_,test_,literal[i_Integer],any___]:>
       native["nest_while"][func,expr,test,const[i],any],
     id["NestWhileList"][func_,expr_,test_,literal[i_Integer],any___]:>
-      native["nest_while_list"][func,expr,test,const[i],any]
+      native["nest_while_list"][func,expr,test,const[i],any],
+    id["AllTrue"][array_,test_,literal[i_Integer]]:>native["all_true"][array,test,const[i]],
+    id["AnyTrue"][array_,test_,literal[i_Integer]]:>native["any_true"][array,test,const[i]],
+    id["NoneTrue"][array_,test_,literal[i_Integer]]:>native["none_true"][array,test,const[i]]
   }
 
 arithmeticmacro[code_]:=code//.{

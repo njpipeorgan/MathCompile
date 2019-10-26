@@ -40,7 +40,7 @@ auto _variadic_bool_and(const argument_pack<Iter, HasStride>& args)
 {
     boolean ret = val(args.get(0));
     const auto size = args.size();
-    for (size_t i = 1u; i < size && ret; ++i)
+    for (size_t i = 1u; ret && i < size; ++i)
         ret = bool_and(ret, args.get(i));
     return ret;
 }
@@ -63,7 +63,7 @@ auto _variadic_bool_or(const argument_pack<Iter, HasStride>& args)
 {
     boolean ret = val(args.get(0));
     const auto size = args.size();
-    for (size_t i = 1u; i < size && !ret; ++i)
+    for (size_t i = 1u; !ret && i < size; ++i)
         ret = bool_or(ret, args.get(i));
     return ret;
 }

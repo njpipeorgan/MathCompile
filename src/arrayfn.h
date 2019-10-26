@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <exception>
 #include <type_traits>
 
@@ -904,6 +905,283 @@ auto flatten(X&& x)
         ndarray<XV, 1u> ret(ret_dims);
         x.copy_to(ret.data());
         return ret;
+    }
+}
+
+inline int64_t _order_scalar(const boolean& x, const boolean& y)
+{
+    return x == y ? int64_t(0) : x ? int64_t(-1) : int64_t(1);
+}
+
+template<typename X>
+int64_t _order_scalar(const complex<X>& x, const complex<X>& y)
+{
+    return x.real() == y.real() ? _order_scalar(x.imag(), y.imag()) :
+        (x.real() < y.real() ? int64_t(1) : int64_t(-1));
+}
+
+template<typename X>
+int64_t _order_scalar(const X& x, const X& y)
+{
+    return x == y ? int64_t(0) : x < y ? int64_t(1) : int64_t(-1);
+}
+
+template<typename X, typename Y>
+int64_t _order_array(const X& x, const Y& y, dim_checked)
+{
+    int64_t ret = 0;
+    if constexpr (X::category != view_category::General)
+    {
+        y.for_each([&ret](const auto& b, const auto& a)
+            {
+                auto res = _order_scalar(a, b);
+                if (res == 0) return false;
+                ret = res;
+                return true;
+            }, x.begin());
+    }
+    else
+    {
+        x.for_each([&ret](const auto& a, const auto& b)
+            {
+                auto res = _order_scalar(a, b);
+                if (res == 0) return false;
+                ret = res;
+                return true;
+            }, y.begin());
+    }
+    return ret;
+}
+
+template<typename X, typename Y>
+int64_t _order_array(const X& x, const Y& y)
+{
+    if (utils::check_dims(x.dims(), y.dims()))
+        return _order_array(x, y, dim_checked{});
+    else
+        return std::lexicographical_compare(x.dims().begin(), x.dims().end(),
+            y.dims().begin(), x.dims().end()) ? int64_t(1) : int64_t(-1);
+}
+
+template<typename Ret = int64_t, typename X, typename Y>
+int64_t order(const X& x, const Y& y)
+{
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<X>;
+    static_assert(XR == YR, "badargtype");
+    static_assert(is_arithmetic_v<Ret>, "badrettype");
+    if constexpr (XR == 0)
+    {
+        static_assert(std::is_same_v<X, Y>, "badargtype");
+        return Ret(_order_scalar(x, y));
+    }
+    else
+    {
+        static_assert(std::is_same_v<value_type_t<X>, value_type_t<Y>>,
+            "badargtype");
+        return Ret(_order_array(x, y));
+    }
+}
+
+template<typename Ret = int64_t, typename X, typename Pred>
+auto ordering(const X& x, const int64_t n, Pred pred)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    static_assert(is_integral_v<Ret>, "badrettype");
+    if (n == 0)
+        return ndarray<Ret, 1u>{};
+    const std::array<size_t, 1u> ret_dims{size_t(n > 0 ? n : -n)};
+
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    const auto x_size = valx.dims()[0];
+    const auto x_base = valx.template view_begin<1u>() - 1;
+    std::vector<Ret> indices(x_size);
+    for (size_t i = 0u; i < x_size; ++i)
+        indices[i] = Ret(i + 1);
+    if (n > 0)
+    {
+        auto order = [=](size_t a, size_t b)
+        {
+            auto res = pred(*(x_base + a), *(x_base + b));
+            using OrderType = decltype(res);
+            if constexpr (std::is_same_v<OrderType, bool> ||
+                is_boolean_v<OrderType>)
+                return bool(res);
+            else
+            {
+                static_assert(std::is_signed_v<OrderType>, "badfunctype");
+                return res > OrderType(0);
+            }
+        };
+        if (size_t(n) > x_size)
+            throw std::logic_error("badargv");
+        else if (size_t(n) == x_size)
+            std::sort(indices.begin(), indices.end(), order);
+        else
+        {
+            std::partial_sort(indices.begin(), indices.begin() + n,
+                indices.end(), order);
+            indices.resize(size_t(n));
+        }
+    }
+    else
+    {
+        auto order = [=](size_t a, size_t b)
+        {
+            auto res = pred(*(x_base + a), *(x_base + b));
+            using OrderType = decltype(res);
+            if constexpr (std::is_same_v<OrderType, bool> ||
+                is_boolean_v<OrderType>)
+                return !bool(res);
+            else
+            {
+                static_assert(std::is_signed_v<OrderType>, "badfunctype");
+                return res < OrderType(0);
+            }
+        };
+        if (size_t(-n) > x_size)
+            throw std::logic_error("badargv");
+        else if (size_t(-n) == x_size)
+            std::sort(indices.rbegin(), indices.rend(), order);
+        else
+        {
+            std::partial_sort(indices.rbegin(), indices.rbegin() + (-n),
+                indices.rend(), order);
+            indices.erase(indices.begin(), indices.end() - (-n));
+        }
+    }
+    return ndarray<Ret, 1u>(ret_dims, std::move(indices));
+}
+
+template<typename Ret = int64_t, typename X>
+auto ordering(const X& x, const int64_t n)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    if constexpr (XR == 1u)
+    {
+        using XV = value_type_t<X>;
+        if constexpr (is_complex_v<XV> || is_boolean_v<XV>)
+        {
+            return ordering<Ret>(x, n, [](const auto& a, const auto& b)
+                { return _order_scalar(a, b) > 0; });
+        }
+        else
+        {
+            static_assert(is_real_v<XV>, "badargtype");
+            return ordering<Ret>(x, n, std::less<>{});
+        }
+    }
+    else
+    {
+        return ordering<Ret>(x, n,
+            [](const auto& a, const auto& b)
+            { return _order_array(a, b, dim_checked{}) > 0; });
+    }
+}
+
+template<typename Ret = int64_t, typename X, typename Pred>
+auto ordering(const X& x, all_type, Pred pred)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    return ordering<Ret>(x, x.dims()[0], pred);
+}
+
+template<typename Ret = int64_t, typename X>
+auto ordering(const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    return ordering<Ret>(x, x.dims()[0]);
+}
+
+template<typename Ret = int64_t, typename X>
+auto ordering(const X& x, all_type)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    return ordering<Ret>(x, x.dims()[0]);
+}
+
+template<typename T, typename Pred>
+auto _sort_simple(ndarray<T, 1u>&& a, Pred pred)
+{
+    std::sort(a.begin(), a.end(), pred);
+    return std::move(a);
+}
+
+template<typename T, typename Pred>
+auto _sort_simple(const ndarray<T, 1u>& a, Pred pred)
+{
+    auto copy = a;
+    std::sort(copy.begin(), copy.end(), pred);
+    return copy;
+}
+
+template<typename X, typename Pred>
+auto sort(X&& x, Pred pred)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, "badargtype");
+    if constexpr (XR == 1u)
+    {
+        auto&& valx = val(std::forward<decltype(x)>(x));
+        using OrderType = remove_cvref_t<
+            decltype(pred(*valx.begin(), *valx.begin()))>;
+        if constexpr (std::is_same_v<OrderType, bool> ||
+            is_boolean_v<OrderType>)
+            return _sort_simple(valx, pred);
+        else
+        {
+            static_assert(std::is_signed_v<OrderType>, "badfunctype");
+            return _sort_simple(valx, [=](const auto& a, const auto& b)
+                { return pred(a, b) > OrderType(0); });
+        }
+    }
+    else
+    {
+        const auto& valx = val(std::forward<decltype(x)>(x));
+        const auto x_size = valx.dims()[0];
+        const auto order_indices = ordering(valx, x_size, pred);
+        const auto order_data = order_indices.data();
+        const auto x_base = valx.template view_begin<1u>() - 1;
+        ndarray<value_type_t<XT>, XR> ret(valx.dims());
+        auto ret_iter = ret.template view_begin<1u>();
+        for (size_t i = 0u; i < x_size; ++i, ++ret_iter)
+            (*(x_base + order_data[i])).copy_to(ret_iter.begin());
+        return ret;
+    }
+}
+
+template<typename X>
+auto sort(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, "badargtype");
+    if constexpr (XR == 1u)
+    {
+        using XV = value_type_t<XT>;
+        if constexpr (is_complex_v<XV> || is_boolean_v<XV>)
+        {
+            return sort(std::forward<decltype(x)>(x),
+                [](const auto& a, const auto& b)
+                { return _order_scalar(a, b) > 0; });
+        }
+        else
+        {
+            static_assert(is_real_v<XV>, "badargtype");
+            return sort(std::forward<decltype(x)>(x), std::less<>{});
+        }
+    }
+    else
+    {
+        return sort(std::forward<decltype(x)>(x),
+            [](const auto& a, const auto& b)
+            { return _order_array(a, b, dim_checked{}) > 0; });
     }
 }
 

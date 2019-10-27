@@ -41,13 +41,25 @@ template<typename X>                                                        \
 auto name(X&& x)                                                            \
 {                                                                           \
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
-    return utils::listable_function([](auto x) { return expr; },            \
+    return utils::listable_function([](const auto& x) { return expr; },     \
         std::forward<decltype(x)>(x));                                      \
+}
+
+#define WL_DEFINE_BINARY_MATH_FUNCTION(name, expr)                          \
+template<typename X, typename Y>                                            \
+auto name(X&& x, Y&& y)                                                     \
+{                                                                           \
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");    \
+    return utils::listable_function(                                        \
+        [](const auto& x, const auto& y) { return expr; },                  \
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));        \
 }
 
 WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(power, std::pow(x, y))
 
 WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
@@ -81,19 +93,21 @@ WL_DEFINE_UNARY_MATH_FUNCTION(gamma, std::tgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(beta, std::beta(x, y))
+WL_DEFINE_UNARY_MATH_FUNCTION(zeta, std::riemann_zeta(x))
 
 template<typename Base, typename X>
 auto log(Base&& b, X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<Base>>, "badargtype");
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    auto scalar_log = [](const auto& b, const auto& x)
+    auto pure = [](const auto& b, const auto& x)
     {
         using P = promote_integral_t<common_type_t<
             remove_cvref_t<decltype(b)>, remove_cvref_t<decltype(x)>>>;
         return std::log(P(x)) / std::log(P(b));
     };
-    return utils::listable_function(scalar_log, 
+    return utils::listable_function(pure,
         std::forward<decltype(b)>(b), std::forward<decltype(x)>(x));
 }
 
@@ -101,13 +115,13 @@ template<typename X>
 auto log2(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    auto scalar_log2 = [=](const auto& x)
+    auto pure = [](const auto& x)
     {
         using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
         constexpr auto log2_inv = P(1.4426950408889634074);
         return log2_inv * std::log(x);
     };
-    return utils::listable_function(scalar_log2, 
+    return utils::listable_function(pure,
         std::forward<decltype(x)>(x));
 }
 
@@ -115,27 +129,13 @@ template<typename X>
 auto log10(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    auto scalar_log10 = [=](const auto& x)
+    auto pure = [](const auto& x)
     {
         using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
         constexpr auto log10_inv = P(0.43429448190325182765);
         return log10_inv * std::log(x);
     };
-    return utils::listable_function(scalar_log10, 
-        std::forward<decltype(x)>(x));
-}
-
-template<typename X, typename Power>
-auto power(X&& x, Power&& p)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Power>>, "badargtype");
-    auto scalar_power = [](const auto& x, const auto& p)
-    {
-        return std::pow(x, p);
-    };
-    return utils::listable_function(scalar_power,
-        std::forward<decltype(x)>(x), std::forward<decltype(p)>(p));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
 template<typename X, typename Y>
@@ -143,14 +143,14 @@ auto arctan(X&& x, Y&& y)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    auto scalar_arctan = [](const auto& x, const auto& y)
+    auto pure = [](const auto& x, const auto& y)
     {
         using P = promote_integral_t<common_type_t<
             remove_cvref_t<decltype(x)>, remove_cvref_t<decltype(y)>>>;
         static_assert(is_real_v<P>, "badargtype");
         return std::atan2(P(x), P(y));
     };
-    return utils::listable_function(scalar_arctan,
+    return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
@@ -158,8 +158,7 @@ template<typename X>
 auto sinc(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    constexpr auto log2_inv = double(1.4426950408889634074);
-    auto scalar_sinc = [=](const auto& x)
+    auto pure = [=](const auto& x)
     {
         using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
         if (x == 0)
@@ -167,8 +166,7 @@ auto sinc(X&& x)
         else
             return std::sin(x) / P(x);
     };
-    return utils::listable_function(scalar_sinc,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
 }

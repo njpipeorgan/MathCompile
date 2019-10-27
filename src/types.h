@@ -40,6 +40,11 @@ struct varg_tag
 {
 };
 
+template<size_t>
+struct rank_tag
+{
+};
+
 struct loop_break
 {
 };

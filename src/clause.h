@@ -125,7 +125,7 @@ auto clause_table(Fn fn, const Iters&... iters)
 
             auto ret_iter = ret.template view_begin<outer_rank>();
             first_item.copy_to(ret_iter.begin());
-            ret_iter.step_forward();
+            ++ret_iter;
 
             bool skip_flag = true;      // skip flag is used
             _clause_impl(skip_flag,
@@ -135,7 +135,7 @@ auto clause_table(Fn fn, const Iters&... iters)
                     if (!utils::check_dims(ret_iter.dims(), item.dims()))
                         throw std::logic_error("baddims");
                     item.copy_to(ret_iter.begin());
-                    ret_iter.step_forward();
+                    ++ret_iter;
                 },
                 iters...);
             return ret;
@@ -211,7 +211,5 @@ auto clause_product(Fn fn, const Iters&... iters)
         return ret;
     }
 }
-
-
 
 }

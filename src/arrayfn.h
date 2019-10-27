@@ -540,15 +540,25 @@ auto mean(const Array& a)
     return divide(total(a), a.template dimension<1>());
 }
 
-template<typename Array>
+template<typename Ret = int64_t, typename Array>
 auto dimensions(const Array& a)
 {
     constexpr auto rank = array_rank_v<Array>;
-    if constexpr (rank == 0)
-        return ndarray<int64_t, 1>();
+    if constexpr (rank == 0u)
+        return ndarray<Ret, 1u>{};
     else
-        return ndarray<int64_t, 1>(std::array<size_t, 1>{rank},
+        return ndarray<Ret, 1u>(std::array<size_t, 1u>{rank},
             a.dims_ptr(), a.dims_ptr() + rank);
+}
+
+template<typename Array>
+auto length(const Array& a)
+{
+    constexpr auto rank = array_rank_v<Array>;
+    if constexpr (rank == 0u)
+        return int64_t(0);
+    else
+        return int64_t(a.dims()[0]);
 }
 
 template<typename Any>

@@ -1079,4 +1079,19 @@ auto none_true(X&& x, Test test)
     return none_true(std::forward<decltype(x)>(x), test, const_int<1>{});
 }
 
+template<typename X, typename Test>
+auto vector_q(X&& x, Test test)
+{
+    if constexpr (array_rank_v<remove_cvref_t<X>> == 0u)
+        return const_false;
+    else
+        return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+}
+
+template<typename X, typename Test>
+auto vector_q(X&& x)
+{
+    return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
+}
+
 }

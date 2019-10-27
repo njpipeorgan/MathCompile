@@ -375,6 +375,8 @@ $builtinfunctions=native/@
   "LogGamma"        ->"log_gamma",
   "Erf"             ->"erf",
   "Erfc"            ->"erfc",
+  "Beta"            ->"beta",
+  "Zeta"            ->"zeta",
 (* random number *)
     (*"RandomInteger"*)
     (*"RandomReal"*)
@@ -387,8 +389,10 @@ $builtinfunctions=native/@
   "List"            ->"list",
   "Set"             ->"set",
   "Dimensions"      ->"dimensions",
+  "Length"          ->"length",
   "ArrayDepth"      ->"array_depth",
   "Part"            ->"part",
+  "VectorQ"         ->"vector_q",
   "Span"            ->"make_span",
   "Total"           ->"total",
   "Mean"            ->"mean",

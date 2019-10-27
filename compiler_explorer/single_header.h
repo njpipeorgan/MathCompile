@@ -239,6 +239,10 @@ struct all_type
 struct varg_tag
 {
 };
+template<size_t>
+struct rank_tag
+{
+};
 struct loop_break
 {
 };
@@ -1992,7 +1996,6 @@ struct _small_vector
         return reinterpret_cast<const void*>(this);
     }
 };
-#if WL_SMALL_ARRAY_SIZE > 0
 template<typename T, size_t R>
 struct ndarray
 {
@@ -2140,7 +2143,12 @@ struct ndarray
     void uninitialized_resize(const _dims_t& new_dims, size_t new_size)
     {
         this->dims_ = new_dims;
-        this->data_.resize(this->size_);
+        this->data_.resize(new_size);
+    }
+    void uninitialized_resize(const _dims_t& new_dims)
+    {
+        this->dims_ = new_dims;
+        this->data_.resize(utils::size_of_dims(this->dims_));
     }
     template<typename X>
     void _append_scalar(X&& x)
@@ -2255,246 +2263,6 @@ struct ndarray
         return std::move(*this);
     }
 };
-#else
-template<typename T, size_t R>
-struct ndarray
-{
-    static_assert(1u <= R && R <= 1024u, "badrank");
-    static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
-    static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>,
-        "badargtype");
-    using value_type = T;
-    static constexpr auto rank = R;
-    using _dims_t = std::array<size_t, R>;
-    static constexpr auto category = view_category::Array;
-    _dims_t dims_;
-    std::vector<T> data_;
-    ndarray() : dims_{{0u}}, data_{}
-    {
-    }
-    template<typename DimsT>
-    ndarray(std::array<DimsT, rank> dims, const T& val = T{}) :
-        dims_{}, data_(_input_dims_size(dims), val)
-    {
-        std::copy(dims.begin(), dims.end(), dims_.begin());
-    }
-    template<typename DimsT>
-    ndarray(ndarray<DimsT, 1> dims, const T& val = T{}) :
-        dims_{}, data_(_input_dims_size(dims), val)
-    {
-        std::copy(dims.begin(), dims.end(), dims_.begin());
-    }
-    template<typename FwdIter>
-    ndarray(std::array<size_t, rank> dims, FwdIter begin, FwdIter end) :
-        dims_{dims}, data_(begin, end)
-    {
-    }
-    ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
-        dims_{dims}, data_(std::move(movable))
-    {
-    }
-    template<typename Dims>
-    static size_t _input_dims_size(const Dims& dims)
-    {
-        static_assert(is_integral_v<typename Dims::value_type>, "badargtype");
-        if (dims.size() != rank)
-            throw std::logic_error("baddims");
-        size_t size = 1u;
-        for (const auto& d : dims)
-        {
-            if constexpr (std::is_signed_v<typename Dims::value_type>)
-                if (d < 0)
-                    throw std::logic_error("baddims");
-            size *= d;
-        }
-        return size;
-    }
-    bool is_static() const
-    {
-        return false;
-    }
-    size_t size() const
-    {
-        return data_.size();
-    }
-    template<size_t Level>
-    size_t partial_size() const
-    {
-        static_assert(Level <= R, "internal");
-        if constexpr (Level == R)
-            return 1u;
-        else
-            return this->dims_[Level] * this->partial_size<Level + 1u>();
-    }
-    // uses one-based indexing
-    template<size_t Level>
-    size_t dimension() const
-    {
-        static_assert(1 <= Level && Level <= R, "internal");
-        return this->dims_[Level - 1];
-    }
-    const auto& dims() const
-    {
-        return this->dims_;
-    }
-    const size_t* dims_ptr() const
-    {
-        return this->dims_.data();
-    }
-    const T* data() const
-    {
-        return this->data_.data();
-    }
-    T* data()
-    {
-        return this->data_.data();
-    }
-    auto data_vector() const & -> const std::vector<T>&
-    {
-        return this->data_;
-    }
-    auto data_vector() & -> std::vector<T>&
-    {
-        return this->data_;
-    }
-    auto data_vector() && -> std::vector<T>&&
-    {
-        return std::move(this->data_);
-    }
-    auto identifier() const
-    {
-        return this->data();
-    }
-    T& operator[](size_t i)
-    {
-        return data_[i];
-    }
-    const T& operator[](size_t i) const
-    {
-        return data_[i];
-    }
-    auto begin() { return data_.begin(); }
-    auto end() { return data_.end(); }
-    auto begin() const { return data_.begin(); }
-    auto end() const { return data_.end(); }
-    template<size_t Level>
-    auto view_begin()
-    {
-        static_assert(Level <= R, "internal");
-        if constexpr (Level == R)
-            return this->begin();
-        else
-            return simple_view<T, R, R - Level, false>(
-                this->identifier(), this->data(), this->dims_.data() + Level);
-    }
-    template<size_t Level>
-    auto view_end()
-    {
-        if constexpr (Level == R)
-            return this->end();
-        else
-        {
-            auto iter = this->view_begin();
-            iter.apply_pointer_offset(this->size());
-            return iter;
-        }
-    }
-    template<size_t Level>
-    auto view_begin() const
-    {
-        static_assert(Level <= R, "internal");
-        if constexpr (Level == R)
-            return this->begin();
-        else
-            return simple_view<T, R, R - Level, true>(
-                this->identifier(), this->data(), this->dims_.data() + Level);
-    }
-    template<size_t Level>
-    auto view_end() const
-    {
-        if constexpr (Level == R)
-            return this->end();
-        else
-        {
-            auto iter = this->view_begin();
-            iter.apply_pointer_offset(this->size());
-            return iter;
-        }
-    }
-    void resize(size_t new_dim0, ptrdiff_t size_diff)
-    {
-        assert(size_diff ==
-            ptrdiff_t((new_dim0 - dims_[0]) * partial_size<1u>()));
-        this->data_.resize(data_.size() + size_diff);
-        this->dims_[0] = new_dim0;
-    }
-    template<typename... Is>
-    size_t linear_position(const Is&... is) const
-    {
-        return utils::linear_position(this->dims_, is...);
-    }
-    template<typename Function, typename... Iters>
-    void for_each(Function f, Iters... iters)
-    {
-        auto ptr = this->data();
-        const auto size = this->size();
-        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < size && continue_flag; ++i)
-                continue_flag = !f(ptr[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < size; ++i)
-                f(ptr[i], iters[i]...);
-        }
-    }
-    template<typename Function, typename... Iters>
-    void for_each(Function f, Iters... iters) const
-    {
-        auto ptr = this->data();
-        const auto size = this->size();
-        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < size && continue_flag; ++i)
-                continue_flag = !f(ptr[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < size; ++i)
-                f(ptr[i], iters[i]...);
-        }
-    }
-    template<typename FwdIter>
-    void copy_to(FwdIter iter) const
-    {
-        auto ptr = this->data();
-        const auto size = this->size();
-        for (size_t i = 0u; i < size; ++i)
-            iter[i] = ptr[i];
-    }
-    template<typename FwdIter>
-    void copy_from(FwdIter iter) &
-    {
-        auto ptr = this->data();
-        const auto size = this->size();
-        for (size_t i = 0u; i < size; ++i)
-            ptr[i] = iter[i];
-    }
-    template<typename FwdIter>
-    void copy_from(FwdIter) && = delete;
-    auto to_array() const & -> decltype(auto)
-    {
-        return *this;
-    }
-    auto to_array() && -> decltype(auto)
-    {
-        return std::move(*this);
-    }
-};
-#endif
 }
 namespace wl
 {
@@ -3613,7 +3381,7 @@ auto clause_table(Fn fn, const Iters&... iters)
             ndarray<ValueType, outer_rank + inner_rank> ret(all_dims);
             auto ret_iter = ret.template view_begin<outer_rank>();
             first_item.copy_to(ret_iter.begin());
-            ret_iter.step_forward();
+            ++ret_iter;
             bool skip_flag = true;      // skip flag is used
             _clause_impl(skip_flag,
                 [&](const auto&... args)
@@ -3622,7 +3390,7 @@ auto clause_table(Fn fn, const Iters&... iters)
                     if (!utils::check_dims(ret_iter.dims(), item.dims()))
                         throw std::logic_error("baddims");
                     item.copy_to(ret_iter.begin());
-                    ret_iter.step_forward();
+                    ++ret_iter;
                 },
                 iters...);
             return ret;
@@ -3830,12 +3598,23 @@ template<typename X>                                                        \
 auto name(X&& x)                                                            \
 {                                                                           \
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
-    return utils::listable_function([](auto x) { return expr; },            \
+    return utils::listable_function([](const auto& x) { return expr; },     \
         std::forward<decltype(x)>(x));                                      \
+}
+#define WL_DEFINE_BINARY_MATH_FUNCTION(name, expr)                          \
+template<typename X, typename Y>                                            \
+auto name(X&& x, Y&& y)                                                     \
+{                                                                           \
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");    \
+    return utils::listable_function(                                        \
+        [](const auto& x, const auto& y) { return expr; },                  \
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));        \
 }
 WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(power, std::pow(x, y))
 WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(tan, std::tan(x))
@@ -3864,79 +3643,67 @@ WL_DEFINE_UNARY_MATH_FUNCTION(gamma, std::tgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(beta, std::beta(x, y))
+WL_DEFINE_UNARY_MATH_FUNCTION(zeta, std::riemann_zeta(x))
 template<typename Base, typename X>
 auto log(Base&& b, X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<Base>>, "badargtype");
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    auto scalar_log = [](const auto& b, const auto& x)
+    auto pure = [](const auto& b, const auto& x)
     {
         using P = promote_integral_t<common_type_t<
             remove_cvref_t<decltype(b)>, remove_cvref_t<decltype(x)>>>;
         return std::log(P(x)) / std::log(P(b));
     };
-    return utils::listable_function(scalar_log, 
+    return utils::listable_function(pure,
         std::forward<decltype(b)>(b), std::forward<decltype(x)>(x));
 }
 template<typename X>
 auto log2(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    auto scalar_log2 = [=](const auto& x)
+    auto pure = [](const auto& x)
     {
         using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
         constexpr auto log2_inv = P(1.4426950408889634074);
         return log2_inv * std::log(x);
     };
-    return utils::listable_function(scalar_log2, 
+    return utils::listable_function(pure,
         std::forward<decltype(x)>(x));
 }
 template<typename X>
 auto log10(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    auto scalar_log10 = [=](const auto& x)
+    auto pure = [](const auto& x)
     {
         using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
         constexpr auto log10_inv = P(0.43429448190325182765);
         return log10_inv * std::log(x);
     };
-    return utils::listable_function(scalar_log10, 
-        std::forward<decltype(x)>(x));
-}
-template<typename X, typename Power>
-auto power(X&& x, Power&& p)
-{
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Power>>, "badargtype");
-    auto scalar_power = [](const auto& x, const auto& p)
-    {
-        return std::pow(x, p);
-    };
-    return utils::listable_function(scalar_power,
-        std::forward<decltype(x)>(x), std::forward<decltype(p)>(p));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 template<typename X, typename Y>
 auto arctan(X&& x, Y&& y)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
     static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
-    auto scalar_arctan = [](const auto& x, const auto& y)
+    auto pure = [](const auto& x, const auto& y)
     {
         using P = promote_integral_t<common_type_t<
             remove_cvref_t<decltype(x)>, remove_cvref_t<decltype(y)>>>;
         static_assert(is_real_v<P>, "badargtype");
         return std::atan2(P(x), P(y));
     };
-    return utils::listable_function(scalar_arctan,
+    return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 template<typename X>
 auto sinc(X&& x)
 {
     static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    constexpr auto log2_inv = double(1.4426950408889634074);
-    auto scalar_sinc = [=](const auto& x)
+    auto pure = [=](const auto& x)
     {
         using P = promote_integral_t<remove_cvref_t<decltype(x)>>;
         if (x == 0)
@@ -3944,8 +3711,7 @@ auto sinc(X&& x)
         else
             return std::sin(x) / P(x);
     };
-    return utils::listable_function(scalar_sinc,
-        std::forward<decltype(x)>(x));
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 }
 namespace wl
@@ -4857,15 +4623,24 @@ auto mean(const Array& a)
 {
     return divide(total(a), a.template dimension<1>());
 }
-template<typename Array>
+template<typename Ret = int64_t, typename Array>
 auto dimensions(const Array& a)
 {
     constexpr auto rank = array_rank_v<Array>;
-    if constexpr (rank == 0)
-        return ndarray<int64_t, 1>();
+    if constexpr (rank == 0u)
+        return ndarray<Ret, 1u>{};
     else
-        return ndarray<int64_t, 1>(std::array<size_t, 1>{rank},
+        return ndarray<Ret, 1u>(std::array<size_t, 1u>{rank},
             a.dims_ptr(), a.dims_ptr() + rank);
+}
+template<typename Array>
+auto length(const Array& a)
+{
+    constexpr auto rank = array_rank_v<Array>;
+    if constexpr (rank == 0u)
+        return int64_t(0);
+    else
+        return int64_t(a.dims()[0]);
 }
 template<typename Any>
 auto array_depth(const Any& any)
@@ -5025,7 +4800,7 @@ void _transpose_fill(const T* src, T*& dst,
     }
 }
 template<typename T, size_t R, typename Output, size_t... Is, size_t... Cs>
-auto _transpose_impl(const ndarray<T, R>& a, Output ptr, 
+auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
     std::index_sequence<Is...>, std::index_sequence<Cs...>)
 {
     constexpr auto RetRank = _transpose_max_level<size_t(Is)...>::value;
@@ -5064,14 +4839,14 @@ auto transpose(X&& x, const_int<Is>...)
     constexpr auto NL = sizeof...(Is);
     static_assert(1 <= NL && NL <= XR, "badargtype");
     static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
-    return _transpose_impl(val(x), void_type{}, 
+    return _transpose_impl(val(x), void_type{},
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
 }
 template<typename Level>
 struct _flatten_max_level_impl;
 template<int64_t... Is>
-struct _flatten_max_level_impl<const_ints<Is...>> : 
+struct _flatten_max_level_impl<const_ints<Is...>> :
     _transpose_max_level<size_t(Is)...> {};
 template<typename... Levels>
 struct _flatten_max_level :
@@ -5089,7 +4864,7 @@ struct _flatten_levels_join<const_ints<Is...>>
     using type = const_ints<Is...>;
 };
 template<int64_t... Is, typename... Levels>
-void _flatten_get_dims(const size_t* input_dims, size_t* ret_dims, 
+void _flatten_get_dims(const size_t* input_dims, size_t* ret_dims,
     const_ints<Is...>, Levels...)
 {
     *ret_dims = (input_dims[Is - 1u] * ...);
@@ -5103,7 +4878,7 @@ auto _flatten_copy_impl(X&& x, std::index_sequence<Pads...>, Levels...)
     using XV = value_type_t<XT>;
     constexpr auto RetRank = sizeof...(Pads) + sizeof...(Levels);
     std::array<size_t, RetRank> ret_dims;
-    _flatten_get_dims(x.dims().data(), ret_dims.data(), 
+    _flatten_get_dims(x.dims().data(), ret_dims.data(),
         Levels{}..., const_ints<int64_t(Pads + MaxLevel + 1u)>{}...);
     if constexpr (is_movable_v<X&&>)
         return ndarray<XV, RetRank>(ret_dims, std::move(x.data_vector()));
@@ -5126,7 +4901,7 @@ auto flatten_copy(X&& x, Levels...)
         std::make_index_sequence<XR - MaxLevel>{}, Levels{}...);
 }
 template<typename T, int64_t... Is, size_t... Cs>
-void _flatten_impl3(const size_t* dims, const T* src, T* dst, 
+void _flatten_impl3(const size_t* dims, const T* src, T* dst,
     const_ints<Is...>, std::index_sequence<Cs...>)
 {
     constexpr auto R = sizeof...(Is);
@@ -5151,8 +4926,8 @@ auto _flatten_impl2(X&& x, Levels...)
     _flatten_get_dims(x.dims().data(), ret_dims.data(), Levels{}...);
     ndarray<XV, RetRank> ret(ret_dims);
     const auto& valx = val(x);
-    _flatten_impl3(valx.dims().data(), valx.data(), ret.data(), 
-        typename _flatten_levels_join<Levels...>::type{}, 
+    _flatten_impl3(valx.dims().data(), valx.data(), ret.data(),
+        typename _flatten_levels_join<Levels...>::type{},
         std::make_index_sequence<XR>{});
     return ret;
 }
@@ -5450,6 +5225,115 @@ auto sort(X&& x)
             [](const auto& a, const auto& b)
             { return _order_array(a, b, dim_checked{}) > 0; });
     }
+}
+template<typename X, typename Y>
+auto append(X&& x, Y&& y)
+{
+    using XT = remove_cvref_t<X>;
+    using YT = remove_cvref_t<Y>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<YT>;
+    using XV = value_type_t<XT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+    if constexpr (is_movable_v<X&&>)
+    {
+        x.append(std::forward<decltype(y)>(y));
+        return std::move(x);
+    }
+    else if constexpr (XR == 1u)
+    {
+        ndarray<XV, XR> ret(std::array<size_t, 1u>{x.dims()[0] + 1u});
+        const auto ret_iter = ret.data();
+        x.copy_to(ret_iter);
+        *(ret_iter + x.size()) = std::forward<decltype(y)>(y);
+        return ret;
+    }
+    else
+    {
+        const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
+        if (!utils::check_dims(x_elem_dims, y.dims()))
+            throw std::logic_error("baddims");
+        ndarray<XV, XR> ret(utils::dims_join(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
+        const auto ret_iter = ret.data();
+        x.copy_to(ret_iter);
+        y.copy_to(ret_iter + x.size());
+        return ret;
+    }
+}
+template<typename X, typename Y>
+auto prepend(X&& x, Y&& y)
+{
+    using XT = remove_cvref_t<X>;
+    using YT = remove_cvref_t<Y>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<YT>;
+    using XV = value_type_t<XT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+    if constexpr (XR == 1u)
+    {
+        ndarray<XV, XR> ret(std::array<size_t, 1u>{x.dims()[0] + 1u});
+        const auto ret_iter = ret.data();
+        *ret_iter = std::forward<decltype(y)>(y);
+        x.copy_to(ret_iter + 1);
+        return ret;
+    }
+    else
+    {
+        const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
+        if (!utils::check_dims(x_elem_dims, y.dims()))
+            throw std::logic_error("baddims");
+        ndarray<XV, XR> ret(utils::dims_join(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
+        const auto ret_iter = ret.data();
+        y.copy_to(ret_iter);
+        x.copy_to(ret_iter + y.size());
+        return ret;
+    }
+}
+template<typename XV, size_t XR, typename Y>
+auto append_to(ndarray<XV, XR>& x, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    constexpr auto YR = array_rank_v<YT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+    x.append(std::forward<decltype(y)>(y));
+}
+template<typename XV, size_t XR, typename Y>
+auto prepend_to(ndarray<XV, XR>& x, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    constexpr auto YR = array_rank_v<YT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+    if constexpr (XR == 1u)
+    {
+        const auto x_size = x.size();
+        const auto new_size = x_size + 1u;
+        x.uninitialized_resize(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, new_size);
+        const auto x_iter = x.data();
+        std::move_backward(x_iter, x_iter + x_size, x_iter + new_size);
+        *x_iter = std::forward<decltype(y)>(y);
+    }
+    else
+    {
+        const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
+        if (!utils::check_dims(x_elem_dims, y.dims()))
+            throw std::logic_error("baddims");
+        const auto x_size = x.size();
+        const auto y_size = y.size();
+        const auto new_size = x_size + y_size;
+        x.uninitialized_resize(utils::dims_join(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims), new_size);
+        const auto x_iter = x.data();
+        std::move_backward(x_iter, x_iter + x_size, x_iter + new_size);
+        y.copy_to(x_iter);
+    }
+    return x;
 }
 }
 namespace wl
@@ -6421,6 +6305,19 @@ template<typename X, typename Test>
 auto none_true(X&& x, Test test)
 {
     return none_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+}
+template<typename X, typename Test>
+auto vector_q(X&& x, Test test)
+{
+    if constexpr (array_rank_v<remove_cvref_t<X>> == 0u)
+        return const_false;
+    else
+        return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+}
+template<typename X, typename Test>
+auto vector_q(X&& x)
+{
+    return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
 }
 }
 namespace wl

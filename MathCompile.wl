@@ -312,9 +312,9 @@ $builtinfunctions=native/@
   "Positive"        ->"positive",
   "Negative"        ->"negative",
   "NonPositive"     ->"non_positive",
-  "NonNegative"     ->"non_negative",(*
+  "NonNegative"     ->"non_negative",
   "Min"             ->"min",
-  "Max"             ->"max",
+  "Max"             ->"max",(*
   "Chop"            ->"chop",
   "Threshold"       ->"threshold",
   "LogisticSigmoid" ->"logistic_sigmoid",
@@ -334,6 +334,7 @@ $builtinfunctions=native/@
   "Nor"             ->"bool_nor",
   "Xnor"            ->"bool_xnor",
   "Implies"         ->"implies",
+  "BitNot"          ->"bit_not",
   "BitAnd"          ->"bit_and",
   "BitOr"           ->"bit_or",
   "BitXor"          ->"bit_xor",
@@ -407,6 +408,8 @@ $builtinfunctions=native/@
   "Order"           ->"order",
   "Ordering"        ->"ordering",
   "Sort"            ->"sort",
+  "Append"          ->"append",
+  "Prepend"         ->"prepend",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

@@ -735,7 +735,7 @@ void _transpose_fill(const T* src, T*& dst,
 }
 
 template<typename T, size_t R, typename Output, size_t... Is, size_t... Cs>
-auto _transpose_impl(const ndarray<T, R>& a, Output ptr, 
+auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
     std::index_sequence<Is...>, std::index_sequence<Cs...>)
 {
     constexpr auto RetRank = _transpose_max_level<size_t(Is)...>::value;
@@ -776,7 +776,7 @@ auto transpose(X&& x, const_int<Is>...)
     constexpr auto NL = sizeof...(Is);
     static_assert(1 <= NL && NL <= XR, "badargtype");
     static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
-    return _transpose_impl(val(x), void_type{}, 
+    return _transpose_impl(val(x), void_type{},
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
 }
@@ -785,7 +785,7 @@ template<typename Level>
 struct _flatten_max_level_impl;
 
 template<int64_t... Is>
-struct _flatten_max_level_impl<const_ints<Is...>> : 
+struct _flatten_max_level_impl<const_ints<Is...>> :
     _transpose_max_level<size_t(Is)...> {};
 
 template<typename... Levels>
@@ -809,7 +809,7 @@ struct _flatten_levels_join<const_ints<Is...>>
 };
 
 template<int64_t... Is, typename... Levels>
-void _flatten_get_dims(const size_t* input_dims, size_t* ret_dims, 
+void _flatten_get_dims(const size_t* input_dims, size_t* ret_dims,
     const_ints<Is...>, Levels...)
 {
     *ret_dims = (input_dims[Is - 1u] * ...);
@@ -824,7 +824,7 @@ auto _flatten_copy_impl(X&& x, std::index_sequence<Pads...>, Levels...)
     using XV = value_type_t<XT>;
     constexpr auto RetRank = sizeof...(Pads) + sizeof...(Levels);
     std::array<size_t, RetRank> ret_dims;
-    _flatten_get_dims(x.dims().data(), ret_dims.data(), 
+    _flatten_get_dims(x.dims().data(), ret_dims.data(),
         Levels{}..., const_ints<int64_t(Pads + MaxLevel + 1u)>{}...);
     if constexpr (is_movable_v<X&&>)
         return ndarray<XV, RetRank>(ret_dims, std::move(x.data_vector()));
@@ -849,7 +849,7 @@ auto flatten_copy(X&& x, Levels...)
 }
 
 template<typename T, int64_t... Is, size_t... Cs>
-void _flatten_impl3(const size_t* dims, const T* src, T* dst, 
+void _flatten_impl3(const size_t* dims, const T* src, T* dst,
     const_ints<Is...>, std::index_sequence<Cs...>)
 {
     constexpr auto R = sizeof...(Is);
@@ -875,8 +875,8 @@ auto _flatten_impl2(X&& x, Levels...)
     _flatten_get_dims(x.dims().data(), ret_dims.data(), Levels{}...);
     ndarray<XV, RetRank> ret(ret_dims);
     const auto& valx = val(x);
-    _flatten_impl3(valx.dims().data(), valx.data(), ret.data(), 
-        typename _flatten_levels_join<Levels...>::type{}, 
+    _flatten_impl3(valx.dims().data(), valx.data(), ret.data(),
+        typename _flatten_levels_join<Levels...>::type{},
         std::make_index_sequence<XR>{});
     return ret;
 }
@@ -1193,6 +1193,121 @@ auto sort(X&& x)
             [](const auto& a, const auto& b)
             { return _order_array(a, b, dim_checked{}) > 0; });
     }
+}
+
+template<typename X, typename Y>
+auto append(X&& x, Y&& y)
+{
+    using XT = remove_cvref_t<X>;
+    using YT = remove_cvref_t<Y>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<YT>;
+    using XV = value_type_t<XT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+
+    if constexpr (is_movable_v<X&&>)
+    {
+        x.append(std::forward<decltype(y)>(y));
+        return std::move(x);
+    }
+    else if constexpr (XR == 1u)
+    {
+        ndarray<XV, XR> ret(std::array<size_t, 1u>{x.dims()[0] + 1u});
+        const auto ret_iter = ret.data();
+        x.copy_to(ret_iter);
+        *(ret_iter + x.size()) = std::forward<decltype(y)>(y);
+        return ret;
+    }
+    else
+    {
+        const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
+        if (!utils::check_dims(x_elem_dims, y.dims()))
+            throw std::logic_error("baddims");
+        ndarray<XV, XR> ret(utils::dims_join(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
+        const auto ret_iter = ret.data();
+        x.copy_to(ret_iter);
+        y.copy_to(ret_iter + x.size());
+        return ret;
+    }
+}
+
+template<typename X, typename Y>
+auto prepend(X&& x, Y&& y)
+{
+    using XT = remove_cvref_t<X>;
+    using YT = remove_cvref_t<Y>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<YT>;
+    using XV = value_type_t<XT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+    if constexpr (XR == 1u)
+    {
+        ndarray<XV, XR> ret(std::array<size_t, 1u>{x.dims()[0] + 1u});
+        const auto ret_iter = ret.data();
+        *ret_iter = std::forward<decltype(y)>(y);
+        x.copy_to(ret_iter + 1);
+        return ret;
+    }
+    else
+    {
+        const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
+        if (!utils::check_dims(x_elem_dims, y.dims()))
+            throw std::logic_error("baddims");
+        ndarray<XV, XR> ret(utils::dims_join(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
+        const auto ret_iter = ret.data();
+        y.copy_to(ret_iter);
+        x.copy_to(ret_iter + y.size());
+        return ret;
+    }
+}
+
+template<typename XV, size_t XR, typename Y>
+auto append_to(ndarray<XV, XR>& x, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    constexpr auto YR = array_rank_v<YT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+    x.append(std::forward<decltype(y)>(y));
+}
+
+template<typename XV, size_t XR, typename Y>
+auto prepend_to(ndarray<XV, XR>& x, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    constexpr auto YR = array_rank_v<YT>;
+    using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
+    static_assert(XR == YR + 1u && is_convertible_v<YV, XV>, "badargtype");
+
+    if constexpr (XR == 1u)
+    {
+        const auto x_size = x.size();
+        const auto new_size = x_size + 1u;
+        x.uninitialized_resize(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, new_size);
+        const auto x_iter = x.data();
+        std::move_backward(x_iter, x_iter + x_size, x_iter + new_size);
+        *x_iter = std::forward<decltype(y)>(y);
+    }
+    else
+    {
+        const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
+        if (!utils::check_dims(x_elem_dims, y.dims()))
+            throw std::logic_error("baddims");
+        const auto x_size = x.size();
+        const auto y_size = y.size();
+        const auto new_size = x_size + y_size;
+        x.uninitialized_resize(utils::dims_join(
+            std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims), new_size);
+        const auto x_iter = x.data();
+        std::move_backward(x_iter, x_iter + x_size, x_iter + new_size);
+        y.copy_to(x_iter);
+    }
+    return x;
 }
 
 }

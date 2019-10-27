@@ -3243,7 +3243,7 @@ auto _scalar_plus = [](const auto& x, const auto& y)
         if constexpr (is_complex_v<YT>)
             return complex<C>(cast<C>(x) + std::real(y), std::imag(y));
         else
-            return cast<C>(x) + cast<C>(y);
+            return cast<C>(cast<C>(x) + cast<C>(y));
     }
 };
 auto _scalar_subtract = [](const auto& x, const auto& y)
@@ -3266,7 +3266,7 @@ auto _scalar_subtract = [](const auto& x, const auto& y)
         if constexpr (is_complex_v<YT>)
             return complex<C>(cast<C>(x) - std::real(y), -std::imag(y));
         else
-            return cast<C>(x) - cast<C>(y);
+            return cast<C>(cast<C>(x) - cast<C>(y));
     }
 };
 auto _scalar_times = [](const auto& x, const auto& y)
@@ -3290,7 +3290,7 @@ auto _scalar_times = [](const auto& x, const auto& y)
             return complex<C>(cast<C>(x) * std::real(y),
                 cast<C>(x) * std::imag(y));
         else
-            return cast<C>(x) * cast<C>(y);
+            return cast<C>(cast<C>(x) * cast<C>(y));
     }
 };
 auto _scalar_divide = [](const auto& x, const auto& y)
@@ -5968,8 +5968,8 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
     const int64_t offset = 0u)
 {
     static_assert(0 <= N && N <= MaximumArgCount, "badargv");
-    const auto history_size = size_t(std::max(N, -offset) + 1);
-    const auto max_steps = size_t(std::max(input_max, int64_t(0)));
+    const auto history_size = size_t(std::max(N, -offset + 1));
+    const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
@@ -5989,7 +5989,7 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             continue_flag = test();
         else if constexpr (num_args == 1u)
             continue_flag = test(ret);
-        for (size_t i = 0u; i < max_steps && continue_flag; ++i)
+        for (int64_t i = 1; i <= max_steps && continue_flag; ++i)
         {
             if constexpr (XR == 0u)
                 ret = cast<XT2>(f(ret));
@@ -6010,8 +6010,8 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
         using XV = std::conditional_t<XR == 0u, XT2, value_type_t<XT2>>;
         _nest_while_queue<XV, XR> queue(history_size);
         queue.push(std::forward<decltype(x)>(x));
-        size_t i = 1u;
-        for (; i < num_args; ++i)
+        int64_t i = 1;
+        for (; i < int64_t(num_args); ++i)
         {
             queue.push(f(queue.last()));
         }
@@ -6021,7 +6021,7 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             queue.push(f(queue.last()));
             continue_flag = queue.apply_test<num_args>(test);
         }
-        if (offset <= -int64_t(i))
+        if (offset <= -i)
             throw std::logic_error("badargv");
         else if (offset <= 0)
             return std::move(queue).get(size_t(-offset));
@@ -6046,7 +6046,7 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
     const int64_t input_max = const_int_infinity)
 {
     static_assert(0 <= N && N <= MaximumArgCount, "badargv");
-    const auto max_steps = size_t(std::max(input_max, int64_t(0)));
+    const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
@@ -6063,8 +6063,8 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
         ndarray<XT2, 1u> ret;
         auto last = cast<XT2>(std::forward<decltype(x)>(x));
         ret.append(last);
-        size_t i = 1u;
-        for (; i < num_args; ++i)
+        int64_t i = 1;
+        for (; i < int64_t(num_args); ++i)
         {
             auto temp = f(std::move(last));
             last = std::move(temp);
@@ -6100,8 +6100,8 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
         auto last = cast<XT2>(std::forward<decltype(x)>(x));
         const auto item_dims = last.dims();
         ret.append(last);
-        size_t i = 1u;
-        for (; i < num_args; ++i)
+        int64_t i = 1;
+        for (; i < int64_t(num_args); ++i)
         {
             auto temp = val(f(std::move(last)));
             last = std::move(temp);
@@ -6246,6 +6246,66 @@ template<typename Function, typename... Any>
 auto foldr_list(Function f, Any&&... any)
 {
     return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
+{
+    return nest_while(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b)
+        {
+            auto same = pred(a, b);
+            static_assert(is_boolean_v<decltype(same)>, "badfunctype");
+            return !same;
+        }, const_int<2>{}, max);
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point(Function f, X&& x, varg_tag, Pred pred)
+{
+    return fixed_point(f, std::forward<decltype(x)>(x),
+        const_int_infinity, varg_tag{}, pred);
+}
+template<typename Function, typename X>
+auto fixed_point(Function f, X&& x, const int64_t max)
+{
+    return nest_while(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b) { return unequal(a, b); },
+        const_int<2>{}, max);
+}
+template<typename Function, typename X>
+auto fixed_point(Function f, X&& x)
+{
+    return fixed_point(f, std::forward<decltype(x)>(x), const_int_infinity);
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point_list(Function f, X&& x, const int64_t max,
+    varg_tag, Pred pred)
+{
+    return nest_while_list(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b)
+        {
+            auto same = pred(a, b);
+            static_assert(is_boolean_v<decltype(same)>, "badfunctype");
+            return !same;
+        }, const_int<2>{}, max);
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point_list(Function f, X&& x, varg_tag, Pred pred)
+{
+    return fixed_point_list(f, std::forward<decltype(x)>(x),
+        const_int_infinity, varg_tag{}, pred);
+}
+template<typename Function, typename X>
+auto fixed_point_list(Function f, X&& x, const int64_t max)
+{
+    return nest_while_list(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b) { return unequal(a, b); },
+        const_int<2>{}, max);
+}
+template<typename Function, typename X>
+auto fixed_point_list(Function f, X&& x)
+{
+    return fixed_point_list(f, std::forward<decltype(x)>(x),
+        const_int_infinity);
 }
 template<typename Arg>
 auto identity(Arg&& arg) -> decltype(auto)

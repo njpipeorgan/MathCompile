@@ -414,6 +414,8 @@ $builtinfunctions=native/@
   "FoldList"        ->"fold_list",
   "NestWhile"       ->"nest_while",
   "NestWhileList"   ->"nest_while_list",
+  "FixedPoint"      ->"fixed_point",
+  "FixedPointList"  ->"fixed_point_list",
   "Identity"        ->"identity",
   "Composition"     ->"composition",
   "RightComposition"->"right_composition",
@@ -517,6 +519,8 @@ functionmacro[code_]:=code//.{
       native["nest_while"][func,expr,test,const[i],any],
     id["NestWhileList"][func_,expr_,test_,literal[i_Integer],any___]:>
       native["nest_while_list"][func,expr,test,const[i],any],
+    id["FixedPoint"][any___,id["Rule"][id["SameTest"],pred_]]:>native["fixed_point"][any,vargtag,pred],
+    id["FixedPointList"][any___,id["Rule"][id["SameTest"],pred_]]:>native["fixed_point_list"][any,vargtag,pred],
     id["AllTrue"][array_,test_,literal[i_Integer]]:>native["all_true"][array,test,const[i]],
     id["AnyTrue"][array_,test_,literal[i_Integer]]:>native["any_true"][array,test,const[i]],
     id["NoneTrue"][array_,test_,literal[i_Integer]]:>native["none_true"][array,test,const[i]]

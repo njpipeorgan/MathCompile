@@ -29,7 +29,7 @@
 namespace wl
 {
 
-auto _scalar_plus = [](const auto& x, const auto& y)
+constexpr auto _scalar_plus = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -53,7 +53,7 @@ auto _scalar_plus = [](const auto& x, const auto& y)
     }
 };
 
-auto _scalar_subtract = [](const auto& x, const auto& y)
+constexpr auto _scalar_subtract = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -77,7 +77,7 @@ auto _scalar_subtract = [](const auto& x, const auto& y)
     }
 };
 
-auto _scalar_times = [](const auto& x, const auto& y)
+constexpr auto _scalar_times = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -102,7 +102,7 @@ auto _scalar_times = [](const auto& x, const auto& y)
     }
 };
 
-auto _scalar_divide = [](const auto& x, const auto& y)
+constexpr auto _scalar_divide = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -191,13 +191,42 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         static_assert(y_rank == 0, "badrank");                              \
         _scalar_##name(x, y);                                               \
     }                                                                       \
-    return std::forward<decltype(y)>(y);                                    \
+    return std::forward<decltype(x)>(x);                                    \
 }
 
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
+
+template<typename X>
+auto pre_increment(X&& x) -> decltype(auto)
+{
+    return add_to(std::forward<decltype(x)>(x), int64_t(1));
+}
+
+template<typename X>
+auto pre_decrement(X&& x) -> decltype(auto)
+{
+    return subtract_from(std::forward<decltype(x)>(x), int64_t(1));
+}
+
+template<typename X>
+auto increment(X&& x)
+{
+    auto valx = val(x);
+    pre_increment(std::forward<decltype(x)>(x));
+    return valx;
+}
+
+template<typename X>
+auto decrement(X&& x)
+{
+    auto valx = val(x);
+    pre_decrement(std::forward<decltype(x)>(x));
+    return valx;
+}
+
 
 template<typename X>
 auto minus(X&& x)

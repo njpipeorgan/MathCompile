@@ -3017,7 +3017,7 @@ namespace wl
 }
 namespace wl
 {
-auto _scalar_plus = [](const auto& x, const auto& y)
+constexpr auto _scalar_plus = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -3040,7 +3040,7 @@ auto _scalar_plus = [](const auto& x, const auto& y)
             return cast<C>(cast<C>(x) + cast<C>(y));
     }
 };
-auto _scalar_subtract = [](const auto& x, const auto& y)
+constexpr auto _scalar_subtract = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -3063,7 +3063,7 @@ auto _scalar_subtract = [](const auto& x, const auto& y)
             return cast<C>(cast<C>(x) - cast<C>(y));
     }
 };
-auto _scalar_times = [](const auto& x, const auto& y)
+constexpr auto _scalar_times = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -3087,7 +3087,7 @@ auto _scalar_times = [](const auto& x, const auto& y)
             return cast<C>(cast<C>(x) * cast<C>(y));
     }
 };
-auto _scalar_divide = [](const auto& x, const auto& y)
+constexpr auto _scalar_divide = [](const auto& x, const auto& y)
 {
     using XT = remove_cvref_t<decltype(x)>;
     using YT = remove_cvref_t<decltype(y)>;
@@ -3171,12 +3171,36 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         static_assert(y_rank == 0, "badrank");                              \
         _scalar_##name(x, y);                                               \
     }                                                                       \
-    return std::forward<decltype(y)>(y);                                    \
+    return std::forward<decltype(x)>(x);                                    \
 }
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
+template<typename X>
+auto pre_increment(X&& x) -> decltype(auto)
+{
+    return add_to(std::forward<decltype(x)>(x), int64_t(1));
+}
+template<typename X>
+auto pre_decrement(X&& x) -> decltype(auto)
+{
+    return subtract_from(std::forward<decltype(x)>(x), int64_t(1));
+}
+template<typename X>
+auto increment(X&& x)
+{
+    auto valx = val(x);
+    pre_increment(std::forward<decltype(x)>(x));
+    return valx;
+}
+template<typename X>
+auto decrement(X&& x)
+{
+    auto valx = val(x);
+    pre_decrement(std::forward<decltype(x)>(x));
+    return valx;
+}
 template<typename X>
 auto minus(X&& x)
 {
@@ -3777,7 +3801,7 @@ uint64_t _fibonacci(uint64_t n)
         61305790721611591,99194853094755497,160500643816367088,
         259695496911122585,420196140727489673,679891637638612258,
         1100087778366101931,1779979416004714189,2880067194370816120,
-        4660046610375530309,7540113804746346429,12200160415121876738};
+        4660046610375530309,7540113804746346429,12200160415121876738u};
     if (n < 94)
         return fib_data[n];
     auto lzcnt = utils::_lzcnt(n);
@@ -3821,9 +3845,9 @@ auto fibonacci(X&& x)
         }
         else
         {
-            XV phi_n = std::pow(XV(1.6180339887498948482), x);
-            XV cos_pi_n = std::cos(XV(const_pi) * n);
-            return XV(0.44721359549995793928) * (phi_n - cos_pi_n / phi_n);
+            XV phi_x = std::pow(XV(1.6180339887498948482), x);
+            XV cos_pi_x = std::cos(XV(const_pi) * x);
+            return XV(0.44721359549995793928) * (phi_x - cos_pi_x / phi_x);
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));

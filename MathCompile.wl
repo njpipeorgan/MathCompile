@@ -144,10 +144,18 @@ syntax[mutable][code_]:=code//.{
     id["SubtractFrom"][id[var_],expr_]:>native["subtract_from"][id[var],expr],
     id["TimesBy"][id[var_],expr_]:>native["times_by"][id[var],expr],
     id["DivideBy"][id[var_],expr_]:>native["divide_by"][id[var],expr],
+    id["Increment"][id[var_]]:>native["increment"][id[var]],
+    id["Decrement"][id[var_]]:>native["decrement"][id[var]],
+    id["PreIncrement"][id[var_]]:>native["pre_increment"][id[var]],
+    id["PreDecrement"][id[var_]]:>native["pre_decrement"][id[var]],
     id["AddTo"][target:id["Part"][id[var_],specs___],expr_]:>native["add_to"][target,expr],
     id["SubtractFrom"][target:id["Part"][id[var_],specs___],expr_]:>native["subtract_from"][target,expr],
     id["TimesBy"][target:id["Part"][id[var_],specs___],expr_]:>native["times_by"][target,expr],
     id["DivideBy"][target:id["Part"][id[var_],specs___],expr_]:>native["divide_by"][target,expr],
+    id["Increment"][target:id["Part"][id[var_],specs___]]:>native["increment"][target],
+    id["Decrement"][target:id["Part"][id[var_],specs___]]:>native["decrement"][target],
+    id["PreIncrement"][target:id["Part"][id[var_],specs___]]:>native["pre_increment"][target],
+    id["PreDecrement"][target:id["Part"][id[var_],specs___]]:>native["pre_decrement"][target],
     id["AppendTo"][id[var_],expr_]:>native["append_to"][id[var],expr],
     id["PrependTo"][id[var_],expr_]:>native["prepend_to"][id[var],expr]
   }/.{

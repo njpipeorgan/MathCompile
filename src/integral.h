@@ -23,6 +23,7 @@
 #include "traits.h"
 #include "ndarray.h"
 #include "utils.h"
+#include "const.h"
 
 namespace wl
 {
@@ -105,7 +106,7 @@ uint64_t _fibonacci(uint64_t n)
         61305790721611591,99194853094755497,160500643816367088,
         259695496911122585,420196140727489673,679891637638612258,
         1100087778366101931,1779979416004714189,2880067194370816120,
-        4660046610375530309,7540113804746346429,12200160415121876738};
+        4660046610375530309,7540113804746346429,12200160415121876738u};
 
     if (n < 94)
         return fib_data[n];
@@ -151,9 +152,9 @@ auto fibonacci(X&& x)
         }
         else
         {
-            XV phi_n = std::pow(XV(1.6180339887498948482), x);
-            XV cos_pi_n = std::cos(XV(const_pi) * n);
-            return XV(0.44721359549995793928) * (phi_n - cos_pi_n / phi_n);
+            XV phi_x = std::pow(XV(1.6180339887498948482), x);
+            XV cos_pi_x = std::cos(XV(const_pi) * x);
+            return XV(0.44721359549995793928) * (phi_x - cos_pi_x / phi_x);
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));

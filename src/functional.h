@@ -66,31 +66,33 @@ struct argument_pack
     }
 };
 
-template<typename Fn>
+template<typename Normal, typename Variadic>
 struct variadic
 {
-    Fn fn_;
+    Normal nf_;
+    Variadic vf_;
 
-    variadic(Fn fn) : fn_{std::move(fn)}
+    variadic(Normal nf, Variadic vf) :
+        nf_{std::move(nf)}, vf_{std::move(vf)}
     {
     }
 
     template<typename... Args>
     auto operator()(Args&&... args) const -> decltype(auto)
     {
-        return fn_(std::forward<decltype(args)>(args)...);
+        return nf_(std::forward<decltype(args)>(args)...);
     }
 
     template<typename T>
     auto operator()(const argument_pack<T>& args) const
     {
-        return fn_(args);
+        return vf_(args);
     }
 
     template<typename T>
     auto operator()(argument_pack<T>&& args) const
     {
-        return fn_(args);
+        return vf_(std::move(args));
     }
 };
 
@@ -1016,7 +1018,7 @@ auto _composition_impl(Fn&&... fn)
     auto ret = composite_function<Reverse, remove_cvref_t<Fn>...>(
         std::forward<decltype(fn)>(fn)...);
     if constexpr (is_variadic)
-        return variadic<decltype(ret)>(std::move(ret));
+        return variadic<decltype(ret), decltype(ret)>(ret, ret);
     else
         return ret;
 }

@@ -21,6 +21,7 @@
 
 #include "traits.h"
 #include "types.h"
+#include "arrayview.h"
 
 namespace wl
 {
@@ -45,10 +46,15 @@ auto _branch_if_impl(bool cond, A&& a, B&& b, _returns_function_tag)
         a = std::forward<decltype(a)>(a)(),
         b = std::forward<decltype(b)>(b)()](auto&&... args)
     {
+        using AT = remove_cvref_t<decltype(
+            val(a(std::forward<decltype(args)>(args)...)))>;
+        using BT = remove_cvref_t<decltype(
+            val(a(std::forward<decltype(args)>(args)...)))>;
+        static_assert(std::is_same_v<AT, BT>, "badfunctype");
         if (cond)
-            return a(std::forward<decltype(args)>(args)...);
+            return val(a(std::forward<decltype(args)>(args)...));
         else
-            return b(std::forward<decltype(args)>(args)...);
+            return val(b(std::forward<decltype(args)>(args)...));
     };
 }
 
@@ -78,8 +84,12 @@ auto native_if(boolean cond, X&& x, Y&& y)
 {
     using XT = remove_cvref_t<X>;
     using YT = remove_cvref_t<Y>;
-    if constexpr (std::is_same_v<XT, YT>)
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<YT>;
+    static_assert(XR == YR, "badargrank");
+    if constexpr (XR == 0u)
     {
+        static_assert(std::is_same_v<XT, YT>, "badargtype");
         if (cond)
             return std::forward<decltype(x)>(x);
         else
@@ -87,15 +97,37 @@ auto native_if(boolean cond, X&& x, Y&& y)
     }
     else
     {
-        constexpr auto XR = array_rank_v<XT>;
-        constexpr auto YR = array_rank_v<YT>;
-        static_assert(XR == YR && XR >= 1u && 
-            std::is_same_v<value_type_t<XT>, value_type_t<YT>>, "badargtype");
         if (cond)
             return std::forward<decltype(x)>(x).to_array();
         else
             return std::forward<decltype(y)>(y).to_array();
     }
 }
+
+/*
+template<typename... Conds>
+auto _which_conditions(Conds&&... conds)
+{
+    static_assert(std::conjunction_v<std::is_same<
+        remove_cvref_t<decltype(conds())>, boolean>...>, "badfunctype");
+    size_t n = 0u;
+    [[maybe_unused]] auto _1 = ((conds() ? true : (++n, false)) || ...);
+    return n;
+}
+
+
+template<typename... Cases>
+auto _which_cases(Cases&&... cases)
+{
+    //using ResultTypes = remove_cvref_t<decltype(cases())>;
+    return std::make_tuple(std::forward<decltype(cases)>(cases)...);
+}
+
+template<typename Cases>
+auto which(const size_t n, Cases&& cases)
+{
+    
+}
+*/
 
 }

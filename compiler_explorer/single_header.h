@@ -35,7 +35,7 @@ struct all_type;
 struct boolean;
 template<typename ArgIter, bool HasStride = false>
 struct argument_pack;
-template<typename Fn>
+template<typename Normal, typename Variadic>
 struct variadic;
 template<typename...>
 constexpr auto always_false_v = false;
@@ -215,10 +215,10 @@ struct all_is_integral<T1, Ts...> :
     std::bool_constant<is_integral_v<T1> && all_is_integral<Ts...>::value> {};
 template<typename... Ts>
 constexpr auto all_is_integral_v = all_is_integral<Ts...>::value;
-template<typename Fn>
+template<typename F>
 struct is_variadic_function : std::false_type {};
-template<typename Fn>
-struct is_variadic_function<variadic<Fn>> : std::true_type {};
+template<typename Normal, typename Variadic>
+struct is_variadic_function<variadic<Normal, Variadic>> : std::true_type {};
 template<typename Fn>
 constexpr auto is_variadic_function_v = is_variadic_function<Fn>::value;
 template<typename T>
@@ -563,7 +563,8 @@ auto cast(const boolean& x)
 namespace utils
 {
 #define WL_FUNCTION(fn) wl::variadic( \
-    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); })
+    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
+    [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
 #define WL_PASS(var) std::forward<decltype(var)>(var)
 template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
 auto _dims_join_impl(
@@ -3010,7 +3011,6 @@ auto iterator(Any&& any)
 #elif defined(__GNUC__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
-#  define _wl_popcnt64 __builtin_popcountll
 #endif
 namespace wl
 {
@@ -3291,10 +3291,15 @@ auto _branch_if_impl(bool cond, A&& a, B&& b, _returns_function_tag)
         a = std::forward<decltype(a)>(a)(),
         b = std::forward<decltype(b)>(b)()](auto&&... args)
     {
+        using AT = remove_cvref_t<decltype(
+            val(a(std::forward<decltype(args)>(args)...)))>;
+        using BT = remove_cvref_t<decltype(
+            val(a(std::forward<decltype(args)>(args)...)))>;
+        static_assert(std::is_same_v<AT, BT>, "badfunctype");
         if (cond)
-            return a(std::forward<decltype(args)>(args)...);
+            return val(a(std::forward<decltype(args)>(args)...));
         else
-            return b(std::forward<decltype(args)>(args)...);
+            return val(b(std::forward<decltype(args)>(args)...));
     };
 }
 template<typename A, typename B>
@@ -3322,8 +3327,12 @@ auto native_if(boolean cond, X&& x, Y&& y)
 {
     using XT = remove_cvref_t<X>;
     using YT = remove_cvref_t<Y>;
-    if constexpr (std::is_same_v<XT, YT>)
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<YT>;
+    static_assert(XR == YR, "badargrank");
+    if constexpr (XR == 0u)
     {
+        static_assert(std::is_same_v<XT, YT>, "badargtype");
         if (cond)
             return std::forward<decltype(x)>(x);
         else
@@ -3331,16 +3340,34 @@ auto native_if(boolean cond, X&& x, Y&& y)
     }
     else
     {
-        constexpr auto XR = array_rank_v<XT>;
-        constexpr auto YR = array_rank_v<YT>;
-        static_assert(XR == YR && XR >= 1u && 
-            std::is_same_v<value_type_t<XT>, value_type_t<YT>>, "badargtype");
         if (cond)
             return std::forward<decltype(x)>(x).to_array();
         else
             return std::forward<decltype(y)>(y).to_array();
     }
 }
+/*
+template<typename... Conds>
+auto _which_conditions(Conds&&... conds)
+{
+    static_assert(std::conjunction_v<std::is_same<
+        remove_cvref_t<decltype(conds())>, boolean>...>, "badfunctype");
+    size_t n = 0u;
+    [[maybe_unused]] auto _1 = ((conds() ? true : (++n, false)) || ...);
+    return n;
+}
+template<typename... Cases>
+auto _which_cases(Cases&&... cases)
+{
+    //using ResultTypes = remove_cvref_t<decltype(cases())>;
+    return std::make_tuple(std::forward<decltype(cases)>(cases)...);
+}
+template<typename Cases>
+auto which(const size_t n, Cases&& cases)
+{
+    
+}
+*/
 }
 namespace wl
 {
@@ -5430,27 +5457,29 @@ struct argument_pack
             return argument_pack(iter_ + i, size_ - i);
     }
 };
-template<typename Fn>
+template<typename Normal, typename Variadic>
 struct variadic
 {
-    Fn fn_;
-    variadic(Fn fn) : fn_{std::move(fn)}
+    Normal nf_;
+    Variadic vf_;
+    variadic(Normal nf, Variadic vf) :
+        nf_{std::move(nf)}, vf_{std::move(vf)}
     {
     }
     template<typename... Args>
     auto operator()(Args&&... args) const -> decltype(auto)
     {
-        return fn_(std::forward<decltype(args)>(args)...);
+        return nf_(std::forward<decltype(args)>(args)...);
     }
     template<typename T>
     auto operator()(const argument_pack<T>& args) const
     {
-        return fn_(args);
+        return vf_(args);
     }
     template<typename T>
     auto operator()(argument_pack<T>&& args) const
     {
-        return fn_(args);
+        return vf_(std::move(args));
     }
 };
 template<typename Function, typename X, int64_t I>
@@ -6308,7 +6337,7 @@ auto _composition_impl(Fn&&... fn)
     auto ret = composite_function<Reverse, remove_cvref_t<Fn>...>(
         std::forward<decltype(fn)>(fn)...);
     if constexpr (is_variadic)
-        return variadic<decltype(ret)>(std::move(ret));
+        return variadic<decltype(ret), decltype(ret)>(ret, ret);
     else
         return ret;
 }

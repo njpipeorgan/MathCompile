@@ -183,14 +183,14 @@ syntax[function][code_]:=
               (s->If[type=="Slot",i,slotseq[i]]),
             {0,Infinity},Heads->True];
           slotsrule=Module[{i=newid,nvar,names},
-            nvar=Max[slots[[;;,2]]/.slotseq->Sequence]+1;
+            nvar=Max[slots[[;;,2]]/.slotseq->Sequence,0]+1;
             If[nvar>$slotmaximum,(Message[syntax::slotmax,nvar-1];Throw["syntax"])];
             names=MapAt[pack[#]&,id[i,#]&/@Range[nvar],{-1,2}];
             (#1->Sequence@@Replace[#2,{slotseq[i_]:>names[[i;;]],i_:>names[[i;;i]]}]&)@@@slots];
           slotspos=(#[[2]]/.pack[i_]:>i)->#&/@Union[slotsrule[[;;,2]]];
           function[
-            ReplacePart[Table[nil,Max[slotspos[[;;,1]]]],slotspos],
-            Table[nil,Max[slotspos[[;;,1]]]],
+            ReplacePart[Table[nil,Max[slotspos[[;;,1]],0]],slotspos],
+            Table[nil,Max[slotspos[[;;,1]],0]],
             sequence[pure/.slotsrule]
           ]
         ],
@@ -217,9 +217,11 @@ syntax[scope][code_]:=code//.{
 
 syntax[branch][code_]:=code//.{
     id["If"][cond_,true_,false_]:>branch[cond,sequence@true,sequence@false],
-    id["If"][cond_,true_]:>branch[cond,sequence@true,sequence@id["Null"]]
+    id["If"][cond_,true_]:>branch[cond,sequence@true,sequence@id["Null"]],
+    id["Which"][any__/;EvenQ@Length@{any}]:>
+      branch[id["WhichConditions"]@@(sequence/@{any}[[;;;;2]]),id["WhichCases"]@@(sequence/@{any}[[2;;;;2]])]
   }/.{
-    any:id["If"][___]:>(Message[syntax::bad,tostring[any],"If"];Throw["syntax"])
+    any:id["Which"][___]:>(Message[syntax::bad,tostring[any],"Which"];Throw["syntax"])
   }
 
 syntax[sequence][code_]:=code//.{
@@ -277,6 +279,8 @@ $builtinfunctions=native/@
     (*"Module"*)
 (* control flow *)
   "If"              ->"native_if",
+  "WhichConditions" ->"_which_conditions",
+  "WhichCases"      ->"_which_cases",
     (*"Do"*)
     (*"Table"*)
     (*"Sum"*)
@@ -597,16 +601,17 @@ semantics[code_]:=findinit@resolvesymbols@arithmeticmacro@functionmacro@variable
 
 nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]
 getargtypes[function[_,types_,__]]:=types
+expandpack[var_String]:=If[StringTake[var,2]=="vp","...",""]
+anyispack[vars_List]:=AnyTrue[vars,StringTake[#,2]=="vp"&]
 
 codegen[args[vars_,types_],___]:=
-  MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>" "<>#2&,{types/.nil->"auto&&",vars}]
+  MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
 codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString[i-1]<>")"
 codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString[i-1]<>")"
 
-codegen[function[vars_,types_,sequence[exprs___]],___]:=
-  {"[&](",Riffle[Append[codegen[args[vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Return"]}
-codegen[function[vars_,types_,sequence[exprs___]],"Scope"]:=
-  {"[&](",Riffle[Append[codegen[args[vars,types]],"auto&&..."],", "],")",codegen[sequence[exprs],"Scope"]}
+codegen[function[vars_,types_,sequence[exprs___]],any___]:=
+  {"[&](",Riffle[If[!anyispack[vars],Append[#,"auto&&..."],#]&@codegen[args[vars,types]],", "],")",
+    codegen[sequence[exprs],If[{any}=={"Scope"},"Scope","Return"]]}
 codegen[variadic[vars_,types_,sequence[exprs___]],___]:=
   {"[&](",Riffle[codegen[args[vars,types]],", "],")",codegen[sequence[exprs],"Return"]}
 codegen[function[vars_,types_,sequence[exprs___],variadic[specs___]],___]:=
@@ -642,8 +647,8 @@ codegen[type[t_String],___]:=t
 codegen[type["array"[t_,r_]],___]:="wl::ndarray<"<>t<>", "<>ToString[r]<>">"
 codegen[typed[any_],___]:=codegen[type[any]]<>"{}"
 
-codegen[var[name_],___]:=name
-codegen[movvar[name_],___]:="WL_PASS("<>name<>")"
+codegen[var[name_],___]:=name<>expandpack[name]
+codegen[movvar[name_],___]:="WL_PASS("<>name<>")"<>expandpack[name]
 codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
 
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]
@@ -655,6 +660,8 @@ codegen[sequence[expr___],___]:={codegen[sequence[expr],"Hold"],"()"}
 
 codegen[branch[cond_,expr1_,expr2_],___]:=
   codegen[native["branch_if"][cond,expr1,expr2],"Hold"]
+codegen[branch[conds_,cases_],___]:=
+  codegen[native["which"][conds,cases],"Hold"]
 codegen[break[]]:="throw wl::loop_break{}"
 
 codegen[list[any___],___]:=codegen[native["list"][any]]
@@ -852,7 +859,7 @@ print[id["Slot"][x_]]:=RowBox[{"#",print@x}]
 print[head_[args___]]:=RowBox[Join[{print@head,"["},Riffle[print/@{args},","],{"]"}]]
 print[id[id_String]]:=id
 print[var[var_String]]:=var
-print[movvar[var_String]]:=var
+print[movvar[var_String]]:=RowBox[{"move","(",var,")"}]
 print[literal[literal_]]:=ToString@CForm@literal
 print[list[args___]]:=RowBox[Join[{"{"},Riffle[print/@{args},","],{"}"}]]
 print[iter[spec__]]:=RowBox[Join[{"Iterator","["},Riffle[print/@{spec},","],{"]"}]]

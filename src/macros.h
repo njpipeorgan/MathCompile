@@ -41,7 +41,6 @@
 #elif defined(__GNUC__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
-#  define _wl_popcnt64 __builtin_popcountll
 #endif
 
 

@@ -1017,6 +1017,11 @@ struct scalar_view_iterator
 
     auto operator==(const _my_type&) = delete;
 
+    constexpr const T& operator[](ptrdiff_t) const
+    {
+        return val_;
+    }
+
     constexpr const T& operator*() const
     {
         return val_;
@@ -1046,8 +1051,7 @@ auto _data_coverage(const View& view)
 template<typename Dst, typename Src>
 auto has_aliasing(const Dst& dst, const Src& src)
 {
-    if constexpr (std::is_same_v<typename Dst::value_type,
-        typename Src::value_type>)
+    if constexpr (std::is_same_v<value_type_t<Dst>, value_type_t<Src>>)
     {
         if (dst.identifier() != src.identifier())
             return false;

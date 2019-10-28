@@ -31,7 +31,7 @@ namespace wl
 {
 
 template<typename Dst, typename Src>
-auto set(Dst&& dst, Src&& src)
+auto set(Dst&& dst, Src&& src) -> decltype(auto)
 {
     using DstType = remove_cvref_t<Dst>;
     using SrcType = remove_cvref_t<Src>;
@@ -39,6 +39,8 @@ auto set(Dst&& dst, Src&& src)
     constexpr auto src_rank = array_rank_v<SrcType>;
     using DstValue = value_type_t<DstType>;
     using SrcValue = value_type_t<SrcType>;
+    static_assert(std::is_lvalue_reference_v<Dst&&> ||
+        is_array_view_v<DstType>, "badassign");
 
     if constexpr (src_rank == 0u)
     {
@@ -58,24 +60,26 @@ auto set(Dst&& dst, Src&& src)
     else
     {
         static_assert(dst_rank == src_rank, "badrank");
+        static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
         if constexpr (is_array_v<DstType>)
         {
-            static_assert(!is_movable_v<Dst&&>, "badargtype");
-            static_assert(std::is_same_v<SrcValue, DstValue>, "badargtype");
-            if (!has_aliasing(src, dst))
+            if constexpr (std::is_same_v<SrcValue, DstValue>)
                 dst = std::forward<decltype(src)>(src).to_array();
             else
-                dst = std::forward<decltype(src)>(src);
+            {
+                dst.uninitialized_resize(src.dims(), src.size());
+                src.copy_to(dst.data());
+            }
+            return dst; // returns an l-value reference
         }
-        else
+        else // dst is an array view
         {
-            static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
             if (!utils::check_dims(src.dims(), dst.dims()))
                 throw std::logic_error("baddims");
             if (!has_aliasing(src, dst))
             {
                 if constexpr (SrcType::category != view_category::General)
-                    std::forward<decltype(dst)>(dst).copy_from(src.begin());
+                    dst.copy_from(src.begin());
                 else if (DstType::category != view_category::General)
                     src.copy_to(dst.begin());
                 else // general_view -> general_view

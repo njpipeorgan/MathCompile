@@ -422,6 +422,32 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
         std::forward<decltype(xs)>(xs)...);                         \
 }
 
+template<typename X>
+auto _lzcnt(X x) -> std::enable_if_t<std::is_unsigned_v<X>, int64_t>
+{
+#if defined(__LZCNT__)
+    return _lzcnt_u64(uint64_t(x));
+#elif defined(__POPCNT__)
+    uint64_t y = int64_t(x);
+    y |= (y >> 1);
+    y |= (y >> 2);
+    y |= (y >> 4);
+    if constexpr (sizeof(X) >= 2) y |= (y >> 8);
+    if constexpr (sizeof(X) >= 4) y |= (y >> 16);
+    if constexpr (sizeof(X) >= 8) y |= (y >> 32);
+    return _mm_popcnt_u64(~y);
+#else
+    int64_t n = 64;
+    uint64_t y = x;
+    if constexpr (sizeof(X) >= 8) if (y >> 32) { n -= 32; y >>= 32; }
+    if constexpr (sizeof(X) >= 4) if (y >> 16) { n -= 16; y >>= 16; }
+    if constexpr (sizeof(X) >= 2) if (y >> 8) { n -= 8; y >>= 8; }
+    if (y >> 4) { n -= 4; y >>= 4; }
+    if (y >> 2) { n -= 2; y >>= 2; }
+    return n - ((y >> 1) ? int64_t(2) : int64_t(y));
+#endif
+}
+
 }
 
 }

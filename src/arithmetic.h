@@ -148,9 +148,11 @@ template<typename X, typename Y>                                            \
 auto name(X&& x, Y&& y) -> decltype(auto)                                   \
 {                                                                           \
     using XType = remove_cvref_t<X>;                                        \
-    using YType = remove_cvref_t<X>;                                        \
+    using YType = remove_cvref_t<Y>;                                        \
     constexpr auto x_rank = array_rank_v<XType>;                            \
     constexpr auto y_rank = array_rank_v<YType>;                            \
+    static_assert(std::is_lvalue_reference_v<X&&> ||                        \
+        is_array_view_v<XType>, "badassign");                               \
     if constexpr (x_rank > 0)                                               \
     {                                                                       \
         if constexpr (y_rank == 0)                                          \
@@ -162,18 +164,25 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
             static_assert(x_rank == y_rank, "badrank");                     \
             if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
-            if constexpr (YType::category != view_category::General)        \
-                x.for_each([](auto& dst, const auto& src)                   \
-            { _scalar_##name(dst, src); }, y.begin());                      \
-            else if constexpr (XType::category != view_category::General)   \
-                y.for_each([](const auto& src, auto& dst)                   \
-            { _scalar_##name(dst, src); }, x.begin());                      \
-            else /* general_view += general_view */                         \
+            if (has_aliasing(x, y))                                         \
             {                                                               \
-                std::vector<typename Y::value_type> buffer(y.size());       \
+                std::vector<value_type_t<YType>> buffer(y.size());          \
                 y.copy_to(buffer.begin());                                  \
                 x.for_each([](auto& dst, const auto& src)                   \
-                { _scalar_##name(dst, src); }, buffer.begin());             \
+                    { _scalar_##name(dst, src); }, buffer.begin());         \
+            }                                                               \
+            else if constexpr (YType::category != view_category::General)   \
+                x.for_each([](auto& dst, const auto& src)                   \
+                    { _scalar_##name(dst, src); }, y.begin());              \
+            else if constexpr (XType::category != view_category::General)   \
+                y.for_each([](const auto& src, auto& dst)                   \
+                    { _scalar_##name(dst, src); }, x.begin());              \
+            else /* general_view ?= general_view */                         \
+            {                                                               \
+                std::vector<value_type_t<YType>> buffer(y.size());          \
+                y.copy_to(buffer.begin());                                  \
+                x.for_each([](auto& dst, const auto& src)                   \
+                    { _scalar_##name(dst, src); }, buffer.begin());         \
             }                                                               \
         }                                                                   \
     }                                                                       \
@@ -182,14 +191,13 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         static_assert(y_rank == 0, "badrank");                              \
         _scalar_##name(x, y);                                               \
     }                                                                       \
-    return std::forward<decltype(x)>(x);                                    \
+    return std::forward<decltype(y)>(y);                                    \
 }
 
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(times_by)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
-
 
 template<typename X>
 auto minus(X&& x)
@@ -264,5 +272,6 @@ auto divide(X&& x, Y&& y)
     return utils::listable_function(_scalar_divide,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
+
 
 }

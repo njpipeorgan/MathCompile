@@ -861,6 +861,31 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
         std::forward<decltype(x3)>(x3),                             \
         std::forward<decltype(xs)>(xs)...);                         \
 }
+template<typename X>
+auto _lzcnt(X x) -> std::enable_if_t<std::is_unsigned_v<X>, int64_t>
+{
+#if defined(__LZCNT__)
+    return _lzcnt_u64(uint64_t(x));
+#elif defined(__POPCNT__)
+    uint64_t y = int64_t(x);
+    y |= (y >> 1);
+    y |= (y >> 2);
+    y |= (y >> 4);
+    if constexpr (sizeof(X) >= 2) y |= (y >> 8);
+    if constexpr (sizeof(X) >= 4) y |= (y >> 16);
+    if constexpr (sizeof(X) >= 8) y |= (y >> 32);
+    return _mm_popcnt_u64(~y);
+#else
+    int64_t n = 64;
+    uint64_t y = x;
+    if constexpr (sizeof(X) >= 8) if (y >> 32) { n -= 32; y >>= 32; }
+    if constexpr (sizeof(X) >= 4) if (y >> 16) { n -= 16; y >>= 16; }
+    if constexpr (sizeof(X) >= 2) if (y >> 8) { n -= 8; y >>= 8; }
+    if (y >> 4) { n -= 4; y >>= 4; }
+    if (y >> 2) { n -= 2; y >>= 2; }
+    return n - ((y >> 1) ? int64_t(2) : int64_t(y));
+#endif
+}
 }
 }
 namespace wl
@@ -1713,6 +1738,10 @@ struct scalar_view_iterator
         return *this;
     }
     auto operator==(const _my_type&) = delete;
+    constexpr const T& operator[](ptrdiff_t) const
+    {
+        return val_;
+    }
     constexpr const T& operator*() const
     {
         return val_;
@@ -1739,8 +1768,7 @@ auto _data_coverage(const View& view)
 template<typename Dst, typename Src>
 auto has_aliasing(const Dst& dst, const Src& src)
 {
-    if constexpr (std::is_same_v<typename Dst::value_type,
-        typename Src::value_type>)
+    if constexpr (std::is_same_v<value_type_t<Dst>, value_type_t<Src>>)
     {
         if (dst.identifier() != src.identifier())
             return false;
@@ -3100,9 +3128,11 @@ template<typename X, typename Y>                                            \
 auto name(X&& x, Y&& y) -> decltype(auto)                                   \
 {                                                                           \
     using XType = remove_cvref_t<X>;                                        \
-    using YType = remove_cvref_t<X>;                                        \
+    using YType = remove_cvref_t<Y>;                                        \
     constexpr auto x_rank = array_rank_v<XType>;                            \
     constexpr auto y_rank = array_rank_v<YType>;                            \
+    static_assert(std::is_lvalue_reference_v<X&&> ||                        \
+        is_array_view_v<XType>, "badassign");                               \
     if constexpr (x_rank > 0)                                               \
     {                                                                       \
         if constexpr (y_rank == 0)                                          \
@@ -3114,18 +3144,25 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
             static_assert(x_rank == y_rank, "badrank");                     \
             if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
-            if constexpr (YType::category != view_category::General)        \
-                x.for_each([](auto& dst, const auto& src)                   \
-            { _scalar_##name(dst, src); }, y.begin());                      \
-            else if constexpr (XType::category != view_category::General)   \
-                y.for_each([](const auto& src, auto& dst)                   \
-            { _scalar_##name(dst, src); }, x.begin());                      \
-            else /* general_view += general_view */                         \
+            if (has_aliasing(x, y))                                         \
             {                                                               \
-                std::vector<typename Y::value_type> buffer(y.size());       \
+                std::vector<value_type_t<YType>> buffer(y.size());          \
                 y.copy_to(buffer.begin());                                  \
                 x.for_each([](auto& dst, const auto& src)                   \
-                { _scalar_##name(dst, src); }, buffer.begin());             \
+                    { _scalar_##name(dst, src); }, buffer.begin());         \
+            }                                                               \
+            else if constexpr (YType::category != view_category::General)   \
+                x.for_each([](auto& dst, const auto& src)                   \
+                    { _scalar_##name(dst, src); }, y.begin());              \
+            else if constexpr (XType::category != view_category::General)   \
+                y.for_each([](const auto& src, auto& dst)                   \
+                    { _scalar_##name(dst, src); }, x.begin());              \
+            else /* general_view ?= general_view */                         \
+            {                                                               \
+                std::vector<value_type_t<YType>> buffer(y.size());          \
+                y.copy_to(buffer.begin());                                  \
+                x.for_each([](auto& dst, const auto& src)                   \
+                    { _scalar_##name(dst, src); }, buffer.begin());         \
             }                                                               \
         }                                                                   \
     }                                                                       \
@@ -3134,7 +3171,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         static_assert(y_rank == 0, "badrank");                              \
         _scalar_##name(x, y);                                               \
     }                                                                       \
-    return std::forward<decltype(x)>(x);                                    \
+    return std::forward<decltype(y)>(y);                                    \
 }
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
@@ -3703,7 +3740,7 @@ auto divisible(X&& x, Y&& y)
     auto pure = [](const auto& x, const auto& y)
     {
         using XV = remove_cvref_t<decltype(x)>;
-        using YV = remove_cvref_t<decltype(x)>;
+        using YV = remove_cvref_t<decltype(y)>;
         static_assert(is_real_v<XV> && is_real_v<YV>, "badargtype");
         if constexpr (is_integral_v<XV> && is_integral_v<YV>)
         {
@@ -3721,6 +3758,75 @@ auto divisible(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+uint64_t _fibonacci(uint64_t n)
+{
+    static const std::array<uint64_t, 94> fib_data ={
+        0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181,6765,
+        10946,17711,28657,46368,75025,121393,196418,317811,514229,832040,
+        1346269,2178309,3524578,5702887,9227465,14930352,24157817,39088169,
+        63245986,102334155,165580141,267914296,433494437,701408733,1134903170,
+        1836311903,2971215073,4807526976,7778742049,12586269025,20365011074,
+        32951280099,53316291173,86267571272,139583862445,225851433717,
+        365435296162,591286729879,956722026041,1548008755920,2504730781961,
+        4052739537881,6557470319842,10610209857723,17167680177565,
+        27777890035288,44945570212853,72723460248141,117669030460994,
+        190392490709135,308061521170129,498454011879264,806515533049393,
+        1304969544928657,2111485077978050,3416454622906707,5527939700884757,
+        8944394323791464,14472334024676221,23416728348467685,37889062373143906,
+        61305790721611591,99194853094755497,160500643816367088,
+        259695496911122585,420196140727489673,679891637638612258,
+        1100087778366101931,1779979416004714189,2880067194370816120,
+        4660046610375530309,7540113804746346429,12200160415121876738};
+    if (n < 94)
+        return fib_data[n];
+    auto lzcnt = utils::_lzcnt(n);
+    uint64_t leading = n >> (58 - lzcnt);
+    uint64_t mask = uint64_t(1) << (57 - lzcnt);
+    uint64_t a = fib_data[leading - 1];
+    uint64_t b = fib_data[leading];
+    uint64_t c = 0u;
+    for (; mask; mask >>= 1)
+    {
+        c = a * a + b * b;
+        b *= (2 * a + b);
+        a = c;
+        if (n & mask)
+        {
+            c = b;
+            b += a;
+            a = c;
+        }
+    }
+    return b;
+}
+template<typename X>
+auto fibonacci(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_integral_v<XV>)
+        {
+            if constexpr (std::is_unsigned_v<XV>)
+                return XV(_fibonacci(x));
+            else if (x >= XV(0))
+                return XV(_fibonacci(x));
+            else
+            {
+                auto val = XV(_fibonacci(-x));
+                return (x & XV(1)) ? val : -val;
+            }
+        }
+        else
+        {
+            XV phi_n = std::pow(XV(1.6180339887498948482), x);
+            XV cos_pi_n = std::cos(XV(const_pi) * n);
+            return XV(0.44721359549995793928) * (phi_n - cos_pi_n / phi_n);
+        }
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 }
 namespace wl
@@ -3825,31 +3931,6 @@ auto bit_not(X&& x)
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
-template<typename X>
-auto _lzcnt(X x) -> std::enable_if_t<std::is_unsigned_v<X>, int64_t>
-{
-#if defined(__LZCNT__)
-    return _lzcnt_u64(uint64_t(x));
-#elif defined(__POPCNT__)
-    uint64_t y = int64_t(x);
-    y |= (y >> 1);
-    y |= (y >> 2);
-    y |= (y >> 4);
-    if constexpr (sizeof(X) >= 2) y |= (y >> 8);
-    if constexpr (sizeof(X) >= 4) y |= (y >> 16);
-    if constexpr (sizeof(X) >= 8) y |= (y >> 32);
-    return _mm_popcnt_u64(~y);
-#else
-    int64_t n = 64;
-    uint64_t y = x;
-    if constexpr (sizeof(X) >= 8) if (y >> 32) { n -= 32; y >>= 32; }
-    if constexpr (sizeof(X) >= 4) if (y >> 16) { n -= 16; y >>= 16; }
-    if constexpr (sizeof(X) >= 2) if (y >> 8) { n -= 8; y >>= 8; }
-    if (y >> 4) { n -= 4; y >>= 4; }
-    if (y >> 2) { n -= 2; y >>= 2; }
-    return n - ((y >> 1) ? int64_t(2) : int64_t(y));
-#endif
-}
 template<typename Ret = int64_t, typename X>
 auto bit_length(X&& x)
 {
@@ -3858,9 +3939,9 @@ auto bit_length(X&& x)
         using XV = decltype(x);
         static_assert(is_integral_v<XV>, "badargtype");
         if constexpr (std::is_unsigned_v<XV>)
-            return Ret(64) - Ret(_lzcnt(x));
+            return Ret(64) - Ret(utils::_lzcnt(x));
         else
-            return Ret(64) - Ret(_lzcnt(
+            return Ret(64) - Ret(utils::_lzcnt(
                 std::make_unsigned_t<XV>(x >= XV(0) ? x : ~x)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
@@ -4093,7 +4174,7 @@ auto random_complex(const Max& max, varg_tag, const Dims&... dims)
 namespace wl
 {
 template<typename Dst, typename Src>
-auto set(Dst&& dst, Src&& src)
+auto set(Dst&& dst, Src&& src) -> decltype(auto)
 {
     using DstType = remove_cvref_t<Dst>;
     using SrcType = remove_cvref_t<Src>;
@@ -4101,6 +4182,8 @@ auto set(Dst&& dst, Src&& src)
     constexpr auto src_rank = array_rank_v<SrcType>;
     using DstValue = value_type_t<DstType>;
     using SrcValue = value_type_t<SrcType>;
+    static_assert(std::is_lvalue_reference_v<Dst&&> ||
+        is_array_view_v<DstType>, "badassign");
     if constexpr (src_rank == 0u)
     {
         if constexpr (dst_rank == 0u)
@@ -4119,24 +4202,26 @@ auto set(Dst&& dst, Src&& src)
     else
     {
         static_assert(dst_rank == src_rank, "badrank");
+        static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
         if constexpr (is_array_v<DstType>)
         {
-            static_assert(!is_movable_v<Dst&&>, "badargtype");
-            static_assert(std::is_same_v<SrcValue, DstValue>, "badargtype");
-            if (!has_aliasing(src, dst))
+            if constexpr (std::is_same_v<SrcValue, DstValue>)
                 dst = std::forward<decltype(src)>(src).to_array();
             else
-                dst = std::forward<decltype(src)>(src);
+            {
+                dst.uninitialized_resize(src.dims(), src.size());
+                src.copy_to(dst.data());
+            }
+            return dst; // returns an l-value reference
         }
-        else
+        else // dst is an array view
         {
-            static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
             if (!utils::check_dims(src.dims(), dst.dims()))
                 throw std::logic_error("baddims");
             if (!has_aliasing(src, dst))
             {
                 if constexpr (SrcType::category != view_category::General)
-                    std::forward<decltype(dst)>(dst).copy_from(src.begin());
+                    dst.copy_from(src.begin());
                 else if (DstType::category != view_category::General)
                     src.copy_to(dst.begin());
                 else // general_view -> general_view

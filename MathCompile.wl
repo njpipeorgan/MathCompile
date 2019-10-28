@@ -144,10 +144,10 @@ syntax[mutable][code_]:=code//.{
     id["SubtractFrom"][id[var_],expr_]:>native["subtract_from"][id[var],expr],
     id["TimesBy"][id[var_],expr_]:>native["times_by"][id[var],expr],
     id["DivideBy"][id[var_],expr_]:>native["divide_by"][id[var],expr],
-    id["AddTo"][target:id["Part"][id[var_],specs___],expr_]:>native["view_add_to"][target,expr],
-    id["SubtractFrom"][target:id["Part"][id[var_],specs___],expr_]:>native["view_subtract_from"][target,expr],
-    id["TimesBy"][target:id["Part"][id[var_],specs___],expr_]:>native["view_times_by"][target,expr],
-    id["DivideBy"][target:id["Part"][id[var_],specs___],expr_]:>native["view_divide_by"][target,expr],
+    id["AddTo"][target:id["Part"][id[var_],specs___],expr_]:>native["add_to"][target,expr],
+    id["SubtractFrom"][target:id["Part"][id[var_],specs___],expr_]:>native["subtract_from"][target,expr],
+    id["TimesBy"][target:id["Part"][id[var_],specs___],expr_]:>native["times_by"][target,expr],
+    id["DivideBy"][target:id["Part"][id[var_],specs___],expr_]:>native["divide_by"][target,expr],
     id["AppendTo"][id[var_],expr_]:>native["append_to"][id[var],expr],
     id["PrependTo"][id[var_],expr_]:>native["prepend_to"][id[var],expr]
   }/.{
@@ -221,7 +221,8 @@ syntax[sequence][code_]:=code//.{
   }
 
 syntax[assign][code_]:=code//.{
-    id["Set"][id[var_],expr_]:>assign[id[var],expr]
+    id["Set"][id[var_],expr_]:>assign[id[var],expr],
+    id["Set"][target:id["Part"][id[var_],specs___],expr_]:>assign[target,expr]
   }/.{
     any:id["Set"][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
   }
@@ -324,6 +325,7 @@ $builtinfunctions=native/@
   "EvenQ"           ->"even_q",
   "OddQ"            ->"odd_q",
   "Divisible"       ->"divisible",
+  "Fibonacci"       ->"fibonacci",
 (* boolean functions *)
   "Boole"           ->"boole",
   "Not"             ->"bool_not",

@@ -53,7 +53,7 @@ You can see the C++ code compiled from this Compiler Explorer [link](https://god
 
 ## Compilable constants and functions
 
-Currently, 9 constants and over 100 functions are supported by MathCompile. See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Constants-and-Functions) for the full list. They include common procedual and functional programming function like `Module` and `Map`, and many numerical functions like `Sin` and `Log`. 
+Currently, 9 constants and over 150 functions are supported by MathCompile. See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Constants-and-Functions) for the full list. They include common procedual and functional programming function like `Module` and `Map`, and many numerical functions like `Sin` and `Log`. 
 
 ## Supported types
 

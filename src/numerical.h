@@ -138,34 +138,33 @@ template<typename X>
 auto abs(X&& x)
 {
     using XT = remove_cvref_t<X>;
-    constexpr auto x_rank = array_rank_v<XT>;
-    if constexpr (x_rank == 0)
-    {
-        static_assert(is_arithmetic_v<XT>, "badargtype");
-        if constexpr (std::is_unsigned_v<XT>)
-            return x;
-        else
-            return std::abs(x);
-    }
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
+    static_assert(is_numerical_type_v<XT>, "badargtype");
+    if constexpr (std::is_unsigned_v<XV>)
+        return val(std::forward<decltype(x)>(x));
+    else
+        return utils::listable_function([](auto x) { return std::abs(x); },
+            std::forward<decltype(x)>(x));
+}
+
+template<typename X>
+auto ramp(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
+    static_assert(is_numerical_type_v<XT>, "badargtype");
+    if constexpr (std::is_unsigned_v<XV>)
+        return val(std::forward<decltype(x)>(x));
     else
     {
-        using XVT = typename XT::value_type;
-        if constexpr (std::is_unsigned_v<XT>)
-            return std::forward<decltype(x)>(x);
-        else if constexpr (is_real_v<XVT>&& is_movable_v<X&&>)
-        { // movable
-            ndarray<XVT, x_rank> ret(std::move(x));
-            ret.for_each([](auto& src) { src = abs(src); });
-            return ret;
-        }
-        else
+        auto pure = [](auto x)
         {
-            ndarray<decltype(abs(XVT{})), x_rank > ret(x.dims());
-            x.for_each(
-                [](const auto& src, auto& dst) { dst = abs(src); },
-                ret.begin());
-            return ret;
-        }
+            using XV = decltype(x);
+            return x >= XV(0) ? x : XV(0);
+        };
+        return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }
 }
 

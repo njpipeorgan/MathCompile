@@ -314,11 +314,11 @@ $builtinfunctions=native/@
   "NonPositive"     ->"non_positive",
   "NonNegative"     ->"non_negative",
   "Min"             ->"min",
-  "Max"             ->"max",(*
+  "Max"             ->"max",
+  "Ramp"            ->"ramp",
+  "LogisticSigmoid" ->"logistic_sigmoid",(*
   "Chop"            ->"chop",
   "Threshold"       ->"threshold",
-  "LogisticSigmoid" ->"logistic_sigmoid",
-  "Ramp"            ->"ramp",
   "NumericalOrder"  ->"numerical_order",*)
 (* integral functions *)
   "EvenQ"           ->"even_q",
@@ -371,6 +371,10 @@ $builtinfunctions=native/@
   "ArcCsch"         ->"arccsch",
   "ArcSech"         ->"arcsech",
   "ArcCoth"         ->"arccoth",
+  "Gudermannian"    ->"gudermannian",
+  "InverseGudermannian"->"inverse_gudermannian",
+  "Haversine"       ->"haversine",
+  "InverseHaversine"->"inverse_haversine",
 (* special functions *)
   "Gamma"           ->"gamma",
   "LogGamma"        ->"log_gamma",
@@ -414,6 +418,7 @@ $builtinfunctions=native/@
   "Apply"           ->"apply",
   "Select"          ->"select",
   "Map"             ->"map",
+  "Scan"            ->"scan",
   "MapThread"       ->"map_thread",
   "Nest"            ->"nest",
   "NestList"        ->"nest_list",

@@ -290,6 +290,29 @@ auto map(Function f, X&& x)
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
 }
 
+template<typename Function, typename X, int64_t I>
+auto scan(Function f, X&& x, const_int<I>)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 1, "badrank");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(1 <= Level && Level <= int64_t(R), "badlevel");
+
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<Level>();
+    const auto x_end = valx.template view_end<Level>();
+    for (; x_iter != x_end; ++x_iter)
+        f(*x_iter);
+    return const_null;
+}
+
+template<typename Function, typename X>
+auto scan(Function f, X&& x)
+{
+    return scan(f, std::forward<decltype(x)>(x), const_int<1>{});
+}
+
 template<typename Function, size_t R, typename... Iters>
 auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
     Iters... iters)

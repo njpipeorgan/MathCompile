@@ -623,9 +623,9 @@ codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native[
 
 codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 
-codegen[literal[s_String],___]:=ToString@CForm[s]<>"_s"
-codegen[literal[i_Integer],___]:=ToString@CForm[i]<>"_i"
-codegen[literal[r_Real],___]:=ToString@CForm[r]<>"_r"
+codegen[literal[s_String],___]:="std::string("ToString@CForm[s]<>")"
+codegen[literal[i_Integer],___]:=ToString@CForm[i]<>"i64"
+codegen[literal[r_Real],___]:=ToString@CForm[r]
 codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
 codegen[c:consts[(_Integer)..],___]:="wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">{}"
 codegen[const[s_String],___]:="wl::const_"<>s

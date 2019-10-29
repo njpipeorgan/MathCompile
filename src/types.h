@@ -103,21 +103,6 @@ struct const_ints
 namespace literal
 {
 
-inline auto operator ""_i(unsigned long long i)
-{
-    return int64_t(i);
-}
-
-inline auto operator ""_r(long double r)
-{
-    return double(r);
-}
-
-inline auto operator ""_s(const char* x, size_t)
-{
-    return std::string(x);
-}
-
 }
 
 }

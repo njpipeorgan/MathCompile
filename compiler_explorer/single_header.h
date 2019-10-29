@@ -3290,7 +3290,12 @@ template<typename T1, typename...>
 struct _branch_returns_value :
     std::bool_constant<is_value_type_v<remove_cvref_t<T1>>> {};
 template<typename T, typename...>
-using _get_first_type_t = T;
+struct _get_first_type
+{
+    using type = T;
+};
+template<typename... Ts>
+using _get_first_type_t = typename _get_first_type<Ts...>::type;
 template<typename A, typename B>
 auto branch_if(const boolean cond, A&& a, B&& b)
 {
@@ -3355,7 +3360,7 @@ auto _which_impl(const size_t n, _returns_function_tag,
 {
     return
         [n,
-        cases = std::make_tuple(std::forward<decltype(cases)>(cases)())
+        cases = std::make_tuple(std::forward<decltype(cases)>(cases)()...)
         ](auto&&... args)
     {
         return _which_impl(n, std::get<Is>(cases)...);

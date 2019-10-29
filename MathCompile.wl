@@ -85,7 +85,7 @@ parse[Hold[any_]]:=(Message[parse::unknown,ToString[Unevaluated[any]]];Throw["le
 
 $typenames={
   (*informal names*)
-  {"inte64_t","MachineInteger"},
+  {"int64_t","MachineInteger"},
   (*formal names*)
   {"void", "Void"},
   {"wl::boolean", "Boolean"},
@@ -216,11 +216,13 @@ syntax[scope][code_]:=code//.{
   }
 
 syntax[branch][code_]:=code//.{
-    id["If"][cond_,true_,false_]:>branch[cond,sequence@true,sequence@false],
-    id["If"][cond_,true_]:>branch[cond,sequence@true,sequence@id["Null"]],
+    id["If"][cond_,true_,false_]:>branchif[cond,sequence@true,sequence@false],
+    id["If"][cond_,true_]:>branchif[cond,sequence@true,sequence@id["Null"]],
     id["Which"][any__/;EvenQ@Length@{any}]:>
-      branch[id["WhichConditions"]@@(sequence/@{any}[[;;;;2]]),id["WhichCases"]@@(sequence/@{any}[[2;;;;2]])]
+      branchwhich[native["_which_conditions"]@@(sequence/@{any}[[;;;;2]]),
+        Sequence@@(sequence/@{any}[[2;;;;2]])]
   }/.{
+    any:id["If"][___]:>(Message[syntax::bad,tostring[any],"If"];Throw["syntax"]),
     any:id["Which"][___]:>(Message[syntax::bad,tostring[any],"Which"];Throw["syntax"])
   }
 
@@ -278,9 +280,7 @@ $builtinfunctions=native/@
 (* scope *)
     (*"Module"*)
 (* control flow *)
-  "If"              ->"native_if",
-  "WhichConditions" ->"_which_conditions",
-  "WhichCases"      ->"_which_cases",
+  (*"If"              ->"native_if",*)
     (*"Do"*)
     (*"Table"*)
     (*"Sum"*)
@@ -658,9 +658,9 @@ codegen[sequence[most___,last_],"Return"]:={"{",({codegen[#],";"}&/@{most}),"ret
 codegen[sequence[expr___],"Hold"]:={"[&]",codegen[sequence[expr],"Return"]}
 codegen[sequence[expr___],___]:={codegen[sequence[expr],"Hold"],"()"}
 
-codegen[branch[cond_,expr1_,expr2_],___]:=
+codegen[branchif[cond_,expr1_,expr2_],___]:=
   codegen[native["branch_if"][cond,expr1,expr2],"Hold"]
-codegen[branch[conds_,cases_],___]:=
+codegen[branchwhich[conds_,cases__],___]:=
   codegen[native["which"][conds,cases],"Hold"]
 codegen[break[]]:="throw wl::loop_break{}"
 

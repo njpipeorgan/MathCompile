@@ -718,11 +718,9 @@ loadfunction[libpath_String,funcid_String,args_]:=
   ]
 
 
-$template=
-"
+$template="
 #include \"librarylink.h\"
 
-using namespace wl::literal;
 std::default_random_engine wl::global_random_engine;
 WolframLibraryData wl::librarylink::lib_data;
 
@@ -731,14 +729,14 @@ EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {
 }
 
 EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
+#if defined(WL_NO_RANDOM_DEVICE)
+    wl::global_random_engine.seed(wl::utils::_get_time());
+#else
     std::random_device rd;
     wl::global_random_engine.seed(rd());
+#endif
     wl::librarylink::lib_data = lib_data;
     return LIBRARY_NO_ERROR;
-}
-
-EXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData) {
-    return;
 }
 
 `funcbody`
@@ -832,8 +830,8 @@ compilelink[f_,OptionsPattern[]]:=
 $compileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
     "-std=c++1z -O3 -ffast-math -march=native",
-  CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    "-std=c++1z -O3 -ffast-math -march=native",
+  CCompilerDriver`GenericCCompiler`GenericCCompiler(*MinGW*)->
+    "-static -std=c++1z -O3 -ffast-math -march=native",
   CCompilerDriver`IntelCompiler`IntelCompiler->
     "-std=c++17 -Kc++ -O3 -fp-model fast=2 -march=native",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
@@ -842,8 +840,8 @@ $compileroptions=<|
 $debugcompileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
     "-std=c++1z -O0 -g3 -march=native",
-  CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    "-std=c++1z -O0 -g3 -march=native",
+  CCompilerDriver`GenericCCompiler`GenericCCompiler(*MinGW*)->
+    "-static -std=c++1z -O0 -g3 -march=native",
   CCompilerDriver`IntelCompiler`IntelCompiler->
     "-std=c++17 -Kc++ -O0 -g  -march=native -debug all -traceback -check-uninit",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->

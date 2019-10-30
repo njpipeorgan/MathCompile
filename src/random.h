@@ -31,8 +31,15 @@ extern std::default_random_engine global_random_engine;
 namespace distribution
 {
 
-auto _min = [](const auto& x, const auto& y) { return x < y ? x : y; };
-auto _max = [](const auto& x, const auto& y) { return x < y ? y : x; };
+constexpr auto _min = [](const auto& x, const auto& y)
+{
+    return x < y ? x : y;
+};
+
+constexpr auto _max = [](const auto& x, const auto& y)
+{
+    return x < y ? y : x;
+};
 
 template<typename T>
 struct uniform

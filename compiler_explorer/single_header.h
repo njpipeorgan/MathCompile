@@ -6,6 +6,8 @@
 #include <string>
 #include <tuple>
 #include <limits>
+#include <immintrin.h>
+#include <chrono>
 #include <exception>
 #include <iterator>
 #include <optional>
@@ -15,7 +17,6 @@
 #include <numeric>
 #include <variant>
 #include <cmath>
-#include <immintrin.h>
 #include <random>
 namespace wl
 {
@@ -310,6 +311,39 @@ constexpr auto MaximumArgCount  = 16;
 constexpr auto const_int_infinity  = std::numeric_limits<int64_t>::max();
 constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 }
+#if defined(_MSC_VER)
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  ifdef __AVX2__
+#    define __AVX__ 1
+#    define __BMI__ 1
+#    define __BMI2__ 1
+#  endif
+#  ifdef __AVX__
+#    define __POPCNT__ 1
+#    define __LZCNT__ 1
+#  endif
+#  define _wl_popcnt64 __popcnt64
+#elif defined(__INTEL_COMPILER)
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#elif defined(__clang__)
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#elif defined(__GNUC__)
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#endif
+#if defined(__MINGW64__)
+#  define WL_NO_RANDOM_DEVICE 1
+#endif
+namespace wl
+{
+#define WL_FUNCTION(fn) wl::variadic( \
+    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
+    [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
+#define WL_PASS(var) std::forward<decltype(var)>(var)
+}
 namespace wl
 {
 struct scalar_indexer; // I
@@ -553,10 +587,11 @@ auto cast(const boolean& x)
 }
 namespace utils
 {
-#define WL_FUNCTION(fn) wl::variadic( \
-    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
-    [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
-#define WL_PASS(var) std::forward<decltype(var)>(var)
+inline auto _get_time()
+{
+    auto now = std::chrono::high_resolution_clock::now();
+    return now.time_since_epoch().count();
+}
 template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
 auto _dims_join_impl(
     const std::array<size_t, R1>& dims1, std::index_sequence<Is1...>,
@@ -2981,32 +3016,6 @@ auto iterator(Any&& any)
     return make_step_iterator<false>(int8_t(1), any, int8_t(1));
 }
 }
-#if defined(_MSC_VER)
-#  define WL_INLINE __forceinline
-#  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
-#  ifdef __AVX2__
-#    define __AVX__ 1
-#    define __BMI__ 1
-#    define __BMI2__ 1
-#  endif
-#  ifdef __AVX__
-#    define __POPCNT__ 1
-#    define __LZCNT__ 1
-#  endif
-#  define _wl_popcnt64 __popcnt64
-#elif defined(__INTEL_COMPILER)
-#  define WL_INLINE __forceinline
-#  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
-#elif defined(__clang__)
-#  define WL_INLINE __attribute__((always_inline))
-#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
-#elif defined(__GNUC__)
-#  define WL_INLINE __attribute__((always_inline))
-#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
-#endif
-namespace wl
-{
-}
 namespace wl
 {
 constexpr auto _scalar_plus = [](const auto& x, const auto& y)
@@ -4100,8 +4109,14 @@ namespace wl
 extern std::default_random_engine global_random_engine;
 namespace distribution
 {
-auto _min = [](const auto& x, const auto& y) { return x < y ? x : y; };
-auto _max = [](const auto& x, const auto& y) { return x < y ? y : x; };
+constexpr auto _min = [](const auto& x, const auto& y)
+{
+    return x < y ? x : y;
+};
+constexpr auto _max = [](const auto& x, const auto& y)
+{
+    return x < y ? y : x;
+};
 template<typename T>
 struct uniform
 {

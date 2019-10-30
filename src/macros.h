@@ -43,8 +43,18 @@
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #endif
 
+// no random device for MinGW
+#if defined(__MINGW64__)
+#  define WL_NO_RANDOM_DEVICE 1
+#endif
 
 namespace wl
 {
+
+#define WL_FUNCTION(fn) wl::variadic( \
+    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
+    [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
+
+#define WL_PASS(var) std::forward<decltype(var)>(var)
 
 }

@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <type_traits>
 
+#include "macros.h"
 #include "types.h"
 #include "traits.h"
 
@@ -98,11 +100,11 @@ auto cast(const boolean& x)
 namespace utils
 {
 
-#define WL_FUNCTION(fn) wl::variadic( \
-    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
-    [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
-
-#define WL_PASS(var) std::forward<decltype(var)>(var)
+inline auto _get_time()
+{
+    auto now = std::chrono::high_resolution_clock::now();
+    return now.time_since_epoch().count();
+}
 
 template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
 auto _dims_join_impl(

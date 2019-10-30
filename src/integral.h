@@ -88,7 +88,7 @@ auto divisible(X&& x, Y&& y)
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
-uint64_t _fibonacci(uint64_t n)
+inline uint64_t _fibonacci(uint64_t n)
 {
     static const std::array<uint64_t, 94> fib_data ={
         0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181,6765,

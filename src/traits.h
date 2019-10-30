@@ -40,6 +40,8 @@ struct regular_view;
 template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typename IndexersTuple, bool Const>
 struct general_view;
 
+using int64_t = long long int;
+
 template<typename T>
 using complex = std::complex<T>;
 

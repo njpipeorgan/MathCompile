@@ -741,7 +741,7 @@ EXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData) {
     return;
 }
 
-inline `funcbody`
+`funcbody`
 EXTERN_C DLLEXPORT int `funcid`_type(WolframLibraryData lib_data,
     mint argc, MArgument *argv, MArgument res) {
     using ReturnType = wl::remove_cvref_t<
@@ -832,6 +832,8 @@ compilelink[f_,OptionsPattern[]]:=
 $compileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
     "-std=c++1z -O3 -ffast-math -march=native",
+  CCompilerDriver`GenericCCompiler`GenericCCompiler->
+    "-std=c++1z -O3 -ffast-math -march=native",
   CCompilerDriver`IntelCompiler`IntelCompiler->
     "-std=c++17 -Kc++ -O3 -fp-model fast=2 -march=native",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
@@ -839,6 +841,8 @@ $compileroptions=<|
 |>;
 $debugcompileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
+    "-std=c++1z -O0 -g3 -march=native",
+  CCompilerDriver`GenericCCompiler`GenericCCompiler->
     "-std=c++1z -O0 -g3 -march=native",
   CCompilerDriver`IntelCompiler`IntelCompiler->
     "-std=c++17 -Kc++ -O0 -g  -march=native -debug all -traceback -check-uninit",

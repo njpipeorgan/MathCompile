@@ -56,27 +56,29 @@ auto cast(const ndarray<XV, XR>& x) -> decltype(auto)
 }
 
 template<typename Y, typename X>
-auto cast(const X& x) -> std::enable_if_t<is_array_view_v<X>, Y>
+auto cast(const X& x)
 {
-    constexpr auto XR = array_rank_v<X>;
-    using XV = value_type_t<X>;
-    using YV = value_type_t<Y>;
-    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
-    if constexpr (std::is_same_v<XV, YV>)
-        return x.to_array();
+    if constexpr (is_array_view_v<X>)
+    {
+        constexpr auto XR = array_rank_v<X>;
+        using XV = value_type_t<X>;
+        using YV = value_type_t<Y>;
+        static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
+        if constexpr (std::is_same_v<XV, YV>)
+            return x.to_array();
+        else
+        {
+            ndarray<YV, XR> ret(x.dims());
+            x.copy_to(ret.begin());
+            return ret;
+        }
+    }
     else
     {
-        ndarray<YV, XR> ret(x.dims());
-        x.copy_to(ret.begin());
-        return ret;
+        static_assert(is_real_v<X>, "badargtype");
+        static_assert(is_convertible_v<X, Y>, "badcast");
+        return Y(x);
     }
-}
-
-template<typename Y, typename X>
-auto cast(const X& x) -> std::enable_if_t<is_real_v<X>, Y>
-{
-    static_assert(is_convertible_v<X, Y>, "badcast");
-    return Y(value_type_t<Y>(x));
 }
 
 template<typename Y, typename X>
@@ -424,8 +426,9 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
 }
 
 template<typename X>
-auto _lzcnt(X x) -> std::enable_if_t<std::is_unsigned_v<X>, int64_t>
+auto _lzcnt(X x)
 {
+    static_assert(std::is_unsigned_v<X>, "internal");
 #if defined(__LZCNT__)
     return _lzcnt_u64(uint64_t(x));
 #elif defined(__POPCNT__)

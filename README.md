@@ -14,11 +14,9 @@ It is written mostly in *Wolfram Language* and utilize a C++ library for type de
 
   - The support for more array types requires version 12.
 
-- C++ compiler supporting C++17 features
+- C++ compiler supporting C++17 standard
 
-  - g++ 7+, with `-std=c++1z` flag
-  - icc 19+, with `-std=c++17` flag
-  - msvc 19.20+ (VS 2019 16.0), with `/std:c++17` flag
+  - See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Prerequisites-for-C-Compiler) for the list of supported C++ compilers and their availabilities.
 
 ## In a nutshell
 
@@ -76,4 +74,4 @@ Currently, 9 constants and over 150 functions are supported by MathCompile. See 
 | `"Complex"`             | `std::complex<double>`    |
 | `"ComplexReal32"`       | `std::complex<float>`     |
 | `"ComplexReal64"`       | `std::complex<double>`    |
-| `"Array"[type_, rank_]` | `wl::ndarray<type, rank>` |
+| `{type_, rank_}`        | `wl::ndarray<type, rank>` |

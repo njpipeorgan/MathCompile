@@ -196,8 +196,10 @@ bool check_dims_impl(const size_t* dims1, const size_t* dims2,
 template<size_t R>
 auto check_dims(const size_t* dims1, const size_t* dims2)
 {
-    static_assert(R >= 1u, "internal");
-    return check_dims_impl(dims1, dims2, std::make_index_sequence<R>{});
+    if constexpr (R == 0u)
+        return true;
+    else
+        return check_dims_impl(dims1, dims2, std::make_index_sequence<R>{});
 }
 
 template<size_t R>
@@ -409,7 +411,8 @@ auto name(X&& x)                                                    \
     if constexpr (is_argument_pack_v<remove_cvref_t<X>>)            \
     {                                                               \
         if (x.size() == 0u)                                         \
-            return name();                                          \
+            return cast<remove_cvref_t<                             \
+                decltype(_variadic_##name(x))>>(name());            \
         else                                                        \
             return _variadic_##name(x);                             \
     }                                                               \

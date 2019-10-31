@@ -421,6 +421,7 @@ $builtinfunctions=native/@
   "Last"            ->"last",
   "Most"            ->"most",
   "Rest"            ->"rest",
+  "Join"            ->"join",
   "Transpose"       ->"transpose",
   "Flatten"         ->"flatten",
   "Order"           ->"order",
@@ -549,7 +550,8 @@ functionmacro[code_]:=code//.{
     id["FixedPointList"][any___,id["Rule"][id["SameTest"],pred_]]:>native["fixed_point_list"][any,vargtag,pred],
     id["AllTrue"][array_,test_,literal[i_Integer]]:>native["all_true"][array,test,const[i]],
     id["AnyTrue"][array_,test_,literal[i_Integer]]:>native["any_true"][array,test,const[i]],
-    id["NoneTrue"][array_,test_,literal[i_Integer]]:>native["none_true"][array,test,const[i]]
+    id["NoneTrue"][array_,test_,literal[i_Integer]]:>native["none_true"][array,test,const[i]],
+    id["Join"][any__,literal[i_Integer]]:>native["join"][const[i],any]
   }
 
 arithmeticmacro[code_]:=code//.{
@@ -624,7 +626,7 @@ codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native[
 codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 
 codegen[literal[s_String],___]:="std::string("ToString@CForm[s]<>")"
-codegen[literal[i_Integer],___]:="int64_t("ToString@CForm[i]<>")"
+codegen[literal[i_Integer],___]:="int64_t("<>ToString@CForm[i]<>")"
 codegen[literal[r_Real],___]:=ToString@CForm[r]
 codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
 codegen[c:consts[(_Integer)..],___]:="wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">{}"

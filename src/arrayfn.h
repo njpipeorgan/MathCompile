@@ -189,14 +189,16 @@ auto list(First&& first, Rest&&... rest)
     {
         if (first.size() == 0u)
         {
-            if constexpr (sizeof...(rest) == 0u)
+            if constexpr (sizeof...(rest) > 0u)
+                return list(std::forward<decltype(rest)>(rest)...);
+            else
             {
                 using ItemType = value_type_t<FirstType>;
-                constexpr auto ret_rank = array_rank_v<ItemType> +1u;
-                return ndarray<value_type_t<ItemType>, ret_rank>{};
+                constexpr auto rank = array_rank_v<ItemType> +1u;
+                using ValueType = std::conditional_t<
+                    rank == 0u, ItemType, value_type_t<ItemType>>;
+                return ndarray<value_type_t<ItemType>, rank>{};
             }
-            else
-                return list(std::forward<decltype(rest)>(rest)...);
         }
         else
             return list(first.get(0), first.get_pack(1),
@@ -1312,6 +1314,172 @@ auto prepend_to(ndarray<XV, XR>& x, Y&& y)
         y.copy_to(x_iter);
     }
     return x;
+}
+
+template<size_t Level, size_t Rank, typename Arg>
+auto _join_dims_by_args_impl(
+    const std::array<size_t, Rank>& dims, const Arg& arg)
+{
+    if constexpr (is_argument_pack_v<Arg>)
+    {
+        return arg.size() == 0u ? size_t(0) :
+            arg.size() * _join_dims_by_args_impl<Level>(dims, arg.get(0));
+    }
+    else
+    {
+        static_assert(array_rank_v<Arg> == Rank, "badrank");
+        if (arg.size() > 0u)
+        {
+            const auto leading_check = utils::check_dims<Level - 1u>(
+                dims.data(), arg.dims().data());
+            const auto trailing_check = utils::check_dims<Rank - Level>(
+                dims.data() + Level, arg.dims().data() + Level);
+            if (!leading_check || !trailing_check)
+                throw std::logic_error("baddims");
+            return arg.dims()[Level - 1];
+        }
+        else
+            return size_t(0);
+    }
+}
+
+template<size_t Level, size_t Rank, typename... Args>
+void _join_dims_by_args(std::array<size_t, Rank>& dims, const Args&... args)
+{
+    dims[Level - 1] += (_join_dims_by_args_impl<Level>(dims, args) + ...);
+}
+
+template<size_t Level, size_t Rank, typename Iter, typename Arg>
+void _join_copy_leveln(Iter& ret_base, size_t stride, const Arg& arg)
+{
+    if constexpr (is_argument_pack_v<Arg>)
+    {
+        if (arg.size() == 0)
+            return;
+        auto arg_dims = arg.get(0).dims();
+        const auto leading_size = utils::size_of_dims(
+            utils::dims_take<1u, Level - 1u>(arg_dims));
+        const auto trailing_size = utils::size_of_dims(
+            utils::dims_take<Level, Rank>(arg_dims));
+        for (size_t k = 0u; k < arg.size(); ++k, ret_base += trailing_size)
+        {
+            const auto& arg_k = arg.get(k);
+            auto arg_iter = arg_k.begin();
+            auto ret_iter = ret_base;
+            for (size_t i = 0u; i < leading_size; ++i, ret_iter += stride)
+            {
+                WL_IGNORE_DEPENDENCIES
+                for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
+                    ret_iter[j] = *arg_iter;
+            }
+        }
+    }
+    else if (arg.size() > 0u)
+    {
+        const auto arg_dims = arg.dims();
+        const auto leading_size = utils::size_of_dims(
+            utils::dims_take<1u, Level - 1u>(arg_dims));
+        const auto trailing_size = utils::size_of_dims(
+            utils::dims_take<Level, Rank>(arg_dims));
+        if constexpr (Arg::category == view_category::General)
+        {
+            auto ret_iter = ret_base;
+            size_t j = 0u;
+            arg.for_each([&](const auto& x)
+                {
+                    ret_iter[j] = x;
+                    if ((++j) >= trailing_size)
+                    {
+                        j = 0u;
+                        ret_iter += stride;
+                    }
+                });
+        }
+        else
+        {
+            auto arg_iter = arg.begin();
+            auto ret_iter = ret_base;
+            for (size_t i = 0u; i < leading_size; ++i, ret_iter += stride)
+            {
+                WL_IGNORE_DEPENDENCIES
+                for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
+                    ret_iter[j] = *arg_iter;
+            }
+        }
+        ret_base += trailing_size;
+    }
+}
+
+template<typename Iter, typename Arg>
+void _join_copy_level1(Iter& iter, const Arg& arg)
+{
+    if constexpr (is_argument_pack_v<Arg>)
+    {
+        for (size_t i = 0; i < arg.size(); ++i)
+            _join_copy_level1(iter, arg.get(i));
+    }
+    else
+    {
+        arg.copy_to(iter);
+        iter += arg.size();
+    }
+}
+
+template<int64_t I, typename First, typename... Rest>
+auto join(const_int<I>, First&& first, Rest&&... rest)
+{
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    using FirstType = remove_cvref_t<First>;
+    if constexpr (is_argument_pack_v<FirstType>)
+    {
+        if (first.size() == 0u)
+        {
+            if constexpr (sizeof...(rest) > 0u)
+                return join(const_int<I>{},
+                    std::forward<decltype(rest)>(rest)...);
+            else
+            {
+                using ItemType = value_type_t<FirstType>;
+                constexpr auto rank = array_rank_v<ItemType>;
+                using ValueType = std::conditional_t<
+                    rank == 0u, ItemType, value_type_t<ItemType>>;
+                return ndarray<value_type_t<ItemType>, rank>{};
+            }
+        }
+        else
+            return join(const_int<I>{}, first.get(0), first.get_pack(1),
+                std::forward<decltype(rest)>(rest)...);
+    }
+    else
+    {
+        constexpr auto rank = array_rank_v<FirstType>;
+        static_assert(1u <= Level && Level <= rank, "badlevel");
+        auto ret_dims = first.dims();
+        _join_dims_by_args<Level>(ret_dims, rest...);
+        ndarray<value_type_t<FirstType>, rank> ret(ret_dims);
+        if constexpr (Level == 1u)
+        {
+            auto ret_iter = ret.data();
+            _join_copy_level1(ret_iter, first);
+            (_join_copy_level1(ret_iter, rest), ...);
+        }
+        else
+        {
+            auto ret_iter = ret.data();
+            auto stride = utils::size_of_dims(
+                utils::dims_take<Level, rank>(ret_dims));
+            _join_copy_leveln<Level, rank>(ret_iter, stride, first);
+            (_join_copy_leveln<Level, rank>(ret_iter, stride, rest), ...);
+        }
+        return ret;
+    }
+}
+
+template<typename First, typename... Rest>
+auto join(First&& first, Rest&&... rest)
+{
+    return join(const_int<1>{}, std::forward<decltype(first)>(first),
+        std::forward<decltype(rest)>(rest)...);
 }
 
 }

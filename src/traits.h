@@ -66,7 +66,7 @@ struct undefined_type;
 template<size_t...>
 struct undefined_integral;
 
-template<typename T>
+template<typename T, size_t...>
 struct identity_type
 {
     using type = T;

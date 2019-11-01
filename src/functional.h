@@ -275,43 +275,75 @@ auto select(X&& x, Function f)
         return _select_impl(std::forward<decltype(x)>(x).to_array(), f);
 }
 
-template<typename T, size_t R, typename Function>
-auto _count_impl(const ndarray<T, R>& a, Function f)
+template<typename X, typename Function, int64_t I>
+auto count(const X& x, varg_tag, Function f, const_int<I>)
 {
-    static_assert(R >= 2u, "internal");
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(1u <= Level && Level <= XR, "badlevel");
+
     size_t item_count = 0;
-    auto view_iter = a.template view_begin<1u>();
-    auto view_end = a.template view_end<1u>();
-    for (; view_iter != view_end; ++view_iter)
+    if constexpr (XR == Level)
     {
-        auto out = f(*view_iter);
-        static_assert(is_boolean_v<decltype(out)>, "badfunctype");
-        if (out)
-            ++item_count;
+        using RT = remove_cvref_t<decltype(f(value_type_t<X>{}))>;
+        static_assert(is_boolean_v<RT>, "badfunctype");
+        x.for_each([&](const auto& a) { if (f(a)) ++item_count; });
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        using RT = remove_cvref_t<decltype(f(*view_iter))>;
+        static_assert(is_boolean_v<RT>, "badfunctype");
+        for (; view_iter != view_end; ++view_iter)
+        {
+            if (f(*view_iter))
+                ++item_count;
+        }
     }
     return item_count;
 }
 
 template<typename X, typename Function>
-auto count(X&& x, Function f)
+auto count(const X& x, varg_tag, Function f)
 {
-    using XT = remove_cvref_t<X>;
-    static_assert(array_rank_v<XT> >= 1u, "badrank");
-    if constexpr (array_rank_v<XT> == 1u)
-    {
-        size_t item_count = 0;
-        x.for_each([&](const auto& a)
-            {
-                auto out = f(a);
-                static_assert(is_boolean_v<decltype(out)>, "badfunctype");
-                if (out) ++item_count;
-            });
-        return item_count;
-    }
-    else
-        return _count_impl(std::forward<decltype(x)>(x).to_array(), f);
+    return count(x, varg_tag{}, f, const_int<1>{});
 }
 
+template<typename X, typename Y, int64_t I>
+auto count(const X& x, const Y& y, const_int<I>)
+{
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(1u <= Level && Level + YR == XR, "badlevel");
+
+    size_t item_count = 0;
+    const auto& valy = allows<view_category::Array>(y);
+    if constexpr (YR == 0u)
+    {
+        x.for_each([&](const auto& a) { if (equal(a, valy)) ++item_count; });
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        for (; view_iter != view_end; ++view_iter)
+        {
+            if (equal(*view_iter, valy))
+                ++item_count;
+        }
+    }
+    return item_count;
+}
+
+template<typename X, typename Y>
+auto count(const X& x, const Y& y)
+{
+    return count(x, y, const_int<1>{});
+}
 
 template<size_t Level, typename Function, typename T, size_t R>
 auto _map_impl(Function f, const ndarray<T, R>& a)
@@ -1234,10 +1266,25 @@ auto vector_q(X&& x, Test test)
         return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
 }
 
-template<typename X, typename Test>
+template<typename X>
 auto vector_q(X&& x)
 {
     return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
+}
+
+template<typename X, typename Test>
+auto matrix_q(X&& x, Test test)
+{
+    if constexpr (array_rank_v<remove_cvref_t<X>> <= 1u)
+        return const_false;
+    else
+        return all_true(std::forward<decltype(x)>(x), test, const_int<2>{});
+}
+
+template<typename X>
+auto matrix_q(X&& x)
+{
+    return boolean(array_rank_v<remove_cvref_t<X>> == 2u);
 }
 
 }

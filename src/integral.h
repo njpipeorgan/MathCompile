@@ -88,9 +88,10 @@ auto divisible(X&& x, Y&& y)
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
 
-inline uint64_t _fibonacci(uint64_t n)
+inline uint64_t _fibonacci_impl(uint64_t n, uint64_t* prev)
 {
-    static const std::array<uint64_t, 94> fib_data ={
+    constexpr size_t data_size = 94;
+    static const std::array<uint64_t, data_size> data ={
         0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181,6765,
         10946,17711,28657,46368,75025,121393,196418,317811,514229,832040,
         1346269,2178309,3524578,5702887,9227465,14930352,24157817,39088169,
@@ -108,13 +109,16 @@ inline uint64_t _fibonacci(uint64_t n)
         1100087778366101931,1779979416004714189,2880067194370816120,
         4660046610375530309,7540113804746346429,12200160415121876738u};
 
-    if (n < 94)
-        return fib_data[n];
+    if (n < data_size)
+    {
+        *prev = n == 0u ? uint64_t(1) : data[n - 1];
+        return data[n];
+    }
     auto lzcnt = utils::_lzcnt(n);
     uint64_t leading = n >> (58 - lzcnt);
     uint64_t mask = uint64_t(1) << (57 - lzcnt);
-    uint64_t a = fib_data[leading - 1];
-    uint64_t b = fib_data[leading];
+    uint64_t a = data[leading - 1];
+    uint64_t b = data[leading];
     uint64_t c = 0u;
     for (; mask; mask >>= 1)
     {
@@ -128,7 +132,21 @@ inline uint64_t _fibonacci(uint64_t n)
             a = c;
         }
     }
+    *prev = a;
     return b;
+}
+
+inline uint64_t _fibonacci(uint64_t n)
+{
+    uint64_t n1;
+    return _fibonacci_impl(n, &n1);
+}
+
+inline uint64_t _lucas_l(uint64_t n)
+{
+    uint64_t n1;
+    uint64_t n2 = _fibonacci_impl(n - 1u, &n1);
+    return n2 * 3u + n1;
 }
 
 template<typename X>
@@ -155,6 +173,35 @@ auto fibonacci(X&& x)
             XV phi_x = std::pow(XV(1.6180339887498948482), x);
             XV cos_pi_x = std::cos(XV(const_pi) * x);
             return XV(0.44721359549995793928) * (phi_x - cos_pi_x / phi_x);
+        }
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+
+template<typename X>
+auto lucas_l(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_integral_v<XV>)
+        {
+            if constexpr (std::is_unsigned_v<XV>)
+                return XV(_lucas_l(x));
+            else if (x >= XV(0))
+                return XV(_lucas_l(x));
+            else
+            {
+                auto val = XV(_lucas_l(-x));
+                return (x & XV(1)) ? -val : val;
+            }
+        }
+        else
+        {
+            XV phi_x = std::pow(XV(1.6180339887498948482), x);
+            XV cos_pi_x = std::cos(XV(const_pi) * x);
+            return phi_x + cos_pi_x / phi_x;
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));

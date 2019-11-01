@@ -3867,9 +3867,10 @@ auto divisible(X&& x, Y&& y)
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
-inline uint64_t _fibonacci(uint64_t n)
+inline uint64_t _fibonacci_impl(uint64_t n, uint64_t* prev)
 {
-    static const std::array<uint64_t, 94> fib_data ={
+    constexpr size_t data_size = 94;
+    static const std::array<uint64_t, data_size> data ={
         0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181,6765,
         10946,17711,28657,46368,75025,121393,196418,317811,514229,832040,
         1346269,2178309,3524578,5702887,9227465,14930352,24157817,39088169,
@@ -3886,13 +3887,16 @@ inline uint64_t _fibonacci(uint64_t n)
         259695496911122585,420196140727489673,679891637638612258,
         1100087778366101931,1779979416004714189,2880067194370816120,
         4660046610375530309,7540113804746346429,12200160415121876738u};
-    if (n < 94)
-        return fib_data[n];
+    if (n < data_size)
+    {
+        *prev = n == 0u ? uint64_t(1) : data[n - 1];
+        return data[n];
+    }
     auto lzcnt = utils::_lzcnt(n);
     uint64_t leading = n >> (58 - lzcnt);
     uint64_t mask = uint64_t(1) << (57 - lzcnt);
-    uint64_t a = fib_data[leading - 1];
-    uint64_t b = fib_data[leading];
+    uint64_t a = data[leading - 1];
+    uint64_t b = data[leading];
     uint64_t c = 0u;
     for (; mask; mask >>= 1)
     {
@@ -3906,7 +3910,19 @@ inline uint64_t _fibonacci(uint64_t n)
             a = c;
         }
     }
+    *prev = a;
     return b;
+}
+inline uint64_t _fibonacci(uint64_t n)
+{
+    uint64_t n1;
+    return _fibonacci_impl(n, &n1);
+}
+inline uint64_t _lucas_l(uint64_t n)
+{
+    uint64_t n1;
+    uint64_t n2 = _fibonacci_impl(n - 1u, &n1);
+    return n2 * 3u + n1;
 }
 template<typename X>
 auto fibonacci(X&& x)
@@ -3932,6 +3948,34 @@ auto fibonacci(X&& x)
             XV phi_x = std::pow(XV(1.6180339887498948482), x);
             XV cos_pi_x = std::cos(XV(const_pi) * x);
             return XV(0.44721359549995793928) * (phi_x - cos_pi_x / phi_x);
+        }
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+}
+template<typename X>
+auto lucas_l(X&& x)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_integral_v<XV>)
+        {
+            if constexpr (std::is_unsigned_v<XV>)
+                return XV(_lucas_l(x));
+            else if (x >= XV(0))
+                return XV(_lucas_l(x));
+            else
+            {
+                auto val = XV(_lucas_l(-x));
+                return (x & XV(1)) ? -val : val;
+            }
+        }
+        else
+        {
+            XV phi_x = std::pow(XV(1.6180339887498948482), x);
+            XV cos_pi_x = std::cos(XV(const_pi) * x);
+            return phi_x + cos_pi_x / phi_x;
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
@@ -5937,40 +5981,69 @@ auto select(X&& x, Function f)
     else
         return _select_impl(std::forward<decltype(x)>(x).to_array(), f);
 }
-template<typename T, size_t R, typename Function>
-auto _count_impl(const ndarray<T, R>& a, Function f)
+template<typename X, typename Function, int64_t I>
+auto count(const X& x, varg_tag, Function f, const_int<I>)
 {
-    static_assert(R >= 2u, "internal");
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(1u <= Level && Level <= XR, "badlevel");
     size_t item_count = 0;
-    auto view_iter = a.template view_begin<1u>();
-    auto view_end = a.template view_end<1u>();
-    for (; view_iter != view_end; ++view_iter)
+    if constexpr (XR == Level)
     {
-        auto out = f(*view_iter);
-        static_assert(is_boolean_v<decltype(out)>, "badfunctype");
-        if (out)
-            ++item_count;
+        using RT = remove_cvref_t<decltype(f(value_type_t<X>{}))>;
+        static_assert(is_boolean_v<RT>, "badfunctype");
+        x.for_each([&](const auto& a) { if (f(a)) ++item_count; });
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        using RT = remove_cvref_t<decltype(f(*view_iter))>;
+        static_assert(is_boolean_v<RT>, "badfunctype");
+        for (; view_iter != view_end; ++view_iter)
+        {
+            if (f(*view_iter))
+                ++item_count;
+        }
     }
     return item_count;
 }
 template<typename X, typename Function>
-auto count(X&& x, Function f)
+auto count(const X& x, varg_tag, Function f)
 {
-    using XT = remove_cvref_t<X>;
-    static_assert(array_rank_v<XT> >= 1u, "badrank");
-    if constexpr (array_rank_v<XT> == 1u)
+    return count(x, varg_tag{}, f, const_int<1>{});
+}
+template<typename X, typename Y, int64_t I>
+auto count(const X& x, const Y& y, const_int<I>)
+{
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(1u <= Level && Level + YR == XR, "badlevel");
+    size_t item_count = 0;
+    const auto& valy = allows<view_category::Array>(y);
+    if constexpr (YR == 0u)
     {
-        size_t item_count = 0;
-        x.for_each([&](const auto& a)
-            {
-                auto out = f(a);
-                static_assert(is_boolean_v<decltype(out)>, "badfunctype");
-                if (out) ++item_count;
-            });
-        return item_count;
+        x.for_each([&](const auto& a) { if (equal(a, valy)) ++item_count; });
     }
     else
-        return _count_impl(std::forward<decltype(x)>(x).to_array(), f);
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        for (; view_iter != view_end; ++view_iter)
+        {
+            if (equal(*view_iter, valy))
+                ++item_count;
+        }
+    }
+    return item_count;
+}
+template<typename X, typename Y>
+auto count(const X& x, const Y& y)
+{
+    return count(x, y, const_int<1>{});
 }
 template<size_t Level, typename Function, typename T, size_t R>
 auto _map_impl(Function f, const ndarray<T, R>& a)
@@ -6824,10 +6897,23 @@ auto vector_q(X&& x, Test test)
     else
         return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
 }
-template<typename X, typename Test>
+template<typename X>
 auto vector_q(X&& x)
 {
     return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
+}
+template<typename X, typename Test>
+auto matrix_q(X&& x, Test test)
+{
+    if constexpr (array_rank_v<remove_cvref_t<X>> <= 1u)
+        return const_false;
+    else
+        return all_true(std::forward<decltype(x)>(x), test, const_int<2>{});
+}
+template<typename X>
+auto matrix_q(X&& x)
+{
+    return boolean(array_rank_v<remove_cvref_t<X>> == 2u);
 }
 }
 namespace wl

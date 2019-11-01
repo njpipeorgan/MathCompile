@@ -457,6 +457,14 @@ auto _lzcnt(X x)
 #endif
 }
 
+template<typename XIter, typename YIter>
+WL_INLINE void copy_n(XIter x_iter, size_t n, YIter y_iter)
+{
+    WL_IGNORE_DEPENDENCIES
+    for (size_t i = 0u; i < n; ++i, ++x_iter, ++y_iter)
+        *y_iter = *x_iter;
+}
+
 }
 
 }

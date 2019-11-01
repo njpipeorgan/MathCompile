@@ -17,11 +17,11 @@
 
 #pragma once
 
-#include <array>
 #include <random>
 
 #include "types.h"
 #include "arithmetic.h"
+#include "ndarray.h"
 
 namespace wl
 {
@@ -31,12 +31,12 @@ extern std::default_random_engine global_random_engine;
 namespace distribution
 {
 
-constexpr auto _min = [](const auto& x, const auto& y)
+constexpr auto _min = [](const auto x, const auto y)
 {
     return x < y ? x : y;
 };
 
-constexpr auto _max = [](const auto& x, const auto& y)
+constexpr auto _max = [](const auto x, const auto y)
 {
     return x < y ? y : x;
 };
@@ -194,6 +194,75 @@ auto random_complex(const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_arithmetic_v<Max>, "badargtype");
     return random_complex(Max{}, max, varg_tag{}, dims...);
+}
+
+template<typename Array>
+auto random_choice(const Array& x)
+{
+    constexpr auto XR = array_rank_v<Array>;
+    static_assert(XR >= 1u, "badrank");
+    using XV = value_type_t<Array>;
+    const auto& valx = allows<view_category::Regular>(x);
+    const auto x_iter = valx.begin();
+    auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
+
+    if constexpr (XR == 1u)
+    {
+        return *(valx.begin() + dist(global_random_engine));
+    }
+    else
+    {
+        auto item_dims = utils::dims_take<2u, XR>(x.dims());
+        auto item_size = utils::size_of_dims(item_dims);
+        ndarray<XV, XR - 1u> ret(item_dims);
+        utils::copy_n(valx.begin() + item_size * dist(global_random_engine),
+            item_size, ret.data());
+        return ret;
+    }
+}
+
+template<typename Array, size_t OuterRank>
+auto _random_choice_impl(const Array& x,
+    const std::array<size_t, OuterRank>& outer_dims)
+{
+    constexpr auto XR = array_rank_v<Array>;
+    static_assert(XR >= 1u, "badrank");
+    using XV = value_type_t<Array>;
+    const auto& valx = allows<view_category::Regular>(x);
+    const auto x_iter = valx.begin();
+    auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
+
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if constexpr (XR == 1u)
+    {
+        ndarray<XV, OuterRank> ret(outer_dims);
+        auto ret_iter = ret.data();
+        for (size_t i = 0; i < outer_size; ++i, ++ret_iter)
+            *ret_iter = *(x_iter + dist(global_random_engine));
+        return ret;
+    }
+    else
+    {
+        auto item_dims = utils::dims_take<2u, XR>(x.dims());
+        auto item_size = utils::size_of_dims(item_dims);
+        ndarray<XV, OuterRank + XR - 1u> ret(
+            utils::dims_join(outer_dims, item_dims));
+        auto base_iter = ret.data();
+        for (size_t i = 0u; i < outer_size; ++i, base_iter += item_size)
+            utils::copy_n(x_iter + item_size * dist(global_random_engine),
+                item_size, base_iter);
+        return ret;
+    }
+}
+
+template<typename Array, typename... Dims>
+auto random_choice(const Array& x, varg_tag, const Dims&... dims)
+{
+    static_assert(all_is_integral_v<Dims...>, "badargtype");
+    if (!((dims > 0) && ...))
+        throw std::logic_error("baddims");
+    return _random_choice_impl(x,
+        std::array<size_t, sizeof...(Dims)>{size_t(dims)...});
 }
 
 }

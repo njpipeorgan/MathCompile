@@ -917,6 +917,13 @@ auto _lzcnt(X x)
     return n - ((y >> 1) ? int64_t(2) : int64_t(y));
 #endif
 }
+template<typename XIter, typename YIter>
+WL_INLINE void copy_n(XIter x_iter, size_t n, YIter y_iter)
+{
+    WL_IGNORE_DEPENDENCIES
+    for (size_t i = 0u; i < n; ++i, ++x_iter, ++y_iter)
+        *y_iter = *x_iter;
+}
 }
 }
 namespace wl
@@ -1455,6 +1462,10 @@ struct regular_view_iterator
     {
         return pointer_ + diff * stride_;
     }
+    auto operator-(const _my_type& other) const
+    {
+        return ptrdiff_t(other.pointer_ - this->pointer_) / this->stride_;
+    }
 };
 template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, bool Const>
 struct regular_view
@@ -1754,6 +1765,29 @@ auto val(Any&& any) -> decltype(auto)
         return std::forward<decltype(any)>(any).to_array();
     else
         return std::forward<decltype(any)>(any);
+}
+template<view_category Category, typename Any>
+auto allows(Any&& any) -> decltype(auto)
+{
+    using AnyType = remove_cvref_t<Any>;
+    if constexpr (array_rank_v<AnyType> == 0)
+        return std::forward<decltype(any)>(any);
+    else
+    {
+        constexpr auto array_filter =
+            Category == view_category::Array && is_array_view_v<AnyType>;
+        constexpr auto simple_filter =
+            Category == view_category::Simple &&
+            (AnyType::category == view_category::General ||
+                AnyType::category == view_category::Regular);
+        constexpr auto regular_filter =
+            Category == view_category::Regular &&
+            AnyType::category == view_category::General;
+        if constexpr (array_filter || simple_filter || regular_filter)
+            return std::forward<decltype(any)>(any).to_array();
+        else
+            return std::forward<decltype(any)>(any);
+    }
 }
 template<typename T>
 struct scalar_view_iterator
@@ -2519,11 +2553,10 @@ boolean equal(const X& x, const Y& y)
         }
         else
         {
-            if constexpr (sizeof(typename X::value_type) <
-                sizeof(typename Y::value_type))
-                return equal(x.to_array, y);
+            if constexpr (sizeof(value_type_t<X>) < sizeof(value_type_t<Y>))
+                return equal(x.to_array(), y);
             else
-                return equal(x, y.to_array);
+                return equal(x, y.to_array());
         }
     }
 }
@@ -4112,11 +4145,11 @@ namespace wl
 extern std::default_random_engine global_random_engine;
 namespace distribution
 {
-constexpr auto _min = [](const auto& x, const auto& y)
+constexpr auto _min = [](const auto x, const auto y)
 {
     return x < y ? x : y;
 };
-constexpr auto _max = [](const auto& x, const auto& y)
+constexpr auto _max = [](const auto x, const auto y)
 {
     return x < y ? y : x;
 };
@@ -4250,6 +4283,70 @@ auto random_complex(const Max& max, varg_tag, const Dims&... dims)
 {
     static_assert(is_arithmetic_v<Max>, "badargtype");
     return random_complex(Max{}, max, varg_tag{}, dims...);
+}
+template<typename Array>
+auto random_choice(const Array& x)
+{
+    constexpr auto XR = array_rank_v<Array>;
+    static_assert(XR >= 1u, "badrank");
+    using XV = value_type_t<Array>;
+    const auto& valx = allows<view_category::Regular>(x);
+    const auto x_iter = valx.begin();
+    auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
+    if constexpr (XR == 1u)
+    {
+        return *(valx.begin() + dist(global_random_engine));
+    }
+    else
+    {
+        auto item_dims = utils::dims_take<2u, XR>(x.dims());
+        auto item_size = utils::size_of_dims(item_dims);
+        ndarray<XV, XR - 1u> ret(item_dims);
+        utils::copy_n(valx.begin() + item_size * dist(global_random_engine),
+            item_size, ret.data());
+        return ret;
+    }
+}
+template<typename Array, size_t OuterRank>
+auto _random_choice_impl(const Array& x,
+    const std::array<size_t, OuterRank>& outer_dims)
+{
+    constexpr auto XR = array_rank_v<Array>;
+    static_assert(XR >= 1u, "badrank");
+    using XV = value_type_t<Array>;
+    const auto& valx = allows<view_category::Regular>(x);
+    const auto x_iter = valx.begin();
+    auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if constexpr (XR == 1u)
+    {
+        ndarray<XV, OuterRank> ret(outer_dims);
+        auto ret_iter = ret.data();
+        for (size_t i = 0; i < outer_size; ++i, ++ret_iter)
+            *ret_iter = *(x_iter + dist(global_random_engine));
+        return ret;
+    }
+    else
+    {
+        auto item_dims = utils::dims_take<2u, XR>(x.dims());
+        auto item_size = utils::size_of_dims(item_dims);
+        ndarray<XV, OuterRank + XR - 1u> ret(
+            utils::dims_join(outer_dims, item_dims));
+        auto base_iter = ret.data();
+        for (size_t i = 0u; i < outer_size; ++i, base_iter += item_size)
+            utils::copy_n(x_iter + item_size * dist(global_random_engine),
+                item_size, base_iter);
+        return ret;
+    }
+}
+template<typename Array, typename... Dims>
+auto random_choice(const Array& x, varg_tag, const Dims&... dims)
+{
+    static_assert(all_is_integral_v<Dims...>, "badargtype");
+    if (!((dims > 0) && ...))
+        throw std::logic_error("baddims");
+    return _random_choice_impl(x,
+        std::array<size_t, sizeof...(Dims)>{size_t(dims)...});
 }
 }
 namespace wl

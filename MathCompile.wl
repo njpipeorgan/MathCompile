@@ -400,9 +400,8 @@ $builtinfunctions=native/@
     (*"RandomInteger"*)
     (*"RandomReal"*)
     (*"RandomComplex"*)
-    (*"RandomVariate"*)(*
+    (*"RandomVariate"*)
   "RandomChoice"    ->"random_choice",
-  "SandomSample"    ->"random_sample",*)
 (* array operation *)
     (*"ConstantArray"*)
   "List"            ->"list",
@@ -497,6 +496,7 @@ functionmacro[code_]:=code//.{
     id["RandomComplex"][]:>native["random_complex"][id["Complex"][literal[1],literal[1]],vargtag],
     id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
     id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
+    id["RandomChoice"][array_,dims_]:>native["random_choice"][array,vargtag,listtoseq[dims]],
     id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,func],
     id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
     id["Total"][array_,list[literal[i_Integer]]]:>native["total"][array,const[i],const[i]],

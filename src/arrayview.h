@@ -661,6 +661,11 @@ struct regular_view_iterator
     {
         return pointer_ + diff * stride_;
     }
+
+    auto operator-(const _my_type& other) const
+    {
+        return ptrdiff_t(other.pointer_ - this->pointer_) / this->stride_;
+    }
 };
 
 template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, bool Const>
@@ -996,6 +1001,31 @@ auto val(Any&& any) -> decltype(auto)
         return std::forward<decltype(any)>(any).to_array();
     else
         return std::forward<decltype(any)>(any);
+}
+
+template<view_category Category, typename Any>
+auto allows(Any&& any) -> decltype(auto)
+{
+    using AnyType = remove_cvref_t<Any>;
+    if constexpr (array_rank_v<AnyType> == 0)
+        return std::forward<decltype(any)>(any);
+    else
+    {
+        constexpr auto array_filter =
+            Category == view_category::Array && is_array_view_v<AnyType>;
+        constexpr auto simple_filter =
+            Category == view_category::Simple &&
+            (AnyType::category == view_category::General ||
+                AnyType::category == view_category::Regular);
+        constexpr auto regular_filter =
+            Category == view_category::Regular &&
+            AnyType::category == view_category::General;
+
+        if constexpr (array_filter || simple_filter || regular_filter)
+            return std::forward<decltype(any)>(any).to_array();
+        else
+            return std::forward<decltype(any)>(any);
+    }
 }
 
 template<typename T>

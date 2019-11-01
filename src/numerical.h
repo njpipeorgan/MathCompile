@@ -234,11 +234,10 @@ boolean equal(const X& x, const Y& y)
         }
         else
         {
-            if constexpr (sizeof(typename X::value_type) <
-                sizeof(typename Y::value_type))
-                return equal(x.to_array, y);
+            if constexpr (sizeof(value_type_t<X>) < sizeof(value_type_t<Y>))
+                return equal(x.to_array(), y);
             else
-                return equal(x, y.to_array);
+                return equal(x, y.to_array());
         }
     }
 }

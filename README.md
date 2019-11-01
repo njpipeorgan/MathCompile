@@ -1,30 +1,24 @@
-# MathCompile
+MathCompile is a package that translates *Wolfram Language* functions into C++ code, and generate dynamic libraries that can be called in *Wolfram Language*. It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions. 
 
-MathCompile is a package that translates *Wolfram Language* functions into C++ code, and generate dynamic libraries that can be called in *Wolfram Language*.
+MathCompile covers most of the functionalities provided by the built-in compiler and adds many more. Currently, MathCompile supports 9 constants and over 150 functions; see the [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Constants-and-Functions) for the full list. They include common procedual and functional programming function like `Module` and `Apply`, and many more. 
 
-It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions.
-
-**Note**: The project is in the progress of adding more functions.
-
-**Note**: Be aware that the compiled function may throw uncaught exceptions due to bugs and cause WolframKernel to crash. 
-
-## Prerequisite
+# Prerequisite
 
 - *Wolfram Mathematica* 11+
 
   - The support for more array types requires version 12.
 
-- C++ compiler supporting C++17 standard
+- C++ compiler supporting C++17 standard (if `CompileToBinary` is used)
 
   - See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Prerequisites-for-C-Compiler) for the list of supported C++ compilers and their availabilities.
 
-## In a nutshell
+# In a nutshell
 
 First, load the package:
 ```
 <<MathCompile`
 ```
-Compile a function using `CompileToBinary`: (make sure you have a C++ compiler installed)
+Compile a function using `CompileToBinary`:
 ```
 cf=CompileToBinary[
   Function[{Typed[x,{Integer,1}]},Apply[Times,x]];
@@ -35,7 +29,7 @@ Use this compiled function just like a normal Wolfram Language funcion:
 cf[{1,2,3,4}]    (* gives 24 *)
 ```
 
-You can also check the C++ code using `CompileToCode`:
+You can also check the intermediate C++ code using `CompileToCode`:
 ```
 CompileToCode[
   Function[{Typed[x,{Integer,1}]},Apply[Times,x]];
@@ -47,31 +41,28 @@ auto main_function(const wl::ndarray<int64_t, 1>& v35) {
     return wl::val(wl::apply(WL_FUNCTION(wl::times), WL_PASS(v35)));
 }
 ```
-You can see the C++ code compiled from this Compiler Explorer [link](https://godbolt.org/z/7A9O5O).
+As an example, the disassembly compiled by gcc 7.4 and clang 5.0 is available through [Compiler Explorer](https://godbolt.org/z/tElm9M).
 
-## Compilable constants and functions
+# Supported types
 
-Currently, 9 constants and over 150 functions are supported by MathCompile. See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Constants-and-Functions) for the full list. They include common procedual and functional programming function like `Module` and `Map`, and many numerical functions like `Sin` and `Log`. 
+Specifying the argument types of the compiled function is necessary, in the form of `Typed[<argument>,<type>]`. The types of all other variables are deduced by the compiler when possible. 
 
-## Supported types
+**Integral types**
 
-| *Wolfram Laguage*       | C++                       |
-| ----------------------- | ------------------------- |
-| `"Boolean"`             | `bool`                    |
-| `"Integer"`             | `int64_t`                 |
-| `"Integer8"`            | `int8_t`                  |
-| `"Integer16"`           | `int16_t`                 |
-| `"Integer32"`           | `int32_t`                 |
-| `"Integer64"`           | `int64_t`                 |
-| `"UnsignedInteger"`     | `uint64_t`                |
-| `"UnsignedInteger8"`    | `uint8_t`                 |
-| `"UnsignedInteger16"`   | `uint16_t`                |
-| `"UnsignedInteger32"`   | `uint32_t`                |
-| `"UnsignedInteger64"`   | `uint64_t`                |
-| `"Real"`                | `double`                  |
-| `"Real32"`              | `float`                   |
-| `"Real64"`              | `double`                  |
-| `"Complex"`             | `std::complex<double>`    |
-| `"ComplexReal32"`       | `std::complex<float>`     |
-| `"ComplexReal64"`       | `std::complex<double>`    |
-| `{type_, rank_}`        | `wl::ndarray<type, rank>` |
+`Integer`, `"Integer8"`, `"Integer16"`, `"Integer32"`, `"Integer64"`
+
+`"UnsignedInteger"`, `"UnsignedInteger8"`, `"UnsignedInteger16"`, `"UnsignedInteger32"`, `"UnsignedInteger64"`
+
+**Floating-point types**
+
+`Real`, `"Real32"`, `"Real64"`
+
+`Complex`, `"ComplexReal32"`, `"ComplexReal64"`
+
+**Array types**
+
+`{<type>,<rank>}`, where `<type>` is an integral or floating-point type and rank a positive integer.
+
+**Other types**
+
+`"Boolean"`, `"Void"`

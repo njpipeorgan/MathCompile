@@ -1,6 +1,6 @@
 MathCompile is a package that translates *Wolfram Language* functions into C++ code, and generate dynamic libraries that can be called in *Wolfram Language*. It is written mostly in *Wolfram Language* and utilize a C++ library for type deduction and implementation of the supported functions. 
 
-MathCompile covers most of the functionalities provided by the built-in compiler and adds many more. Currently, MathCompile supports 9 constants and over 150 functions; see the [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Constants-and-Functions) for the full list. They include common procedual and functional programming function like `Module` and `Apply`, and many more. 
+MathCompile is focused on improving the availability of functional programming and covering most of the functionalities provided by the built-in compiler. Currently, MathCompile supports 9 constants and over 150 functions; see the [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Constants-and-Functions) for the full list. 
 
 # Prerequisite
 

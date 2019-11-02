@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <random>
 #include <string>
 #include <type_traits>
@@ -101,23 +102,26 @@ auto get_array(MArgument arg)
         if (type == MNumericArray_Type_Bit64)
         {
             if (input_type != MType_Integer) throw LIBRARY_TYPE_ERROR;
-            T* ptr = reinterpret_cast<T*>(
-                lib_data->MTensor_getIntegerData(tensor));
-            return ndarray<T, R>(dims, ptr, ptr + size);
+            const auto* ptr = lib_data->MTensor_getIntegerData(tensor);
+            ndarray<T, R> ret(dims);
+            std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
+            return ret;
         }
         else if (type == MNumericArray_Type_Real64)
         {
             if (input_type != MType_Real) throw LIBRARY_TYPE_ERROR;
-            T* ptr = reinterpret_cast<T*>(
-                lib_data->MTensor_getRealData(tensor));
-            return ndarray<T, R>(dims, ptr, ptr + size);
+            const auto* ptr = lib_data->MTensor_getRealData(tensor);
+            ndarray<T, R> ret(dims);
+            std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
+            return ret;
         }
         else // type == MNumericArray_Type_Complex_Real64
         {
             if (input_type != MType_Complex) throw LIBRARY_TYPE_ERROR;
-            T* ptr = reinterpret_cast<T*>(
-                lib_data->MTensor_getComplexData(tensor));
-            return ndarray<T, R>(dims, ptr, ptr + size);
+            const auto* ptr = lib_data->MTensor_getComplexData(tensor);
+            ndarray<T, R> ret(dims);
+            std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
+            return ret;
         }
     }
     else // pass by numeric array
@@ -127,7 +131,8 @@ auto get_array(MArgument arg)
         auto narray = MArgument_getMNumericArray(arg);
         auto input_type = na_lib_data->MNumericArray_getType(narray);
         auto input_rank = size_t(na_lib_data->MNumericArray_getRank(narray));
-        const mint* input_dims = na_lib_data->MNumericArray_getDimensions(narray);
+        const mint* input_dims =
+            na_lib_data->MNumericArray_getDimensions(narray);
 
         if (input_type != type) throw LIBRARY_TYPE_ERROR;
         if (input_rank != R) throw LIBRARY_RANK_ERROR;
@@ -135,9 +140,10 @@ auto get_array(MArgument arg)
         std::copy_n(input_dims, R, dims.data());
         const size_t size = utils::size_of_dims(dims);
 
-        T* ptr = reinterpret_cast<T*>(
-            na_lib_data->MNumericArray_getData(narray));
-        return ndarray<T, R>(dims, ptr, ptr + size);
+        const auto* ptr = na_lib_data->MNumericArray_getData(narray);
+        ndarray<T, R> ret(dims);
+        std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
+        return ret;
     }
 }
 
@@ -196,30 +202,27 @@ int set_array(MArgument& res, const ndarray<T, R>& val)
         MTensor tensor;
         if (type == MNumericArray_Type_Bit64)
         {
-            int error = lib_data->MTensor_new(
+            auto error = lib_data->MTensor_new(
                 MType_Integer, R, output_dims.data(), &tensor);
             if (error) throw error;
-            T* ptr = reinterpret_cast<T*>(
-                lib_data->MTensor_getIntegerData(tensor));
-            std::copy_n(val.data(), val.size(), ptr);
+            auto* ptr = lib_data->MTensor_getIntegerData(tensor);
+            std::memcpy(ptr, val.data(), val.size() * sizeof(T));
         }
         else if (type == MNumericArray_Type_Real64)
         {
-            int error = lib_data->MTensor_new(
+            auto error = lib_data->MTensor_new(
                 MType_Real, R, output_dims.data(), &tensor);
             if (error) throw error;
-            T* ptr = reinterpret_cast<T*>(
-                lib_data->MTensor_getRealData(tensor));
-            std::copy_n(val.data(), val.size(), ptr);
+            auto* ptr = lib_data->MTensor_getRealData(tensor);
+            std::memcpy(ptr, val.data(), val.size() * sizeof(T));
         }
         else // type == MNumericArray_Type_Complex_Real64
         {
-            int error = lib_data->MTensor_new(
+            auto error = lib_data->MTensor_new(
                 MType_Complex, R, output_dims.data(), &tensor);
             if (error) throw error;
-            T* ptr = reinterpret_cast<T*>(
-                lib_data->MTensor_getComplexData(tensor));
-            std::copy_n(val.data(), val.size(), ptr);
+            auto* ptr = lib_data->MTensor_getComplexData(tensor);
+            std::memcpy(ptr, val.data(), val.size() * sizeof(T));
         }
         MArgument_setMTensor(res, tensor);
     }
@@ -227,13 +230,11 @@ int set_array(MArgument& res, const ndarray<T, R>& val)
     {
         auto na_lib_data = lib_data->numericarrayLibraryFunctions;
         MNumericArray narray;
-        int error = na_lib_data->MNumericArray_new(
+        auto error = na_lib_data->MNumericArray_new(
             type, R, output_dims.data(), &narray);
         if (error) throw error;
-
-        T* ptr = reinterpret_cast<T*>(
-            na_lib_data->MNumericArray_getData(narray));
-        std::copy_n(val.data(), val.size(), ptr);
+        auto* ptr = na_lib_data->MNumericArray_getData(narray);
+        std::memcpy(ptr, val.data(), val.size() * sizeof(T));
         MArgument_setMTensor(res, narray);
     }
 }
@@ -258,10 +259,10 @@ void set(MArgument& res, const T& val)
     }
     else if constexpr (is_complex_v<T>)
     {
-        mcomplex wval;
-        wval.ri[0] = double(std::real(val));
-        wval.ri[1] = double(std::imag(val));
-        MArgument_setComplex(res, wval);
+        mcomplex dest;
+        dest.ri[0] = mreal(std::real(val));
+        dest.ri[1] = mreal(std::imag(val));
+        MArgument_setComplex(res, dest);
     }
     else if constexpr (is_array_v<T>)
     {

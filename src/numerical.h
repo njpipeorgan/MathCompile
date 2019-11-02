@@ -646,20 +646,26 @@ auto chop(X&& x, const Y& y)
     static_assert(is_real_v<Y>, "badargtype");
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>, "badargtype");
-    constexpr auto XR = array_rank_v<X>;
-    using XV = std::conditional_t<XR == 0, XT, value_type_t<XT>>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
 
     if constexpr (is_integral_v<XV>)
         return std::forward<decltype(x)>(x);
     else
     {
-        const auto lim = cast<value_type_t<XV>>(y);
-        auto pure = [=](const auto& x)
+        auto pure = [lim = cast<value_type_t<XV>>(y)](const auto& x)
         {
-            if (std::abs(x) < y)
-                return XV(0);
+            if constexpr (is_real_v<XV>)
+                return std::abs(x) < lim ? XV(0) : x;
             else
-                return x;
+            {
+                using T = value_type_t<XV>;
+                T re = std::real(x);
+                T im = std::imag(x);
+                re = std::abs(re) < lim ? T(0) : re;
+                im = std::abs(im) < lim ? T(0) : im;
+                return complex<T>(re, im);
+            }
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }

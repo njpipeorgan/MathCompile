@@ -320,6 +320,7 @@ $builtinfunctions=native/@
   "Unequal"         ->"unequal",
   "Sign"            ->"sign",
   "Clip"            ->"clip",
+  "Chop"            ->"chop",
   "Unitize"         ->"unitize",
   "UnitStep"        ->"unit_step",
   "Positive"        ->"positive",

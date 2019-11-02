@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <complex>
 #include <exception>
 #include <type_traits>
 
@@ -774,7 +775,7 @@ auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
 }
 
 template<typename X, int64_t... Is>
-auto transpose(X&& x, const_int<Is>...)
+auto transpose(const X& x, const_int<Is>...)
 {
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
@@ -785,6 +786,69 @@ auto transpose(X&& x, const_int<Is>...)
     return _transpose_impl(val(x), void_type{},
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
+}
+
+template<typename X>
+auto transpose(const X& x)
+{
+    return transpose(x, const_int<2>{}, const_int<1>{});
+}
+
+template<typename X>
+auto conjugate_transpose(const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 2u, "badrank");
+    using XV = value_type_t<X>;
+
+    if constexpr (is_real_v<XV>)
+        return transpose(x, const_int<2>{}, const_int<1>{});
+    else
+    {
+        const auto& valx = allows<view_category::Regular>(x);
+        auto x_iter = valx.begin();
+        if constexpr (XR == 2u)
+        {
+            const size_t dim0 = x.dims()[0];
+            const size_t dim1 = x.dims()[1];
+            ndarray<XV, 2u> ret(std::array<size_t, 2u>{dim1, dim0});
+            auto ret_base = ret.data();
+            for (size_t i = 0u; i < dim0; ++i, ++ret_base)
+            {
+                auto ret_iter = ret_base;
+                WL_IGNORE_DEPENDENCIES
+                for (size_t j = 0u; j < dim1; ++j, ++x_iter, ret_iter += dim0)
+                    *ret_iter = std::conj(*x_iter);
+            }
+            return ret;
+        }
+        else
+        {
+            const size_t dim0 = x.dims()[0];
+            const size_t dim1 = x.dims()[1];
+            const auto dims_rest = utils::dims_take<3u, XR>(x.dims());
+            const size_t chunk_size = utils::size_of_dims(dims_rest);
+            ndarray<XV, XR> ret(utils::dims_join(
+                std::array<size_t, 2u>{dim1, dim0}, dims_rest));
+            auto ret_base = ret.data();
+            for (size_t i = 0u; i < dim0; ++i, ret_base += chunk_size)
+            {
+                auto ret_base2 = ret_base;
+                for (size_t j = 0u; j < dim1;
+                    ++j, ret_base2 += dim0 * chunk_size)
+                {
+                    auto ret_iter = ret_base2;
+                    WL_IGNORE_DEPENDENCIES
+                    for (size_t k = 0u; k < chunk_size;
+                        ++k, ++ret_iter, ++x_iter)
+                    {
+                        *ret_iter = std::conj(*x_iter);
+                    }
+                }
+            }
+            return ret;
+        }
+    }
 }
 
 template<typename Level>

@@ -425,6 +425,7 @@ $builtinfunctions=native/@
   "Rest"            ->"rest",
   "Join"            ->"join",
   "Transpose"       ->"transpose",
+  "ConjugateTranspose"->"conjugate_transpose",
   "Flatten"         ->"flatten",
   "Order"           ->"order",
   "Ordering"        ->"ordering",

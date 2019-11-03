@@ -313,6 +313,7 @@ $builtinfunctions=native/@
   "FractionalPart"  ->"fractional_part",
   "Mod"             ->"mod",
   "Quotient"        ->"quotient",
+  "IntegerDigits"   ->"integer_digits",
   "Less"            ->"less",
   "Greater"         ->"greater",
   "LessEqual"       ->"less_equal",

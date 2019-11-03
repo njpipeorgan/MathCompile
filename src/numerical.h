@@ -360,10 +360,74 @@ auto sign(X&& x)
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
-template<typename X>
-auto positive(X&& x)
+template<typename Ret = int64_t, typename X, typename Y, typename N>
+auto integer_digits(const X& x, const Y& y, const N& n)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_integral_v<X> && is_integral_v<Y>, "badargtype");
+    static_assert(is_arithmetic_v<Ret>, "badrettype");
+    constexpr auto fixed_length = !std::is_same_v<N, void_type>;
+    if (y < Y(0)) throw std::logic_error("badargv");
+    auto ux = (x >= X(0)) ? uint64_t(x) : uint64_t(-x);
+    auto uy = uint64_t(y);
+    ndarray<Ret, 1u> ret;
+    if constexpr (fixed_length)
+    {
+        static_assert(is_integral_v<N>, "badargtype");
+        if (n < N(0)) throw std::logic_error("badargv");
+        ret.uninitialized_resize(std::array<size_t, 1u>{size_t(n)}, size_t(n));
+        auto ret_begin = ret.data();
+        auto ret_end = ret_begin + size_t(n);
+        auto ret_iter = ret_begin;
+        for (;;)
+        {
+            uint64_t rem = ux % uy;
+            ux = ux / uy;
+            *ret_iter = Ret(rem);
+            ++ret_iter;
+            if (ux == 0u)
+            {
+                for (; ret_iter != ret_end; ++ret_iter)
+                    *ret_iter = Ret(0);
+                break;
+            }
+        }
+        std::reverse(ret_begin, ret_end);
+    }
+    else if (ux == 0u)
+        ret.append(Ret(0));
+    else
+    {
+        for (;;)
+        {
+            uint64_t rem = ux % uy;
+            ux = ux / uy;
+            ret.append(Ret(rem));
+            if (ux == 0u)
+                break;
+        }
+        auto ret_begin = ret.data();
+        auto ret_end = ret_begin + ret.size();
+        std::reverse(ret_begin, ret_end);
+    }
+    return ret;
+}
+
+template<typename Ret = int64_t, typename X, typename Y>
+auto integer_digits(const X& x, const Y& y)
+{
+    return integer_digits<Ret>(x, y, const_null);
+}
+
+template<typename Ret = int64_t, typename X>
+auto integer_digits(const X& x)
+{
+    return integer_digits<Ret>(x, uint64_t(10), const_null);
+}
+
+template<typename X>
+auto positive(const X& x)
+{
+    static_assert(is_numerical_type_v<X>, "badargtype");
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -374,9 +438,9 @@ auto positive(X&& x)
 }
 
 template<typename X>
-auto negative(X&& x)
+auto negative(const X& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<X>, "badargtype");
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -387,9 +451,9 @@ auto negative(X&& x)
 }
 
 template<typename X>
-auto non_positive(X&& x)
+auto non_positive(const X& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<X>, "badargtype");
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -400,9 +464,9 @@ auto non_positive(X&& x)
 }
 
 template<typename X>
-auto non_negative(X&& x)
+auto non_negative(const X& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<X>, "badargtype");
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -692,7 +756,7 @@ auto chop(X&& x, const Y& y)
         return std::forward<decltype(x)>(x);
     else
     {
-        auto pure = [lim = cast<value_type_t<XV>>(y)](const auto& x)
+        auto pure =[lim = cast<value_type_t<XV>>(y)](const auto& x)
         {
             if constexpr (is_real_v<XV>)
                 return std::abs(x) < lim ? XV(0) : x;

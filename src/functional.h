@@ -811,11 +811,11 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
         {
             queue.push(f(queue.last()));
         }
-        bool continue_flag = queue.apply_test<num_args>(test);
+        bool continue_flag = queue.template apply_test<num_args>(test);
         for (; i <= max_steps && continue_flag; ++i)
         {
             queue.push(f(queue.last()));
-            continue_flag = queue.apply_test<num_args>(test);
+            continue_flag = queue.template apply_test<num_args>(test);
         }
         if (offset <= -i)
             throw std::logic_error("badargv");

@@ -312,6 +312,7 @@ $builtinfunctions=native/@
   "IntegerPart"     ->"integer_part",
   "FractionalPart"  ->"fractional_part",
   "Mod"             ->"mod",
+  "Quotient"        ->"quotient",
   "Less"            ->"less",
   "Greater"         ->"greater",
   "LessEqual"       ->"less_equal",
@@ -331,7 +332,6 @@ $builtinfunctions=native/@
   "Max"             ->"max",
   "Ramp"            ->"ramp",
   "LogisticSigmoid" ->"logistic_sigmoid",(*
-  "Chop"            ->"chop",
   "Threshold"       ->"threshold",
   "NumericalOrder"  ->"numerical_order",*)
 (* integral functions *)

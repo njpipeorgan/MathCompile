@@ -270,26 +270,65 @@ auto mod(X&& x, Y&& y)
             {
                 auto xi = C(x);
                 auto yi = C(y);
-                C rem = xi % yi;
-                if (std::is_signed_v<C> && (rem != 0))
-                    rem += yi & ((xi ^ yi) >> (8u * sizeof(C) - 1u));
-                return rem;
+                auto rem = xi % yi;
+                if constexpr (std::is_unsigned_v<C>)
+                    return rem;
+                else if (rem == C(0))
+                    return rem;
+                else
+                    return rem + (yi & ((xi ^ yi) >> (8u * sizeof(C) - 1u)));
             }
         }
         else
         {
             using C = common_type_t<XV, YV>;
+            auto cx = C(x);
+            auto cy = C(y);
+            return cx - std::floor(cx / cy) * cy;
+        }
+    };
+    return utils::listable_function(pure,
+        std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+}
+
+template<typename X, typename Y>
+auto quotient(X&& x, Y&& y)
+{
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    auto pure = [](const auto& x, const auto& y)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        using YV = remove_cvref_t<decltype(y)>;
+        static_assert(is_real_v<XV> && is_real_v<YV>, "badargtype");
+        if constexpr (is_integral_v<XV> && is_integral_v<YV>)
+        {
+            using C = std::conditional_t<
+                std::is_signed_v<XV> || std::is_signed_v<YV>,
+                make_signed_t<common_type_t<XV, YV>>,
+                common_type_t<XV, YV>>;
             if (y == 0)
                 return C(0);
             else
             {
                 auto xi = C(x);
                 auto yi = C(y);
-                C rem = std::fmod(xi, yi);
-                if (rem != 0 && ((xi > 0) ^ (yi > 0)))
-                    rem += yi;
-                return rem;
+                auto rem = xi % yi;
+                auto quot = xi / yi;
+                if constexpr (std::is_unsigned_v<C>)
+                    return quot;
+                else if (rem == C(0))
+                    return quot;
+                else
+                    return quot + ((xi ^ yi) >> (8u * sizeof(C) - 1u));
             }
+        }
+        else
+        {
+            using C = common_type_t<XV, YV>;
+            auto cx = C(x);
+            auto cy = C(y);
+            return std::floor(cx / cy);
         }
     };
     return utils::listable_function(pure,

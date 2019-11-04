@@ -1265,6 +1265,51 @@ auto sort(X&& x)
     }
 }
 
+template<typename X, typename Pred>
+auto ordered_q(const X& x, Pred pred)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    const auto& copy = allows<view_category::Array>(x);
+    const auto copy_length = copy.dims()[0];
+    auto in_order = [=](const auto& a, const auto& b)
+    {
+        using OrderType = remove_cvref_t<decltype(pred(a, b))>;
+        if constexpr (std::is_same_v<OrderType, bool> ||
+            is_boolean_v<OrderType>)
+            return bool(pred(a, b));
+        else
+            return pred(a, b) >= OrderType(0);
+    };
+    auto iter = copy.template view_begin<1u>();
+    auto ret = true;
+    for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
+        ret = ret && in_order(*iter, *(iter + 1));
+    return boolean(ret);
+}
+
+template<typename X>
+auto ordered_q(const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    const auto& copy = allows<view_category::Array>(x);
+    const auto copy_length = copy.dims()[0];
+    auto in_order = [=](const auto& a, const auto& b)
+    {
+        constexpr auto AR = array_rank_v<remove_cvref_t<decltype(a)>>;
+        if constexpr (AR == 0u)
+            return _order_scalar(a, b) >= 0;
+        else
+            return _order_array(a, b, dim_checked{}) >= 0;
+    };
+    auto iter = copy.template view_begin<1u>();
+    auto ret = true;
+    for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
+        ret = ret && in_order(*iter, *(iter + 1));
+    return boolean(ret);
+}
+
 template<typename X, typename Y>
 auto append(X&& x, Y&& y)
 {
@@ -1544,6 +1589,65 @@ auto join(First&& first, Rest&&... rest)
 {
     return join(const_int<1>{}, std::forward<decltype(first)>(first),
         std::forward<decltype(rest)>(rest)...);
+}
+
+template<typename First, typename... Rest>
+auto set_union(const First& first, const Rest&... rest)
+{
+    constexpr auto R = array_rank_v<First>;
+    static_assert(((R == array_rank_v<Rest>) && ... && (R >= 1u)), "badrank");
+    using T = value_type_t<First>;
+    static_assert((std::is_same_v<T, value_type_t<Rest>> && ...), "badargtype");
+
+    auto scalar_less = [](const auto& x, const auto& y)
+    {
+        return _order_scalar(x, y) == int64_t(1);
+    };
+    auto copy = join(first, rest...);
+    const auto copy_length = copy.dims()[0];
+    const auto copy_data = copy.data();
+    if constexpr (R == 1u)
+    {
+        std::sort(copy_data, copy_data + copy_length, scalar_less);
+        const auto copy_end = std::unique(
+            copy_data, copy_data + copy_length);
+        const auto union_size = size_t(copy_end - copy_data);
+        copy.uninitialized_resize(std::array<size_t, 1u>{union_size});
+        return copy;
+    }
+    else
+    {
+        const auto item_dims = utils::dims_take<2, R>(copy.dims());
+        const auto item_size = utils::size_of_dims(item_dims);
+        auto idx = range(size_t(0), copy_length - 1u);
+        auto idx_begin = idx.data();
+        auto sort_pred = [=](size_t a, size_t b)
+        {
+            auto a_iter = copy_data + a * item_size;
+            auto b_iter = copy_data + b * item_size;
+            return std::lexicographical_compare(
+                a_iter, a_iter + item_size,
+                b_iter, b_iter + item_size,
+                scalar_less);
+        };
+        std::sort(idx_begin, idx_begin + copy_length, sort_pred);
+        auto unique_pred = [=](size_t a, size_t b)
+        {
+            auto a_iter = copy_data + a * item_size;
+            auto b_iter = copy_data + b * item_size;
+            return std::equal(a_iter, a_iter + item_size, b_iter);
+        };
+        const auto idx_end = std::unique(
+            idx_begin, idx_begin + copy_length, unique_pred);
+        const auto union_size = size_t(idx_end - idx_begin);
+        ndarray<T, R> ret(utils::dims_join(
+            std::array<size_t, 1u>{union_size}, item_dims));
+        const auto copy_base = copy.template view_begin<1u>();
+        auto ret_iter = ret.template view_begin<1u>();
+        for (size_t i = 0u; i < union_size; ++i, ++ret_iter)
+            (*(copy_base + idx_begin[i])).copy_to(ret_iter.begin());
+        return ret;
+    }
 }
 
 }

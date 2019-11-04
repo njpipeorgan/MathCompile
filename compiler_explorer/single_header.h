@@ -311,7 +311,7 @@ constexpr auto MaximumArgCount  = 16;
 constexpr auto const_int_infinity  = std::numeric_limits<int64_t>::max();
 constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 }
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
 #  ifdef __AVX2__
@@ -327,6 +327,7 @@ constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 #elif defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
@@ -2074,7 +2075,12 @@ struct _small_vector
     void resize(size_t new_size)
     {
         if (!is_static_)
+        {
+            const auto old_size = data_.dynamic_.size();
             data_.dynamic_.resize(new_size);
+            if (new_size < old_size)
+                data_.dynamic_.shrink_to_fit();
+        }
         else if (new_size > N)
         {
             dynamic_t new_data(new_size);
@@ -5169,20 +5175,20 @@ void _transpose_fill(const T* src, T*& dst,
     if constexpr (L > 1u)
     {
         WL_IGNORE_DEPENDENCIES
-        for (size_t i = 0u; i < dim; ++i, src += stride)
-            _transpose_fill<L - 1u>(src, dst, dims + 1, strides + 1);
+            for (size_t i = 0u; i < dim; ++i, src += stride)
+                _transpose_fill<L - 1u>(src, dst, dims + 1, strides + 1);
     }
     else if (stride == 1u)
     {
         WL_IGNORE_DEPENDENCIES
-        for (size_t i = 0u; i < dim; ++i, ++src, ++dst)
-            *dst = *src;
+            for (size_t i = 0u; i < dim; ++i, ++src, ++dst)
+                *dst = *src;
     }
     else
     {
         WL_IGNORE_DEPENDENCIES
-        for (size_t i = 0u; i < dim; ++i, src += stride, ++dst)
-            *dst = *src;
+            for (size_t i = 0u; i < dim; ++i, src += stride, ++dst)
+                *dst = *src;
     }
 }
 template<typename T, size_t R, typename Output, size_t... Is, size_t... Cs>
@@ -5256,8 +5262,8 @@ auto conjugate_transpose(const X& x)
             {
                 auto ret_iter = ret_base;
                 WL_IGNORE_DEPENDENCIES
-                for (size_t j = 0u; j < dim1; ++j, ++x_iter, ret_iter += dim0)
-                    *ret_iter = std::conj(*x_iter);
+                    for (size_t j = 0u; j < dim1; ++j, ++x_iter, ret_iter += dim0)
+                        *ret_iter = std::conj(*x_iter);
             }
             return ret;
         }
@@ -5278,8 +5284,8 @@ auto conjugate_transpose(const X& x)
                 {
                     auto ret_iter = ret_base2;
                     WL_IGNORE_DEPENDENCIES
-                    for (size_t k = 0u; k < chunk_size;
-                        ++k, ++ret_iter, ++x_iter)
+                        for (size_t k = 0u; k < chunk_size;
+                            ++k, ++ret_iter, ++x_iter)
                     {
                         *ret_iter = std::conj(*x_iter);
                     }
@@ -5672,6 +5678,49 @@ auto sort(X&& x)
             { return _order_array(a, b, dim_checked{}) > 0; });
     }
 }
+template<typename X, typename Pred>
+auto ordered_q(const X& x, Pred pred)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    const auto& copy = allows<view_category::Array>(x);
+    const auto copy_length = copy.dims()[0];
+    auto in_order = [=](const auto& a, const auto& b)
+    {
+        using OrderType = remove_cvref_t<decltype(pred(a, b))>;
+        if constexpr (std::is_same_v<OrderType, bool> ||
+            is_boolean_v<OrderType>)
+            return bool(pred(a, b));
+        else
+            return pred(a, b) >= OrderType(0);
+    };
+    auto iter = copy.template view_begin<1u>();
+    auto ret = true;
+    for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
+        ret = ret && in_order(*iter, *(iter + 1));
+    return boolean(ret);
+}
+template<typename X>
+auto ordered_q(const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badargtype");
+    const auto& copy = allows<view_category::Array>(x);
+    const auto copy_length = copy.dims()[0];
+    auto in_order = [=](const auto& a, const auto& b)
+    {
+        constexpr auto AR = array_rank_v<remove_cvref_t<decltype(a)>>;
+        if constexpr (AR == 0u)
+            return _order_scalar(a, b) >= 0;
+        else
+            return _order_array(a, b, dim_checked{}) >= 0;
+    };
+    auto iter = copy.template view_begin<1u>();
+    auto ret = true;
+    for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
+        ret = ret && in_order(*iter, *(iter + 1));
+    return boolean(ret);
+}
 template<typename X, typename Y>
 auto append(X&& x, Y&& y)
 {
@@ -5832,8 +5881,8 @@ void _join_copy_leveln(Iter& ret_base, size_t stride, const Arg& arg)
             for (size_t i = 0u; i < leading_size; ++i, ret_iter += stride)
             {
                 WL_IGNORE_DEPENDENCIES
-                for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
-                    ret_iter[j] = *arg_iter;
+                    for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
+                        ret_iter[j] = *arg_iter;
             }
         }
     }
@@ -5865,8 +5914,8 @@ void _join_copy_leveln(Iter& ret_base, size_t stride, const Arg& arg)
             for (size_t i = 0u; i < leading_size; ++i, ret_iter += stride)
             {
                 WL_IGNORE_DEPENDENCIES
-                for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
-                    ret_iter[j] = *arg_iter;
+                    for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
+                        ret_iter[j] = *arg_iter;
             }
         }
         ret_base += trailing_size;
@@ -5940,6 +5989,63 @@ auto join(First&& first, Rest&&... rest)
 {
     return join(const_int<1>{}, std::forward<decltype(first)>(first),
         std::forward<decltype(rest)>(rest)...);
+}
+template<typename First, typename... Rest>
+auto set_union(const First& first, const Rest&... rest)
+{
+    constexpr auto R = array_rank_v<First>;
+    static_assert(((R == array_rank_v<Rest>) && ... && (R >= 1u)), "badrank");
+    using T = value_type_t<First>;
+    static_assert((std::is_same_v<T, value_type_t<Rest>> && ...), "badargtype");
+    auto scalar_less = [](const auto& x, const auto& y)
+    {
+        return _order_scalar(x, y) == int64_t(1);
+    };
+    auto copy = join(first, rest...);
+    const auto copy_length = copy.dims()[0];
+    const auto copy_data = copy.data();
+    if constexpr (R == 1u)
+    {
+        std::sort(copy_data, copy_data + copy_length, scalar_less);
+        const auto copy_end = std::unique(
+            copy_data, copy_data + copy_length);
+        const auto union_size = size_t(copy_end - copy_data);
+        copy.uninitialized_resize(std::array<size_t, 1u>{union_size});
+        return copy;
+    }
+    else
+    {
+        const auto item_dims = utils::dims_take<2, R>(copy.dims());
+        const auto item_size = utils::size_of_dims(item_dims);
+        auto idx = range(size_t(0), copy_length - 1u);
+        auto idx_begin = idx.data();
+        auto sort_pred = [=](size_t a, size_t b)
+        {
+            auto a_iter = copy_data + a * item_size;
+            auto b_iter = copy_data + b * item_size;
+            return std::lexicographical_compare(
+                a_iter, a_iter + item_size,
+                b_iter, b_iter + item_size,
+                scalar_less);
+        };
+        std::sort(idx_begin, idx_begin + copy_length, sort_pred);
+        auto unique_pred = [=](size_t a, size_t b)
+        {
+            auto a_iter = copy_data + a * item_size;
+            auto b_iter = copy_data + b * item_size;
+            return std::equal(a_iter, a_iter + item_size, b_iter);
+        };
+        const auto idx_end = std::unique(
+            idx_begin, idx_begin + copy_length, unique_pred);
+        const auto union_size = size_t(idx_end - idx_begin);
+        ndarray<T, R> ret(utils::dims_join(
+            std::array<size_t, 1u>{union_size}, item_dims));
+        const auto copy_base = copy.template view_begin<1u>();
+        auto ret_iter = ret.template view_begin<1u>();
+        for (size_t i = 0u; i < union_size; ++i, ++ret_iter)
+            (*(copy_base + idx_begin[i])).copy_to(ret_iter.begin());
+        return ret;
+    }
 }
 }
 namespace wl
@@ -7035,10 +7141,10 @@ auto all_true(X&& x, Test test, const_int<I>)
     const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         "badfunctype");
-    auto ret = boolean(true);
+    auto ret = true;
     for (; ret && x_iter != x_end; ++x_iter)
         ret = ret && test(*x_iter);
-    return ret;
+    return boolean(ret);
 }
 template<typename X, typename Test>
 auto all_true(X&& x, Test test)
@@ -7057,10 +7163,10 @@ auto any_true(X&& x, Test test, const_int<I>)
     const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         "badfunctype");
-    auto ret = boolean(false);
+    auto ret = false;
     for (; !ret && x_iter != x_end; ++x_iter)
         ret = ret || test(*x_iter);
-    return ret;
+    return boolean(ret);
 }
 template<typename X, typename Test>
 auto any_true(X&& x, Test test)

@@ -1209,10 +1209,10 @@ auto all_true(X&& x, Test test, const_int<I>)
     const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         "badfunctype");
-    auto ret = boolean(true);
+    auto ret = true;
     for (; ret && x_iter != x_end; ++x_iter)
         ret = ret && test(*x_iter);
-    return ret;
+    return boolean(ret);
 }
 
 template<typename X, typename Test>
@@ -1233,10 +1233,10 @@ auto any_true(X&& x, Test test, const_int<I>)
     const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         "badfunctype");
-    auto ret = boolean(false);
+    auto ret = false;
     for (; !ret && x_iter != x_end; ++x_iter)
         ret = ret || test(*x_iter);
-    return ret;
+    return boolean(ret);
 }
 
 template<typename X, typename Test>

@@ -259,7 +259,12 @@ struct _small_vector
     void resize(size_t new_size)
     {
         if (!is_static_)
+        {
+            const auto old_size = data_.dynamic_.size();
             data_.dynamic_.resize(new_size);
+            if (new_size < old_size)
+                data_.dynamic_.shrink_to_fit();
+        }
         else if (new_size > N)
         {
             dynamic_t new_data(new_size);

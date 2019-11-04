@@ -19,7 +19,7 @@
 
 #include <immintrin.h>
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
 #  ifdef __AVX2__
@@ -35,6 +35,7 @@
 #elif defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")

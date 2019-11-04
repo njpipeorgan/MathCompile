@@ -430,9 +430,11 @@ $builtinfunctions=native/@
   "Flatten"         ->"flatten",
   "Order"           ->"order",
   "Ordering"        ->"ordering",
+  "OrderedQ"        ->"ordered_q",
   "Sort"            ->"sort",
   "Append"          ->"append",
   "Prepend"         ->"prepend",
+  "Union"           ->"set_union",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

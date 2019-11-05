@@ -573,6 +573,9 @@ arithmeticmacro[code_]:=code//.{
   }//.{
     id["Times"][x1_,x2_,xs__]:>id["Times"][id["Times"][x1,x2],xs],
     id["Times"][x1_,id["Power"][x2_,literal[-1]]]:>id["Divide"][x1,x2]
+  }//.{
+    id["Plus"][x___,id["Plus"][y___],z___]:>id["Plus"][x,y,z],
+    id["Times"][x___,id["Times"][y___],z___]:>id["Times"][x,y,z]
   }
 
 resolvesymbols[code_]:=code//.{

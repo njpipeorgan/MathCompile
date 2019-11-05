@@ -847,7 +847,7 @@ $compileroptions=<|
     If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",""]<>
       "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native",
   CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O3 -fp-model fast=2 -march=native",
+    "-std=c++17 -Kc++ -O3 -restrict -fp-model fast=2 -march=native",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
     "/std:c++17 /EHsc /Ox /Oi /Ob2 /Gy /fp:fast /DNDEBUG"
 |>;
@@ -858,7 +858,7 @@ $debugcompileroptions=<|
     If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",""]<>
       "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native",
   CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O0 -g  -march=native -debug all -traceback -check-uninit",
+    "-std=c++17 -Kc++ -O0 -g -restrict -march=native -debug all -traceback -check-uninit",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
     "/std:c++17 /EHsc /Od"
 |>

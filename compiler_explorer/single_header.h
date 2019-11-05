@@ -314,6 +314,7 @@ constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  define WL_RESTRICT __restrict
 #  ifdef __AVX2__
 #    define __AVX__ 1
 #    define __BMI__ 1
@@ -327,13 +328,16 @@ constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 #elif defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#  define WL_RESTRICT __restrict
 #  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_RESTRICT __restrict__
 #elif defined(__GNUC__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_RESTRICT __restrict__
 #endif
 #if defined(__MINGW64__)
 #  define WL_NO_RANDOM_DEVICE 1
@@ -5175,20 +5179,20 @@ void _transpose_fill(const T* src, T*& dst,
     if constexpr (L > 1u)
     {
         WL_IGNORE_DEPENDENCIES
-            for (size_t i = 0u; i < dim; ++i, src += stride)
-                _transpose_fill<L - 1u>(src, dst, dims + 1, strides + 1);
+        for (size_t i = 0u; i < dim; ++i, src += stride)
+            _transpose_fill<L - 1u>(src, dst, dims + 1, strides + 1);
     }
     else if (stride == 1u)
     {
         WL_IGNORE_DEPENDENCIES
-            for (size_t i = 0u; i < dim; ++i, ++src, ++dst)
-                *dst = *src;
+        for (size_t i = 0u; i < dim; ++i, ++src, ++dst)
+            *dst = *src;
     }
     else
     {
         WL_IGNORE_DEPENDENCIES
-            for (size_t i = 0u; i < dim; ++i, src += stride, ++dst)
-                *dst = *src;
+        for (size_t i = 0u; i < dim; ++i, src += stride, ++dst)
+            *dst = *src;
     }
 }
 template<typename T, size_t R, typename Output, size_t... Is, size_t... Cs>
@@ -5262,8 +5266,8 @@ auto conjugate_transpose(const X& x)
             {
                 auto ret_iter = ret_base;
                 WL_IGNORE_DEPENDENCIES
-                    for (size_t j = 0u; j < dim1; ++j, ++x_iter, ret_iter += dim0)
-                        *ret_iter = std::conj(*x_iter);
+                for (size_t j = 0u; j < dim1; ++j, ++x_iter, ret_iter += dim0)
+                    *ret_iter = std::conj(*x_iter);
             }
             return ret;
         }
@@ -5284,8 +5288,8 @@ auto conjugate_transpose(const X& x)
                 {
                     auto ret_iter = ret_base2;
                     WL_IGNORE_DEPENDENCIES
-                        for (size_t k = 0u; k < chunk_size;
-                            ++k, ++ret_iter, ++x_iter)
+                    for (size_t k = 0u; k < chunk_size;
+                        ++k, ++ret_iter, ++x_iter)
                     {
                         *ret_iter = std::conj(*x_iter);
                     }
@@ -5881,8 +5885,8 @@ void _join_copy_leveln(Iter& ret_base, size_t stride, const Arg& arg)
             for (size_t i = 0u; i < leading_size; ++i, ret_iter += stride)
             {
                 WL_IGNORE_DEPENDENCIES
-                    for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
-                        ret_iter[j] = *arg_iter;
+                for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
+                    ret_iter[j] = *arg_iter;
             }
         }
     }
@@ -5914,8 +5918,8 @@ void _join_copy_leveln(Iter& ret_base, size_t stride, const Arg& arg)
             for (size_t i = 0u; i < leading_size; ++i, ret_iter += stride)
             {
                 WL_IGNORE_DEPENDENCIES
-                    for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
-                        ret_iter[j] = *arg_iter;
+                for (size_t j = 0u; j < trailing_size; ++j, ++arg_iter)
+                    ret_iter[j] = *arg_iter;
             }
         }
         ret_base += trailing_size;
@@ -6045,6 +6049,105 @@ auto set_union(const First& first, const Rest&... rest)
         for (size_t i = 0u; i < union_size; ++i, ++ret_iter)
             (*(copy_base + idx_begin[i])).copy_to(ret_iter.begin());
         return ret;
+    }
+}
+}
+namespace wl
+{
+template<typename Z, typename X, typename Y>
+void _dot_vv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t K)
+{
+    auto z = Z(0);
+    for (size_t k = 0u; k < K; ++k)
+        z += Z(px[k]) * Z(py[k]);
+    *pz += z;
+}
+template<typename Z, typename X, typename Y>
+void _dot_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K)
+{
+    for (size_t m = 0u; m < M; ++m)
+        _dot_vv(pz + m, px + m * K, py, K);
+}
+template<typename Z, typename X, typename Y>
+auto _dot_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t K, const size_t N)
+{
+    for (size_t k = 0u; k < K; k += 1)
+    {
+        const auto xk = Z(px[k]);
+        const auto* WL_RESTRICT pyk = py + k * N;
+        for (size_t n = 0u; n < N; ++n)
+            pz[n] += xk * Z(pyk[n]);
+    }
+}
+template<typename Z, typename X, typename Y>
+auto _dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
+{
+    for (size_t m = 0; m < M; ++m)
+        _dot_vm(pz + m * N, px + m * K, py, K, N);
+}
+template<typename X, typename Y>
+auto dot(const X& x, const Y& y)
+{
+    static_assert(is_numerical_type_v<X> && is_numerical_type_v<Y>,
+        "badargtype");
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR >= 1u && YR >= 1u);
+    using XV = value_type_t<X>;
+    using YV = value_type_t<Y>;
+    using C = common_type_t<XV, YV>;
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto& valy = allows<view_category::Simple>(y);
+    const auto* px = valx.data();
+    const auto* py = valy.data();
+    const auto K = valx.dims()[XR - 1u];
+    if (K != valy.dims()[0])
+        throw std::logic_error("baddims");
+    if constexpr (XR == 1u)
+    {
+        if constexpr (YR == 1u)
+        {
+            auto z = C(0);
+            _dot_vv(&z, px, py, K);
+            return z;
+        }
+        else
+        {
+            const auto ret_dims = utils::dims_take<2u, YR>(valy.dims());
+            ndarray<C, YR - 1u> ret(ret_dims, C(0));
+            const auto N = ret.size();
+            auto* pz = ret.data();
+            _dot_vm(pz, px, py, K, N);
+            return ret;
+        }
+    }
+    else
+    {
+        if constexpr (YR == 1u)
+        {
+            const auto ret_dims = utils::dims_take<1u, XR - 1u>(valx.dims());
+            ndarray<C, XR - 1u> ret(ret_dims, C(0));
+            const auto M = ret.size();
+            auto* pz = ret.data();
+            _dot_mv(pz, px, py, M, K);
+            return ret;
+        }
+        else
+        {
+            const auto M_dims = utils::dims_take<1u, XR - 1u>(valx.dims());
+            const auto N_dims = utils::dims_take<2u, YR>(valy.dims());
+            const auto M = utils::size_of_dims(M_dims);
+            const auto N = utils::size_of_dims(N_dims);
+            ndarray<C, XR + YR - 2u> ret(
+                utils::dims_join(M_dims, N_dims), C(0));
+            auto* pz = ret.data();
+            _dot_mm(pz, px, py, M, K, N);
+            return ret;
+        }
     }
 }
 }

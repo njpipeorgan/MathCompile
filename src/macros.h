@@ -22,6 +22,7 @@
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  define WL_RESTRICT __restrict
 #  ifdef __AVX2__
 #    define __AVX__ 1
 #    define __BMI__ 1
@@ -35,13 +36,16 @@
 #elif defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#  define WL_RESTRICT __restrict
 #  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_RESTRICT __restrict__
 #elif defined(__GNUC__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_RESTRICT __restrict__
 #endif
 
 // no random device for MinGW

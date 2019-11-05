@@ -435,6 +435,7 @@ $builtinfunctions=native/@
   "Append"          ->"append",
   "Prepend"         ->"prepend",
   "Union"           ->"set_union",
+  "Dot"             ->"dot",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

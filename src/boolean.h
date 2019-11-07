@@ -35,15 +35,6 @@ constexpr auto implies(boolean x, boolean y)
     return !x || y;
 }
 
-template<typename Iter, bool HasStride>
-auto _variadic_bool_and(const argument_pack<Iter, HasStride>& args)
-{
-    boolean ret = val(args.get(0));
-    const auto size = args.size();
-    for (size_t i = 1u; ret && i < size; ++i)
-        ret = bool_and(ret, args.get(i));
-    return ret;
-}
 template<typename X, typename Y>
 auto bool_and(X&& x, Y&& y)
 {
@@ -54,19 +45,19 @@ auto bool_and(X&& x, Y&& y)
         return x && y;
     }
 }
+template<typename Iter, bool HasStride>
+auto _variadic_bool_and(const argument_pack<Iter, HasStride>& args)
+{
+    boolean ret = val(args.get(0));
+    const auto size = args.size();
+    for (size_t i = 1u; ret && i < size; ++i)
+        ret = bool_and(ret, args.get(i));
+    return ret;
+}
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_and, const_true)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bool_and)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_and)
 
-template<typename Iter, bool HasStride>
-auto _variadic_bool_or(const argument_pack<Iter, HasStride>& args)
-{
-    boolean ret = val(args.get(0));
-    const auto size = args.size();
-    for (size_t i = 1u; !ret && i < size; ++i)
-        ret = bool_or(ret, args.get(i));
-    return ret;
-}
 template<typename X, typename Y>
 auto bool_or(X&& x, Y&& y)
 {
@@ -77,11 +68,19 @@ auto bool_or(X&& x, Y&& y)
         return x || y;
     }
 }
+template<typename Iter, bool HasStride>
+auto _variadic_bool_or(const argument_pack<Iter, HasStride>& args)
+{
+    boolean ret = val(args.get(0));
+    const auto size = args.size();
+    for (size_t i = 1u; !ret && i < size; ++i)
+        ret = bool_or(ret, args.get(i));
+    return ret;
+}
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_or, const_false)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bool_or)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_or)
 
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bool_xor)
 template<typename X, typename Y>
 auto bool_xor(X&& x, Y&& y)
 {
@@ -92,6 +91,7 @@ auto bool_xor(X&& x, Y&& y)
         return x ^ y;
     }
 }
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bool_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_xor, const_false)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bool_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_xor)
@@ -151,7 +151,6 @@ auto bit_length(X&& x)
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
 
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_and)
 template<typename X, typename Y>
 auto bit_and(X&& x, Y&& y)
 {
@@ -164,11 +163,11 @@ auto bit_and(X&& x, Y&& y)
         return C(C(x) & C(y));
     }
 }
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_and)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_and, int64_t(-1))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_and)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_and)
 
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_or)
 template<typename X, typename Y>
 auto bit_or(X&& x, Y&& y)
 {
@@ -181,11 +180,11 @@ auto bit_or(X&& x, Y&& y)
         return C(C(x) | C(y));
     }
 }
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_or)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_or, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_or)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_or)
 
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_xor)
 template<typename X, typename Y>
 auto bit_xor(X&& x, Y&& y)
 {
@@ -198,6 +197,7 @@ auto bit_xor(X&& x, Y&& y)
         return C(C(x) ^ C(y));
     }
 }
+WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_xor, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_xor)

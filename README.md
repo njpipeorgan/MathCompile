@@ -10,7 +10,7 @@ To compile functions to binary, a C++ compiler supporting C++17 standard is requ
 
 # Documentation
 
-To know about when to use MathCompile, see the [Wiki](https://github.com/njpipeorgan/MathCompile/wiki).
+To know more about MathCompile, see the [Wiki](https://github.com/njpipeorgan/MathCompile/wiki).
 
 To learn about how to use MathCompile, see the [Guide](https://github.com/njpipeorgan/MathCompile/wiki/Guide).
 

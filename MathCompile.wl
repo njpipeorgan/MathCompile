@@ -320,6 +320,8 @@ $builtinfunctions=native/@
   "GreaterEqual"    ->"greater_equal",
   "Equal"           ->"equal",
   "Unequal"         ->"unequal",
+  "SameQ"           ->"same_q",
+  "UnsameQ"         ->"unsame_q",
   "Sign"            ->"sign",
   "Clip"            ->"clip",
   "Chop"            ->"chop",

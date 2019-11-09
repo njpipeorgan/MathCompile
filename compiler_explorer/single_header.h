@@ -2529,33 +2529,33 @@ boolean less_equal(const X& x, const Y& y)
 template<typename X, typename Y>
 boolean equal(const X& x, const Y& y)
 {
-    constexpr auto x_rank = array_rank_v<X>;
-    constexpr auto y_rank = array_rank_v<Y>;
-    static_assert(x_rank == y_rank, "badrank");
-    if constexpr (x_rank == 0)
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR == YR, "badrank");
+    if constexpr (XR == 0u)
     {
         static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
-            (is_value_type_v<X>, std::is_same_v<X, Y>), "badargtype");
+            (is_value_type_v<X> && std::is_same_v<X, Y>), "badargtype");
         if constexpr (is_complex_v<X>)
-            return boolean(x == X(y));
+            return boolean(x == cast<X>(y));
         else if constexpr (is_complex_v<Y>)
-            return boolean(Y(x) == y);
+            return boolean(cast<Y>(x) == y);
         else
             return boolean(x == y);
     }
     else
     {
-        if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))
-            return boolean(false);
+        if (!utils::check_dims(x.dims(), y.dims()))
+            return const_false;
         if constexpr (X::category != view_category::General)
         {
-            auto equal_flag = boolean(true);
+            auto equal_flag = true;
             y.for_each([&](const auto& a, const auto& b)
                 {
                     equal_flag = equal(a, b);
                     return !equal_flag;
                 }, x.begin());
-            return equal_flag;
+            return boolean(equal_flag);
         }
         else if constexpr (Y::category != view_category::General)
         {
@@ -2574,6 +2574,23 @@ template<typename X, typename Y>
 boolean unequal(const X& x, const Y& y)
 {
     return !equal(x, y);
+}
+template<typename X, typename Y>
+boolean same_q(const X& x, const Y& y)
+{
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    constexpr auto same_type = (XR == 0u) ? std::is_same_v<X, Y> :
+        std::is_same_v<value_type_t<X>, value_type_t<Y>>;
+    if constexpr (XR == YR && same_type)
+        return equal(x, y);
+    else
+        return const_false;
+}
+template<typename X, typename Y>
+boolean unsame_q(const X& x, const Y& y)
+{
+    return !same_q(x, y);
 }
 template<typename X, typename Y>
 auto mod(X&& x, Y&& y)

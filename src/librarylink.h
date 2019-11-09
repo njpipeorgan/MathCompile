@@ -36,6 +36,38 @@ namespace librarylink
 
 extern WolframLibraryData lib_data;
 
+template<typename ReturnType>
+mint get_return_type_id()
+{
+    enum : mint
+    {
+        Undef = 0, Null = 1, Bool,
+        I8, U8, I16, U16, I32, U32, I64, U64,
+        R32, R64, C32, C64
+    };
+    using V = std::conditional_t<wl::is_array_v<ReturnType>,
+        wl::value_type_t<ReturnType>, ReturnType>;
+    mint rank = mint(wl::array_rank_v<ReturnType>);
+    mint type =
+        std::is_same_v<V, void_type>       ? Null :
+        std::is_same_v<V, boolean>         ? Bool :
+        std::is_same_v<V, int8_t>          ? I8   :
+        std::is_same_v<V, uint8_t>         ? U8   :
+        std::is_same_v<V, int16_t>         ? I16  :
+        std::is_same_v<V, uint16_t>        ? U16  :
+        std::is_same_v<V, int32_t>         ? I32  :
+        std::is_same_v<V, uint32_t>        ? U32  :
+        std::is_same_v<V, int64_t>         ? I64  :
+        std::is_same_v<V, uint64_t>        ? U64  :
+        std::is_same_v<V, float>           ? R32  :
+        std::is_same_v<V, double>          ? R64  :
+        std::is_same_v<V, complex<float>>  ? C32  :
+        std::is_same_v<V, complex<double>> ? C64  :
+        Undef;
+    constexpr mint max_type_count = 256;
+    return rank * max_type_count + type;
+}
+
 template<typename T>
 numericarray_data_t get_numeric_array_type()
 {
@@ -65,8 +97,6 @@ numericarray_data_t get_numeric_array_type()
         return MNumericArray_Type_Complex_Real32;
     else if constexpr (std::is_same_v<T, complex<double>>)
         return MNumericArray_Type_Complex_Real64;
-    else if constexpr (std::is_same_v<T, void_type>)
-        return MNumericArray_Type_Undef;
     else
         static_assert(always_false_v<T>, "badtype");
 }

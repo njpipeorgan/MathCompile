@@ -702,7 +702,8 @@ codeformat[segments_List]:=
 maincodegen[code_]:=codeformat@initcodegen[code]
 
 
-$numerictypes={"Undefined",
+$numerictypes={
+"Undefined","Void","Boolean",
 "Integer8","UnsignedInteger8",
 "Integer16","UnsignedInteger16",
 "Integer32","UnsignedInteger32",
@@ -714,23 +715,25 @@ symboltype[type_]:=Which[StringContainsQ[type,"Integer"],Integer,
   StringContainsQ[type,"Complex"],Complex,StringContainsQ[type,"Real"],Real,True,type];
 
 loadfunction[libpath_String,funcid_String,args_]:=
-  Module[{typefunc,libfunc,rank,type,commontype,returntype,argtypes,maxrank=1024,maxtypecount=256},
+  Module[{typefunc,libfunc,rank,type,commontype,returntype,argtypes,maxtypecount=256},
     typefunc=LibraryFunctionLoad[libpath,funcid<>"_type",{},Integer];
     If[typefunc===$Failed,Message[link::rettype];Return[$Failed]];
     {rank,type}=QuotientRemainder[typefunc[],maxtypecount];
     LibraryFunctionUnload[typefunc];
     If[type==0&&rank==0,returntype="Void",
-      If[0<=rank<=maxrank,Null,Message[link::bigrank];Return[$Failed]];
+      If[0<=rank<=$rankmaximum,Null,Message[link::bigrank];Return[$Failed]];
       If[2<=type+1<=Length[$numerictypes],type=$numerictypes[[type+1]],
         Message[link::badtype,type];Return[$Failed]];
       commontype=symboltype[type];
       returntype=If[rank==0,commontype,
         If[MemberQ[{"Integer64","Real64","ComplexReal64"},type],
-          {commontype,rank},LibraryDataType[NumericArray,type,rank]]];
+          {commontype,rank},
+          LibraryDataType[NumericArray,Replace[type,"Boolean"->"Integer8"],rank]]];
     ];
     argtypes=Replace[totypename[#],{
         {t_,r_}:>If[MemberQ[{"Integer64","Real64","ComplexReal64"},t],
-          {symboltype[t],r,"Constant"},{LibraryDataType[NumericArray,t,r],"Constant"}],
+          {symboltype[t],r,"Constant"},
+          {LibraryDataType[NumericArray,t,r],"Constant"}],
         t_String:>symboltype[t]}]&/@args;
     LibraryFunctionLoad[libpath,funcid<>"_func",argtypes,returntype]
   ]
@@ -762,12 +765,8 @@ EXTERN_C DLLEXPORT int `funcid`_type(WolframLibraryData lib_data,
     mint argc, MArgument *argv, MArgument res) {
     using ReturnType = wl::remove_cvref_t<
         decltype(main_function(`argsv`))>;
-    using ValueType = std::conditional_t<
-        wl::is_array_v<ReturnType>, wl::value_type_t<ReturnType>, ReturnType>;
-    mint rank = mint(wl::array_rank_v<ReturnType>);
-    mint type = wl::librarylink::get_numeric_array_type<ValueType>();
-    constexpr mint max_type_count = 256;
-    MArgument_setInteger(res, rank * max_type_count + type);
+    mint type_id = wl::librarylink::get_return_type_id<ReturnType>();
+    MArgument_setInteger(res, type_id);
     return LIBRARY_NO_ERROR;
 }
 

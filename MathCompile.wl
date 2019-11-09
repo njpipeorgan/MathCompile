@@ -422,6 +422,8 @@ $builtinfunctions=native/@
   "Mean"            ->"mean",
   "Range"           ->"range",
   "Reverse"         ->"reverse",
+  "RotateLeft"      ->"rotate_left",
+  "RotateRight"     ->"rotate_right",
   "First"           ->"first",
   "Last"            ->"last",
   "Most"            ->"most",

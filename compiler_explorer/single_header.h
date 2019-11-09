@@ -6082,6 +6082,78 @@ auto set_union(const First& first, const Rest&... rest)
         return ret;
     }
 }
+template<typename X>
+auto _rotate_impl(const X& x, int64_t n)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, "badrank");
+    using XV = value_type_t<X>;
+    const auto item_count = x.dims()[0];
+    if (item_count == 0u)
+        return ndarray<XV, XR>(x.dims());
+    const auto& valx = allows<view_category::Regular>(x);
+    if (n >= int64_t(item_count))
+        n = n % item_count;
+    else if (n <= -int64_t(item_count))
+        n = -((-n) % item_count);
+    if (n == 0)
+        return allows<view_category::Array>(valx);
+    const auto item_size = utils::size_of_dims(
+        utils::dims_take<2u, XR>(valx.dims()));
+    auto x_iter = valx.begin();
+    ndarray<XV, XR> ret(valx.dims());
+    const auto ret_iter = ret.data();
+    
+    if (n >= 0)
+    { // rotate right
+        const auto size1 = size_t(n) * item_size;
+        const auto size2 = ret.size() - size1;
+        auto iter2 = ret_iter + size1;
+        WL_IGNORE_DEPENDENCIES
+        for (size_t i = 0; i < size2; ++i, ++iter2, ++x_iter)
+            *iter2 = *x_iter;
+        auto iter1 = ret_iter;
+        WL_IGNORE_DEPENDENCIES
+        for (size_t i = 0; i < size1; ++i, ++iter1, ++x_iter)
+            *iter1 = *x_iter;
+    }
+    else
+    { // rotate left
+        const auto size1 = size_t(-n) * item_size;
+        const auto size2 = ret.size() - size1;
+        auto iter1 = ret_iter + size2;
+        WL_IGNORE_DEPENDENCIES
+        for (size_t i = 0; i < size1; ++i, ++iter1, ++x_iter)
+            *iter1 = *x_iter;
+        auto iter2 = ret_iter;
+        WL_IGNORE_DEPENDENCIES
+        for (size_t i = 0; i < size2; ++i, ++iter2, ++x_iter)
+            *iter2 = *x_iter;
+    }
+    return ret;
+}
+template<typename X, typename N>
+auto rotate_left(const X& x, const N& n)
+{
+    static_assert(is_integral_v<N>, "badargtype");
+    return _rotate_impl(x, -int64_t(n));
+}
+template<typename X, typename N>
+auto rotate_right(const X& x, const N& n)
+{
+    static_assert(is_integral_v<N>, "badargtype");
+    return _rotate_impl(x, int64_t(n));
+}
+template<typename X>
+auto rotate_left(const X& x)
+{
+    return _rotate_impl(x, -1);
+}
+template<typename X>
+auto rotate_right(const X& x)
+{
+    return _rotate_impl(x, 1);
+}
 }
 namespace wl
 {

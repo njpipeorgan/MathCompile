@@ -53,7 +53,7 @@ auto odd_q(X&& x)
         using XV = remove_cvref_t<decltype(x)>;
         static_assert(is_real_v<XV>, "badargtype");
         if constexpr (is_integral_v<XV>)
-            return boolean((x & XV(1)) == XV(0));
+            return boolean((x & XV(1)) == XV(1));
         else
             return boolean(std::fmod(x, XV(2)) == std::copysign(XV(1), x));
     };

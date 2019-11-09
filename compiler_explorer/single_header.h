@@ -3095,21 +3095,29 @@ struct step_iterator
         return begin_ + step_ * T(i);
     }
 };
-template<typename T>
+template<typename Array>
 struct list_iterator
 {
     static constexpr bool has_variable = true;
-    std::vector<T> values_;
-    list_iterator(std::vector<T>&& values) : values_{values}
+    using Iter = remove_cvref_t<decltype(
+        std::declval<Array>().template view_begin<1u>())>;
+    Array values_;
+    Iter iter_;
+    list_iterator(Array&& values) :
+        values_{std::move(values)}, iter_{values_.template view_begin<1u>()}
+    {
+    }
+    list_iterator(const Array& values) :
+        values_{values}, iter_{values_.template view_begin<1u>()}
     {
     }
     size_t length() const
     {
-        return values_.size();
+        return values_.dims()[0];
     }
     auto operator[](size_t i) const
     {
-        return values_[i];
+        return *(iter_ + i);
     }
 };
 template<bool HasVariable, typename Begin, typename End, typename Step>
@@ -3173,13 +3181,13 @@ auto var_iterator(Any&& any)
     else
     {
         static_assert(array_rank_v<Type> == 1u, "badargtype");
-        if constexpr (is_movable_v<Type&&>)
-            return list_iterator(std::move(any.data_));
+        if constexpr (is_movable_v<Any&&>)
+            return list_iterator<Type>(std::move(any));
         else
         {
-            std::vector<typename Type::value_type> buffer(any.size());
-            any.copy_to(buffer.begin());
-            return list_iterator(std::move(buffer));
+            auto copy = allows<view_category::Array>(
+                std::forward<decltype(any)>(any));
+            return list_iterator<decltype(copy)>(std::move(copy));
         }
     }
 }
@@ -3702,8 +3710,11 @@ auto clause_sum(Fn fn, const Iters&... iters)
             [&](const auto&... args)
             {
                 auto item = fn(args...);
-                if (!utils::check_dims(ret.dims(), item.dims()))
-                    throw std::logic_error("baddims");
+                if constexpr (array_rank_v<InnerType> > 0u)
+                {
+                    if (!utils::check_dims(ret.dims(), item.dims()))
+                        throw std::logic_error("baddims");
+                }
                 add_to(ret, item);
             },
             iters...);
@@ -3734,8 +3745,11 @@ auto clause_product(Fn fn, const Iters&... iters)
             [&](const auto&... args)
             {
                 auto item = fn(args...);
-                if (!utils::check_dims(ret.dims(), item.dims()))
-                    throw std::logic_error("baddims");
+                if constexpr (array_rank_v<InnerType> > 0u)
+                {
+                    if (!utils::check_dims(ret.dims(), item.dims()))
+                        throw std::logic_error("baddims");
+                }
                 times_by(ret, item);
             },
             iters...);
@@ -3972,7 +3986,7 @@ auto odd_q(X&& x)
         using XV = remove_cvref_t<decltype(x)>;
         static_assert(is_real_v<XV>, "badargtype");
         if constexpr (is_integral_v<XV>)
-            return boolean((x & XV(1)) == XV(0));
+            return boolean((x & XV(1)) == XV(1));
         else
             return boolean(std::fmod(x, XV(2)) == std::copysign(XV(1), x));
     };

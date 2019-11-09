@@ -19,6 +19,7 @@
 
 #include "types.h"
 #include "iterator.h"
+#include "arithmetic.h"
 #include "utils.h"
 
 namespace wl
@@ -168,8 +169,11 @@ auto clause_sum(Fn fn, const Iters&... iters)
             [&](const auto&... args)
             {
                 auto item = fn(args...);
-                if (!utils::check_dims(ret.dims(), item.dims()))
-                    throw std::logic_error("baddims");
+                if constexpr (array_rank_v<InnerType> > 0u)
+                {
+                    if (!utils::check_dims(ret.dims(), item.dims()))
+                        throw std::logic_error("baddims");
+                }
                 add_to(ret, item);
             },
             iters...);
@@ -203,8 +207,11 @@ auto clause_product(Fn fn, const Iters&... iters)
             [&](const auto&... args)
             {
                 auto item = fn(args...);
-                if (!utils::check_dims(ret.dims(), item.dims()))
-                    throw std::logic_error("baddims");
+                if constexpr (array_rank_v<InnerType> > 0u)
+                {
+                    if (!utils::check_dims(ret.dims(), item.dims()))
+                        throw std::logic_error("baddims");
+                }
                 times_by(ret, item);
             },
             iters...);

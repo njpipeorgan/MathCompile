@@ -265,14 +265,19 @@ allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 $builtinconstants=const/@
 <|
   "Null"       ->"null",
-  "Pi"         ->"pi",
-  "E"          ->"e",
-  "Degree"     ->"degree",
-  "EulerGamma" ->"euler_gamma",
   "I"          ->"i",
   "All"        ->"all",
   "True"       ->"true",
-  "False"      ->"false"
+  "False"      ->"false",
+  "Pi"         ->"pi",
+  "E"          ->"e",
+  "Degree"     ->"degree",
+  "GoldenRatio"->"golden_ratio",
+  "GoldenAngle"->"golden_angle",
+  "EulerGamma" ->"euler_gamma",
+  "Catalan"    ->"calatan",
+  "Glaisher"   ->"glaisher",
+  "Khinchin"   ->"khinchin"
 |>;
 
 $builtinfunctions=native/@

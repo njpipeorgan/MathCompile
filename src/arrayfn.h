@@ -550,6 +550,7 @@ auto mean(const Array& a)
 template<typename Ret = int64_t, typename Array>
 auto dimensions(const Array& a)
 {
+    static_assert(is_integral_v<Ret>, "badrettype");
     constexpr auto rank = array_rank_v<Array>;
     if constexpr (rank == 0u)
         return ndarray<Ret, 1u>{};
@@ -1729,10 +1730,10 @@ auto rotate_right(const X& x)
     return _rotate_impl(x, 1);
 }
 
-template<size_t I, size_t Level, typename Ret, typename XIter, typename IsEqual>
+template<size_t I, size_t Level, typename Ret, typename Iter, typename IsEqual>
 void _position_impl(const std::array<size_t, Level>& pos_dims,
     ndarray<Ret, 2u>& ret, ndarray<Ret, 1u>& pos_idx, Ret* const idx_base,
-    XIter& x_iter, IsEqual is_equal)
+    Iter& x_iter, IsEqual is_equal)
 {
     const auto dim = pos_dims[I];
     if constexpr (I + 1u < Level)
@@ -1756,7 +1757,6 @@ void _position_impl(const std::array<size_t, Level>& pos_dims,
         }
     }
 }
-
 
 template<typename Ret = int64_t, typename X, typename Y, int64_t I>
 auto position(const X& x, const Y& y, const_int<I>)
@@ -1798,13 +1798,22 @@ auto position(const X& x, varg_tag, Function f, const_int<I>)
     {
         auto x_iter = valx.template view_begin<Level>();
         const auto pos_dims = utils::dims_take<1u, Level>(valx.dims());
-        ndarray<Ret, 2u> ret;
+        ndarray<Ret, 2u> ret(std::array<size_t, 2u>{0u, Level});
         ndarray<Ret, 1u> pos_idx(std::array<size_t, 1u>{Level});
         Ret* const idx_base = pos_idx.data();
         _position_impl<0u, Level, Ret>(
             pos_dims, ret, pos_idx, idx_base, x_iter, f);
         return ret;
     }
+}
+
+template<typename Ret = int64_t, typename X, typename Y>
+auto position(const X& x, const Y& y)
+{
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR > YR, "badrank");
+    return position(x, y, const_int<XR - YR>{});
 }
 
 }

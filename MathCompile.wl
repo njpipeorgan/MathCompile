@@ -440,6 +440,7 @@ $builtinfunctions=native/@
   "Prepend"         ->"prepend",
   "Union"           ->"set_union",
   "Dot"             ->"dot",
+  "Position"        ->"position",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",
@@ -510,8 +511,10 @@ functionmacro[code_]:=code//.{
     id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
     id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
     id["RandomChoice"][array_,dims_]:>native["random_choice"][array,vargtag,listtoseq[dims]],
-    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>native["count"][array,vargtag,func],
-    id["Count"][array_,id["PatternTest"][id["Blank"][],func_],literal[i_Integer]]:>native["count"][array,vargtag,func,const[i]],
+    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>
+      native["count"][array,vargtag,func],
+    id["Count"][array_,id["PatternTest"][id["Blank"][],func_],literal[i_Integer]]:>
+      native["count"][array,vargtag,func,const[i]],
     id["Count"][array_,patt_,literal[i_Integer]]:>native["count"][array,patt,const[i]],
     id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
     id["Total"][array_,list[literal[i_Integer]]]:>native["total"][array,const[i],const[i]],
@@ -566,7 +569,10 @@ functionmacro[code_]:=code//.{
     id["AllTrue"][array_,test_,literal[i_Integer]]:>native["all_true"][array,test,const[i]],
     id["AnyTrue"][array_,test_,literal[i_Integer]]:>native["any_true"][array,test,const[i]],
     id["NoneTrue"][array_,test_,literal[i_Integer]]:>native["none_true"][array,test,const[i]],
-    id["Join"][any__,literal[i_Integer]]:>native["join"][const[i],any]
+    id["Join"][any__,literal[i_Integer]]:>native["join"][const[i],any],
+    id["Position"][any_,id["PatternTest"][id["Blank"][],func_],literal[i_Integer]]:>
+      native["position"][any,vargtag,func,const[i]],
+    id["Position"][any_,patt_,literal[i_Integer]]:>native["position"][any,patt,const[i]]
   }
 
 arithmeticmacro[code_]:=code//.{

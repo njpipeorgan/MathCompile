@@ -17,6 +17,18 @@
 
 #pragma once
 
+namespace wl
+{
+
+namespace librarylink
+{
+
+void print(const char* str);
+
+}
+
+}
+
 #include "macros.h"
 #include "types.h"
 #include "ndarray.h"
@@ -34,7 +46,3 @@
 #include "linalgebra.h"
 #include "functional.h"
 
-namespace wl
-{
-
-}

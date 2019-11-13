@@ -27,6 +27,7 @@
 #include "math_compile.h"
 #include "WolframLibrary.h"
 #include "WolframNumericArrayLibrary.h"
+#include "wstp.h"
 
 namespace wl
 {
@@ -302,6 +303,18 @@ void set(MArgument& res, const T& val)
     {
         static_assert(always_false_v<T>, "internal");
     }
+}
+
+void print(const char* str)
+{
+    auto link = lib_data->getLINK(lib_data);
+    MLPutFunction(link, "EvaluatePacket", 1);
+    MLPutFunction(link, "Print", 1);
+    MLPutString(link, str);
+    lib_data->processMathLink(link);
+    int pkt = MLNextPacket(link);
+    if (pkt == RETURNPKT)
+        MLNewPacket(link);
 }
 
 }

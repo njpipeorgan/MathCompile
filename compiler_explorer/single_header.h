@@ -334,7 +334,6 @@ constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #  define WL_RESTRICT __restrict
-#  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
@@ -6241,6 +6240,63 @@ auto position(const X& x, const Y& y)
     static_assert(XR > YR, "badrank");
     return position(x, y, const_int<XR - YR>{});
 }
+template<typename X, typename Function, int64_t I>
+auto cases(const X& x, varg_tag, Function f, const_int<I>)
+{
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(1u <= Level && Level <= XR, "badlevel");
+    using XV = value_type_t<X>;
+    if constexpr (XR == Level)
+    {
+        using RT = remove_cvref_t<decltype(f(XV{}))>;
+        static_assert(is_boolean_v<RT>, "badfunctype");
+        ndarray<XV, 1u> ret;
+        x.for_each([&](const auto& a) {
+            if (f(a)) ret.append(a, dim_checked{}); });
+        return ret;
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        using RT = remove_cvref_t<decltype(f(*view_iter))>;
+        static_assert(is_boolean_v<RT>, "badfunctype");
+        ndarray<XV, XR - Level + 1u> ret;
+        for (; view_iter != view_end; ++view_iter)
+        {
+            if (f(*view_iter))
+                ret.append(*view_iter, dim_checked{});
+        }
+        return ret;
+    }
+}
+template<typename X, typename Y, int64_t I>
+auto cases(const X& x, const Y& y, const_int<I>)
+{
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<X>;
+    static_assert(1u <= Level && Level <= XR, "badlevel");
+    if constexpr (XR == YR + Level)
+    {
+        const auto& valy = allows<view_category::Simple>(y);
+        return cases(x, [&](const auto& a) { return same_q(a, valy); });
+    }
+    else
+    {
+        return ndarray<value_type_t<X>, XR - Level + 1u>{};
+    }
+}
+template<typename X, typename Y>
+auto cases(const X& x, const Y& y)
+{
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(YR < XR, "badlevel");
+    return cases(x, y, const_int<XR - YR>{});
+}
 }
 namespace wl
 {
@@ -6992,7 +7048,7 @@ struct _nest_while_queue
     {
         return std::move(queue_[current_]);
     }
-    auto get(size_t i) const & -> const auto& 
+    auto get(size_t i) const & -> const auto&
     {
         return queue_.at(current_ - i + (i > current_ ? size_ : size_t(0)));
     }

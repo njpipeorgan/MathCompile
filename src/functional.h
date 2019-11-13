@@ -1,5 +1,5 @@
 // Compiler from Wolfram Language to C++
-// 
+//
 // Copyright 2019 Tianhuan Lu
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -728,7 +728,7 @@ struct _nest_while_queue
         return std::move(queue_[current_]);
     }
 
-    auto get(size_t i) const & -> const auto& 
+    auto get(size_t i) const & -> const auto&
     {
         return queue_.at(current_ - i + (i > current_ ? size_ : size_t(0)));
     }

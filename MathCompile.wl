@@ -446,6 +446,7 @@ $builtinfunctions=native/@
   "Union"           ->"set_union",
   "Dot"             ->"dot",
   "Position"        ->"position",
+  "Cases"           ->"cases",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",
@@ -518,7 +519,7 @@ functionmacro[code_]:=code//.{
     id["RandomChoice"][array_,dims_]:>native["random_choice"][array,vargtag,listtoseq[dims]],
     id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>
       native["count"][array,vargtag,func],
-    id["Count"][array_,id["PatternTest"][id["Blank"][],func_],literal[i_Integer]]:>
+    id["Count"][array_,id["PatternTest"][id["Blank"][],func_],list[literal[i_Integer]]]:>
       native["count"][array,vargtag,func,const[i]],
     id["Count"][array_,patt_,literal[i_Integer]]:>native["count"][array,patt,const[i]],
     id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
@@ -575,9 +576,12 @@ functionmacro[code_]:=code//.{
     id["AnyTrue"][array_,test_,literal[i_Integer]]:>native["any_true"][array,test,const[i]],
     id["NoneTrue"][array_,test_,literal[i_Integer]]:>native["none_true"][array,test,const[i]],
     id["Join"][any__,literal[i_Integer]]:>native["join"][const[i],any],
-    id["Position"][any_,id["PatternTest"][id["Blank"][],func_],literal[i_Integer]]:>
+    id["Position"][any_,id["PatternTest"][id["Blank"][],func_],list[literal[i_Integer]]]:>
       native["position"][any,vargtag,func,const[i]],
-    id["Position"][any_,patt_,literal[i_Integer]]:>native["position"][any,patt,const[i]]
+    id["Position"][any_,patt_,list[literal[i_Integer]]]:>native["position"][any,patt,const[i]],
+    id["Cases"][any_,id["PatternTest"][id["Blank"][],func_],list[literal[i_Integer]]]:>
+      native["cases"][any,vargtag,func,const[i]],
+    id["Cases"][any_,patt_,list[literal[i_Integer]]]:>native["cases"][any,patt,const[i]]
   }
 
 arithmeticmacro[code_]:=code//.{

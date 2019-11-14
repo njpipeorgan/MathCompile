@@ -71,7 +71,9 @@ struct _small_vector
     explicit _small_vector(size_t size) : size_{size}
     {
         bool is_static = (size_ <= N);
-        if (!is_static)
+        if (is_static)
+            std::uninitialized_default_construct_n(static_begin(), size);
+        else
             new(&data_.dynamic_) dynamic_t(size);
         this->is_static_ = is_static;
     }
@@ -80,7 +82,7 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
-            std::fill_n(data_.static_.data(), size, val);
+            std::uninitialized_fill_n(static_begin(), size, val);
         else
             new(&data_.dynamic_) dynamic_t(size, val);
         this->is_static_ = is_static;
@@ -91,23 +93,24 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
-            std::copy(begin, end, data_.static_.data());
+            std::uninitialized_copy_n(begin, size_, static_begin());
         else
             new(&data_.dynamic_) dynamic_t(begin, end);
         this->is_static_ = is_static;
     }
 
-    explicit _small_vector(const dynamic_t& other) : size_{other.size()}
+    explicit _small_vector(const dynamic_t& other) : size_{other.size_}
     {
         bool is_static = (size_ <= N);
         if (is_static)
-            std::copy_n(other.data(), size_, this->data_.static_.data());
+            std::uninitialized_copy(
+                other.begin(), other.end(), static_begin());
         else
             new(&data_.dynamic_) dynamic_t(other);
         this->is_static_ = is_static;
     }
 
-    explicit _small_vector(dynamic_t&& other) : size_{other.size()}
+    explicit _small_vector(dynamic_t&& other) : size_{other.size_}
     {
         new(&data_.dynamic_) dynamic_t(std::move(other));
         this->is_static_ = false;
@@ -115,19 +118,24 @@ struct _small_vector
 
     _small_vector(const _small_vector& other) : size_{other.size_}
     {
-        if (other.is_static_)
-            std::copy_n(other.data_.static_.data(), size_,
-                this->data_.static_.data());
+        if (other.size_ <= N)
+        {
+            std::uninitialized_copy(
+                other.begin(), other.end(), this->static_begin());
+            this->is_static_ = true;
+        }
         else
+        {
             new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
-        this->is_static_ = other.is_static_;
+            this->is_static_ = false;
+        }
     }
 
     _small_vector(_small_vector&& other) : size_{other.size_}
     {
         if (other.is_static_)
-            std::copy_n(other.data_.static_.data(), size_,
-                this->data_.static_.data());
+            std::uninitialized_move(
+                other.static_begin(), other.static_end(), static_begin());
         else
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
         this->is_static_ = other.is_static_;
@@ -135,82 +143,32 @@ struct _small_vector
 
     _small_vector& operator=(const _small_vector& other)
     {
-        this->size_ = other.size_;
-        if (other.is_static_)
+        this->destory();
+        if (other.size_ <= N)
         {
-            if (this->is_static_)
-            {
-                std::copy_n(other.data_.static_.data(), size_,
-                    this->data_.static_.data());
-            }
-            else
-            {
-                data_.dynamic_.~dynamic_t();
-                this->is_static_ = true;
-                std::copy_n(other.data_.static_.data(), size_,
-                    this->data_.static_.data());
-            }
-        }
-        else if (other.size_ > N)
-        {
-            if (this->is_static_)
-            {
-                new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
-                this->is_static_ = false;
-            }
-            else
-            {
-                this->data_.dynamic_ = other.data_.dynamic_;
-            }
+            std::uninitialized_copy(
+                other.begin(), other.end(), this->static_begin());
+            this->is_static_ = true;
         }
         else
         {
-            if (!this->is_static_)
-                data_.dynamic_.~dynamic_t();
-            std::copy_n(other.data_.dynamic_.data(), size_,
-                this->data_.static_.data());
+            new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
+            this->is_static_ = false;
         }
+        this->size_ = other.size_;
         return *this;
     }
 
     _small_vector& operator=(_small_vector&& other)
     {
-        this->size_ = other.size_;
+        this->destory();
         if (other.is_static_)
-        {
-            if (this->is_static_)
-            {
-                std::copy_n(other.data_.static_.data(), size_,
-                    this->data_.static_.data());
-            }
-            else
-            {
-                data_.dynamic_.~dynamic_t();
-                this->is_static_ = true;
-                std::copy_n(other.data_.static_.data(), size_,
-                    this->data_.static_.data());
-            }
-        }
-        else if (other.size_ > N)
-        {
-            if (this->is_static_)
-            {
-                new(&data_.dynamic_) dynamic_t(
-                    std::move(other.data_.dynamic_));
-                this->is_static_ = false;
-            }
-            else
-            {
-                this->data_.dynamic_ = other.data_.dynamic_;
-            }
-        }
+            std::uninitialized_move(
+                other.static_begin(), other.static_end(), static_begin());
         else
-        {
-            if (!this->is_static_)
-                data_.dynamic_.~dynamic_t();
-            std::copy_n(other.data_.dynamic_.data(), size_,
-                this->data_.static_.data());
-        }
+            new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
+        this->is_static_ = other.is_static_;
+        this->size_ = other.size_;
         return *this;
     }
 
@@ -219,26 +177,29 @@ struct _small_vector
         return size_;
     }
 
-    const T* data() const
-    {
-        if (is_static_)
-            return data_.static_.data();
-        else
-            return data_.dynamic_.data();
-    }
-
-    T* data()
-    {
-        if (is_static_)
-            return data_.static_.data();
-        else
-            return data_.dynamic_.data();
-    }
-
     bool is_static() const
     {
         return is_static_;
     }
+
+    const T* data() const
+    {
+        return is_static_ ? static_begin() : dynamic_begin();
+    }
+    T* data()
+    {
+        return is_static_ ? static_begin() : dynamic_begin();
+    }
+
+    T* static_begin() { return data_.static_.data(); }
+    T* static_end() { return static_begin() + size_; }
+    const T* static_begin() const { return data_.static_.data(); }
+    const T* static_end() const { return static_begin() + size_; }
+
+    T* dynamic_begin() { return data_.dynamic_.data(); }
+    T* dynamic_end() { return dynamic_begin() + size_; }
+    const T* dynamic_begin() const { return data_.dynamic_.data(); }
+    const T* dynamic_end() const { return dynamic_begin() + size_; }
 
     T* begin() { return data(); }
     T* end() { return data() + size_; }
@@ -246,31 +207,62 @@ struct _small_vector
     const T* begin() const { return data(); }
     const T* end() const { return data() + size_; }
 
-    void to_dynamic()
+    void destroy_static() { std::destroy(static_begin(), static_end()); }
+    void destroy_dynamic() { data_.dynamic_.~dynamic_t(); }
+
+    void destroy()
     {
         if (is_static_)
-        {
-            dynamic_t new_data(data(), data() + size_);
-            new(&data_.dynamic_) dynamic_t(std::move(new_data));
-            is_static_ = false;
-        }
+            destroy_static();
+        else
+            destroy_dynamic();
     }
+
+    //void to_dynamic()
+    //{
+    //    if (is_static_)
+    //    {
+    //        if constexpr (std::is_trivially_copyable_v<T>)
+    //        {
+    //            dynamic_t new_data(static_begin(), static_end());
+    //            new(&data_.dynamic_) dynamic_t(std::move(new_data));
+    //        }
+    //        else
+    //        {
+    //            dynamic_t new_data(size_);
+    //            std::move(static_begin(), static_end(), new_data.data());
+    //            std::destroy(static_begin(), static_end());
+    //            new(&data_.dynamic_) dynamic_t(std::move(new_data));
+    //        }
+    //        is_static_ = false;
+    //    }
+    //}
 
     void resize(size_t new_size)
     {
+        const auto prev_size = size_;
         if (!is_static_)
         {
-            const auto old_size = data_.dynamic_.size();
             data_.dynamic_.resize(new_size);
-            if (new_size < old_size)
+            if (new_size < prev_size)
                 data_.dynamic_.shrink_to_fit();
         }
         else if (new_size > N)
         {
             dynamic_t new_data(new_size);
-            std::copy_n(data_.static_.data(), size_, new_data.data());
+            std::move(static_begin(), static_end(), new_data.data());
+            std::destroy(static_begin(), static_end());
             new(&data_.dynamic_) dynamic_t(std::move(new_data));
             is_static_ = false;
+        }
+        else
+        {
+            const auto diff_size = ptrdiff_t(new_size - prev_size);
+            if (diff_size > 0)
+                std::uninitialized_default_construct_n(
+                    static_begin() + prev_size, size_t(diff_size));
+            else if (diff_size < 0)
+                std::destroy_n(static_begin() + new_size, size_t(-diff_size));
         }
         size_ = new_size;
     }

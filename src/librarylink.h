@@ -27,7 +27,6 @@
 #include "math_compile.h"
 #include "WolframLibrary.h"
 #include "WolframNumericArrayLibrary.h"
-#include "wstp.h"
 
 namespace wl
 {
@@ -42,7 +41,7 @@ mint get_return_type_id()
 {
     enum : mint
     {
-        Undef = 0, Null = 1, Bool,
+        MathLink = 1, Null, Bool,
         I8, U8, I16, U16, I32, U32, I64, U64,
         R32, R64, C32, C64
     };
@@ -64,7 +63,7 @@ mint get_return_type_id()
         std::is_same_v<V, double>          ? R64  :
         std::is_same_v<V, complex<float>>  ? C32  :
         std::is_same_v<V, complex<double>> ? C64  :
-        Undef;
+        MathLink;
     constexpr mint max_type_count = 256;
     return rank * max_type_count + type;
 }
@@ -270,6 +269,19 @@ int set_array(MArgument& res, const ndarray<T, R>& val)
     }
 }
 
+template<typename Any>
+void set_expr(const Any& any)
+{
+    mathlink::link_t link;
+    link.put("EvaluatePacket", 1).put("CompoundExpression", 2).
+        put("Set", 2).put("linkreturn");
+    if constexpr (is_array_v<Any>)
+        link.put_array(any.dims(), any.data());
+    else
+        link.put(any);
+    link.put("Null").eof();
+}
+
 template<typename T>
 void set(MArgument& res, const T& val)
 {
@@ -297,24 +309,19 @@ void set(MArgument& res, const T& val)
     }
     else if constexpr (is_array_v<T>)
     {
-        set_array(res, val);
+        if constexpr (is_string_v<value_type_t<T>>)
+            set_expr(val);
+        else
+            set_array(res, val);
+    }
+    else if constexpr (is_string_v<T>)
+    {
+        set_expr(val);
     }
     else
     {
         static_assert(always_false_v<T>, "internal");
     }
-}
-
-void print(const char* str)
-{
-    auto link = lib_data->getLINK(lib_data);
-    MLPutFunction(link, "EvaluatePacket", 1);
-    MLPutFunction(link, "Print", 1);
-    MLPutString(link, str);
-    lib_data->processMathLink(link);
-    int pkt = MLNextPacket(link);
-    if (pkt == RETURNPKT)
-        MLNewPacket(link);
 }
 
 }

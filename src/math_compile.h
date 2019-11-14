@@ -17,19 +17,9 @@
 
 #pragma once
 
-namespace wl
-{
-
-namespace librarylink
-{
-
-void print(const char* str);
-
-}
-
-}
-
 #include "macros.h"
+#include "callback.h"
+
 #include "types.h"
 #include "ndarray.h"
 #include "const.h"

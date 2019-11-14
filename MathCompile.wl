@@ -11,7 +11,11 @@ CompileToBinary::usage="\!\(\*RowBox[{\"CompileToBinary\", \"[\", StyleBox[\"fun
 
 
 CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,#["output"]]&@compile[Hold[Function[func]]]
-CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],opts]
+CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
+
+
+LoadedFunction[compiled_,uncompiled_,False][any___]:=compiled[any]
+LoadedFunction[compiled_,uncompiled_,True][any___]:=Block[{linkreturn},compiled[any];linkreturn]
 
 
 $CppSource="";
@@ -467,8 +471,9 @@ $builtinfunctions=native/@
   "RightComposition"->"right_composition",
   "AllTrue"         ->"all_true",
   "AnyTrue"         ->"any_true",
-  "NoneTrue"        ->"none_true"
-    (*"Count"*)
+  "NoneTrue"        ->"none_true",
+  "Count"           ->"count",
+  "Print"           ->"io::print"
 |>;
 
 
@@ -658,7 +663,7 @@ codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native[
 
 codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
 
-codegen[literal[s_String],___]:="std::string("ToString@CForm[s]<>")"
+codegen[literal[s_String],___]:="std::string("<>ToString@CForm[s]<>")"
 codegen[literal[i_Integer],___]:="int64_t("<>ToString@CForm[i]<>")"
 codegen[literal[r_Real],___]:=ToString@CForm[r]
 codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
@@ -720,7 +725,7 @@ maincodegen[code_]:=codeformat@initcodegen[code]
 
 
 $numerictypes={
-"Undefined","Void","Boolean",
+"MathLink","Void","Boolean",
 "Integer8","UnsignedInteger8",
 "Integer16","UnsignedInteger16",
 "Integer32","UnsignedInteger32",
@@ -732,15 +737,16 @@ symboltype[type_]:=Which[StringContainsQ[type,"Integer"],Integer,
   StringContainsQ[type,"Complex"],Complex,StringContainsQ[type,"Real"],Real,True,type];
 
 loadfunction[libpath_String,funcid_String,args_]:=
-  Module[{typefunc,libfunc,rank,type,commontype,returntype,argtypes,maxtypecount=256},
+  Module[{typefunc,libfunc,rank,type,commontype,returntype,argtypes,
+          maxtypecount=256,retbylink=False},
     typefunc=LibraryFunctionLoad[libpath,funcid<>"_type",{},Integer];
     If[typefunc===$Failed,Message[link::rettype];Return[$Failed]];
     {rank,type}=QuotientRemainder[typefunc[],maxtypecount];
     LibraryFunctionUnload[typefunc];
-    If[type==0&&rank==0,returntype="Void",
-      If[0<=rank<=$rankmaximum,Null,Message[link::bigrank];Return[$Failed]];
-      If[2<=type+1<=Length[$numerictypes],type=$numerictypes[[type+1]],
-        Message[link::badtype,type];Return[$Failed]];
+    If[1<=type<=Length[$numerictypes],
+      type=$numerictypes[[type]],Message[link::badtype];Return[$Failed]];
+    If[type=="MathLink",returntype="Void";retbylink=True,
+      If[Not[0<=rank<=$rankmaximum],Message[link::bigrank];Return[$Failed]];
       commontype=symboltype[type];
       returntype=If[rank==0,commontype,
         If[MemberQ[{"Integer64","Real64","ComplexReal64"},type],
@@ -752,7 +758,8 @@ loadfunction[libpath_String,funcid_String,args_]:=
           {symboltype[t],r,"Constant"},
           {LibraryDataType[NumericArray,t,r],"Constant"}],
         t_String:>symboltype[t]}]&/@args;
-    LibraryFunctionLoad[libpath,funcid<>"_func",argtypes,returntype]
+    <|"Function"->LibraryFunctionLoad[libpath,funcid<>"_func",argtypes,returntype],
+      "ReturnByLink"->retbylink|>
   ]
 
 
@@ -818,8 +825,8 @@ Options[CompileToBinary]=Options[compilelink];
 
 compilelink[$Failed,___]:=$Failed;
 
-compilelink[f_,OptionsPattern[]]:=
-  Module[{output,types,funcid,src,lib,workdir,libdir},
+compilelink[f_,uncompiled_,OptionsPattern[]]:=
+  Module[{output,types,funcid,src,lib,workdir,libdir,mldir},
     $CppSource="";
     $CompilerOutput="";
     output=f["output"];
@@ -843,6 +850,8 @@ compilelink[f_,OptionsPattern[]]:=
         |>];
     If[FileExistsQ[$packagepath<>"/src/math_compile.h"]=!=True,
       Message[link::noheader];Return[$Failed]];
+    mldir=$InstallationDirectory<>
+      "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
     lib=CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
       "Language"->"C++",
@@ -850,38 +859,41 @@ compilelink[f_,OptionsPattern[]]:=
         If[OptionValue["Debug"],$debugcompileroptions,$compileroptions][
           CCompilerDriver`DefaultCCompiler[]]<>OptionValue["CompileOptions"],
       "CleanIntermediate"->!OptionValue["Debug"],
-      "IncludeDirectories"->{$packagepath<>"/src"},
+      "IncludeDirectories"->{mldir,$packagepath<>"/src"},
+      "LibraryDirectories"->{mldir};
+      "Libraries"->{"ml64i4"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
       "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),
       "ShellOutputFunction"->((MathCompile`$CompilerOutput=#)&)
     ];
     If[lib===$Failed,Message[link::genfail];Return[$Failed]];
-    loadfunction[lib,funcid,f["types"]]
+    LoadedFunction[#["Function"],uncompiled,#["ReturnByLink"]]&@
+      loadfunction[lib,funcid,f["types"]]
   ]
 
 
 $compileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
-    "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native",
+    "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`GenericCCompiler`GenericCCompiler->
     If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",""]<>
-      "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native",
+      "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O3 -restrict -fp-model fast=2 -march=native",
+    "-std=c++17 -Kc++ -O3 -restrict -fp-model fast=2 -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
-    "/std:c++17 /EHsc /Ox /Oi /Ob2 /Gy /fp:fast /DNDEBUG"
+    "/std:c++17 /EHsc /Ox /Oi /Ob2 /Gy /fp:fast /DNDEBUG /DWL_USE_MATHLINK"
 |>;
 $debugcompileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
-    "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native",
+    "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`GenericCCompiler`GenericCCompiler->
     If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",""]<>
-      "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native",
+      "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O0 -g -restrict -march=native -debug all -traceback -check-uninit",
+    "-std=c++17 -Kc++ -O0 -g -restrict -march=native -debug all -traceback -check-uninit -DWL_USE_MATHLINK",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
-    "/std:c++17 /EHsc /Od"
+    "/std:c++17 /EHsc /Od /DWL_USE_MATHLINK"
 |>
 
 

@@ -33,6 +33,7 @@
 #    define __LZCNT__ 1
 #  endif
 #  define _wl_popcnt64 __popcnt64
+#  define NOMINMAX // disable min, max macros
 #elif defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)

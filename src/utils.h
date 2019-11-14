@@ -97,6 +97,20 @@ auto cast(const boolean& x)
     return x;
 }
 
+template<typename Y>
+auto cast(const std::string& x)
+{
+    static_assert(is_string_v<Y>, "badcast");
+    return x;
+}
+
+template<typename Y>
+auto cast(std::string&& x)
+{
+    static_assert(is_string_v<Y>, "badcast");
+    return std::move(x);
+}
+
 namespace utils
 {
 

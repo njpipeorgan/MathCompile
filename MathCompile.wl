@@ -10,7 +10,7 @@ CompileToCode::usage="\!\(\*RowBox[{\"CompileToCode\", \"[\", StyleBox[\"func\",
 CompileToBinary::usage="\!\(\*RowBox[{\"CompileToBinary\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) generates a function compiled as C++.";
 
 
-CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,(*removeannotateindex@*)#["output"]]&@compile[Hold[Function[func]]]
+CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"]]&@compile[Hold[Function[func]]]
 CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
 
 
@@ -53,13 +53,15 @@ link::workdir="The working directory does not exist.";
 link::libdir="The library directory does not exist.";
 link::genfail="Failed to generate the library.";
 link::noheader="The header file \"math_compile.h\" cannot be found.";
+cxx::error="`1`";
 
 
 compile[code_]:=
   Module[{parsed,sourceidx,precodegen,output,types,error},
     $variabletable=Association[];
     error=Catch[
-        Block[{sourceptr=1},parsed=parse[code];];
+        $sourceptr=2;
+        parsed=parse[code];
         precodegen=semantics@allsyntax@parsed;
         types=getargtypes[precodegen];
         If[MemberQ[types,nil],Message[codegen::notype];Throw["codegen"]];
@@ -77,26 +79,28 @@ newvar:=SymbolName@Unique["v"]
 newvarpack:=SymbolName@Unique["vp"]
 
 
+$sourceptr=0;
+
 parse[Hold[head_[args___]]]:=
-  Module[{parsehead,parseargs},
+  Module[{parsehead,parseargs={}},
     parsehead=parse[Hold[head]];
-    parseargs=(sourceptr+=1;parse[#])&/@Hold/@Hold[args];
-    sourceptr+=1;
+    Scan[($sourceptr+=1;AppendTo[parseargs,parse[#]];)&,Hold/@Hold[args]];
+    $sourceptr+=1;
     parsehead@@parseargs
   ]
 parse[Hold[s_Symbol]]:=
-  Module[{name=SymbolName[Unevaluated@s],oldptr=sourceptr},
-    sourceptr+=StringLength@name;
+  Module[{name=SymbolName[Unevaluated@s],oldptr=$sourceptr},
+    $sourceptr+=StringLength@name;
     id[name,oldptr]
   ]
 parse[Hold[I]]:=
   Module[{oldptr=sourceptr},
-    sourceptr+=1;
+    $sourceptr+=1;
     id["I",oldptr]
   ]
 parse[Hold[i:(_Integer|_Real|_String)]]:=
-  Module[{oldptr=sourceptr},
-    sourceptr+=StringLength@ToString@CForm[i];
+  Module[{oldptr=$sourceptr},
+    $sourceptr+=StringLength@ToString@CForm[i];
     literal[i,oldptr]
   ]
 parse[Hold[any_]]:=(Message[parse::unknown,ToString[Unevaluated[any]]];Throw["lexical"])
@@ -197,7 +201,7 @@ syntax[function][code_]:=
           ]&@Replace[If[MatchQ[Head[args],list[_]],List@@args,{args}],{
               id[arg_,_]:>{arg,nil},
               typed[_][id[arg_,_],type_]:>{arg,type},
-              any_:>(Message[syntax::farg,tostring[Echo@any]];Throw["syntax"])
+              any_:>(Message[syntax::farg,tostring[any]];Throw["syntax"])
             },{1}]),
       id["Function",p0_][pure_]:>
         Module[{slots,slotsrule,slotspos},
@@ -228,10 +232,11 @@ syntax[function][code_]:=
 
 syntax[scope][code_]:=code//.{
     id["Module",p0_][list[_][vars___],expr_]:>(
-      scope[p0][#[[;;,1]],sequence[sequence@@Cases[#,{var_,init:Except[nil]}:>id["Set"][id[var],init],{1}],expr]]&@
+      scope[p0][#[[;;,1]],sequence[sequence@@
+        Cases[#,{var_,p1_,p2_,init:Except[nil]}:>id["Set",p1][id[var,p2],init],{1}],expr]]&@
         Replace[{vars},{
-          id[var_,_]:>{var,nil},
-          id["Set",_][id[var_,_],init_]:>{var,init},
+          id[var_,p2_]:>{var,0,p2,nil},
+          id["Set",p1_][id[var_,p2_],init_]:>{var,p1,p2,init},
           any_:>(Message[syntax::scopevar,tostring[any]];Throw["syntax"])
         },{1}])
   }/.{
@@ -663,9 +668,13 @@ getargtypes[function[_][_,types_,__]]:=types
 expandpack[var_String]:=If[StringTake[var,2]=="vp","...",""]
 anyispack[vars_List]:=AnyTrue[vars,StringTake[#,2]=="vp"&]
 
-annotateindex[p_Integer/;p>0]:="/*"<>ToString[p]<>"*/"
-annotateindex[___]:="/**/"
-removeannotateindex[code_String]:=StringDelete[code,"/*"~~Shortest[___]~~"*/"]
+annotatebegin[p_Integer/;p>0]:="/*\\b"<>ToString[p]<>"*/"
+annotateend[p_Integer/;p>0]:="/*\\e"<>ToString[p]<>"*/"
+annotatebegin[___]:="/*\\b*/"
+annotateend[___]:="/*\\e*/"
+toexportcode[code_String]:=StringDelete[code,"/*\\"~~("b"|"e"|"n")~~Shortest[___]~~"*/"]
+toexportbinary[code_String]:=StringJoin@Flatten@StringSplit[
+  StringTrim/@StringSplit[code,"\n"],x:("/*\\"~~("b"|"e"|"n")~~Shortest[___]~~"*/"):>{"\n",x}]
 
 codegen[args[vars_,types_],___]:=
   MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
@@ -673,44 +682,49 @@ codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString[i-1]<>")"
 codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString[i-1]<>")"
 
 codegen[function[p_][vars_,types_,sequence[exprs___]],any___]:=
-  {annotateindex[p],"[&](",
+  {annotatebegin[p],"[&](",
     Riffle[If[!anyispack[vars],Append[#,"auto&&..."],#]&@codegen[args[vars,types]],", "],")",
-    codegen[sequence[exprs],If[{any}=={"Scope"},"Scope","Return"]]}
+    codegen[sequence[exprs],If[{any}=={"Scope"},"Scope","Return"]],annotateend[p]}
 codegen[variadic[p_][vars_,types_,sequence[exprs___]],___]:=
-  {annotateindex[p],"[&](",Riffle[codegen[args[vars,types]],", "],")",codegen[sequence[exprs],"Return"]}
+  {annotatebegin[p],"[&](",Riffle[codegen[args[vars,types]],", "],")",
+    codegen[sequence[exprs],"Return"],annotateend[p]}
 codegen[function[p_][vars_,types_,sequence[exprs___],variadic[specs___]],___]:=
   codegen[native["variadic",p][function[p][vars,types,sequence[exprs]],variadic[p][specs]]]
 
-codegen[scope[p_][_,sequence[exprs___]],any___]:={annotateindex[p],codegen[sequence[exprs],any]}
+codegen[scope[p_][_,sequence[exprs___]],any___]:=
+  {annotatebegin[p],codegen[sequence[exprs],any],annotateend[p]}
 
 codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native["val",0][expr]]}
 
 codegen[assign[p_][var_,expr_],___]:=codegen[native["set",p][var,expr]]
 
-codegen[literal[s_String,p_],___]:={annotateindex[p],"std::string("<>ToString@CForm[s]<>")"}
-codegen[literal[i_Integer,p_],___]:={annotateindex[p],"int64_t("<>ToString@CForm[i]<>")"}
-codegen[literal[r_Real,p_],___]:={annotateindex[p],ToString@CForm[r]}
-codegen[const[i_Integer],___]:={annotateindex[],"wl::const_int<"<>ToString@CForm[i]<>">{}"}
-codegen[c:consts[(_Integer)..],___]:={annotateindex[],"wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">{}"}
-codegen[const[s_String,p___],___]:={annotateindex[p],"wl::const_"<>s}
+codegen[literal[s_String,p_],___]:={annotatebegin[p],"std::string(",ToString@CForm[s],annotateend[p],")"}
+codegen[literal[i_Integer,p_],___]:={annotatebegin[p],"int64_t(",ToString@CForm[i],annotateend[p],")"}
+codegen[literal[r_Real,p_],___]:={annotatebegin[p],ToString@CForm[r],annotateend[p]}
+codegen[const[i_Integer],___]:={annotatebegin[],"wl::const_int<"<>ToString@CForm[i]<>">",annotateend[],"{}"}
+codegen[c:consts[(_Integer)..],___]:=
+  {annotatebegin[],"wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">",annotateend[],"{}"}
+codegen[const[s_String,p___],___]:={annotatebegin[p],"wl::const_"<>s,annotateend[p]}
 
-codegen[native[name_,p_],"Function"]:={annotateindex[p],"wl::"<>name}
-codegen[native[name_,p_],___]:={annotateindex[p],"WL_FUNCTION(wl::"<>name<>")"}
+codegen[native[name_,p_],"Function"]:={annotatebegin[p],"wl::"<>name,annotateend[p]}
+codegen[native[name_,p_],___]:={annotatebegin[p],"WL_FUNCTION(","wl::"<>name,annotateend[p],")"}
+codegen[native[name_,0],"Function"]:={"wl::"<>name}
+codegen[native[name_,0],___]:={"WL_FUNCTION(","wl::"<>name,")"}
 
-codegen[vargtag,___]:={annotateindex[],"wl::varg_tag{}"}
+codegen[vargtag,___]:={annotatebegin[],"wl::varg_tag{}",annotateend[]}
 (*codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"*)
 
 codegen[clause[type_,p_][func_,{iters___}],___]:={
-    annotate[p],"wl::clause_"<>nativename[type],"(",
+    annotatebegin[p],"wl::clause_"<>nativename[type],"(",
     codegen[func,If[type=="Do"||type=="BreakDo","Scope","Return"]],",",
-    Riffle[codegen[#,"Return"]&/@{iters},", "],")"}
+    Riffle[codegen[#,"Return"]&/@{iters},", "],annotateend[p],")"}
 
 codegen[type[t_String],___]:=t
 codegen[type["array"[t_,r_]],___]:="wl::ndarray<"<>t<>", "<>ToString[r]<>">"
-codegen[typed[p_][any_],___]:={annotateindex[p],codegen[type[any]]<>"{}"}
+codegen[typed[p_][any_],___]:={annotatebegin[p],codegen[type[any]],"{",annotateend[p],"}"}
 
-codegen[var[name_,p___],___]:={annotateindex[p],name<>expandpack[name]}
-codegen[movvar[name_,p___],___]:={annotateindex[p],"WL_PASS("<>name<>")"<>expandpack[name]}
+codegen[var[name_,p___],___]:={annotatebegin[p],name<>expandpack[name],annotateend[p]}
+codegen[movvar[name_,p___],___]:={annotatebegin[p],"WL_PASS("<>name<>")"<>expandpack[name],annotateend[p]}
 codegen[id[name_,___],___]:=(Message[semantics::undef,name];Throw["semantics"])
 
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]
@@ -729,12 +743,14 @@ codegen[break[]]:="throw wl::loop_break{}"
 codegen[list[p_][any___],___]:=codegen[native["list",p][any]]
 
 codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
-codegen[native[name_,p_][args___],any___]:={codegen[native[name,p],"Function"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
+codegen[native[name_,p_][args___],any___]:=
+  {annotatebegin[p],codegen[native[name,0],"Function"],"(",Riffle[codegen[#,any]&/@{args},", "],annotateend[p],")"}
 
 codegen[any_,rest___]:=(Message[codegen::bad,tostring[any]];"<codegen>")
 
 initcodegen[function[p_][vars_,types_,expr_]]:=
-  Flatten@{annotateindex[p],"auto main_function(",Riffle[codegen[args[vars,types]],", "],")",codegen[expr,"Return"]}
+  Flatten@{annotatebegin[p],"auto main_function(",
+    Riffle[codegen[args[vars,types]],", "],")",codegen[expr,"Return"],annotateend[p]}
   
 codeformat[segments_List]:=
   StringRiffle[#,{"","\n","\n"}]&@
@@ -786,8 +802,7 @@ loadfunction[libpath_String,funcid_String,args_]:=
 
 
 $boilerplatelength=21;
-$template="
-#include \"librarylink.h\"
+$template="#include \"librarylink.h\"
 
 std::default_random_engine wl::global_random_engine;
 WolframLibraryData wl::librarylink::lib_data;
@@ -806,8 +821,8 @@ EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
     wl::librarylink::lib_data = lib_data;
     return LIBRARY_NO_ERROR;
 }
-
 `funcbody`
+
 EXTERN_C DLLEXPORT int `funcid`_type(WolframLibraryData lib_data,
     mint argc, MArgument *argv, MArgument res) {
     using ReturnType = wl::remove_cvref_t<
@@ -849,7 +864,7 @@ Options[CompileToBinary]=Options[compilelink];
 compilelink[$Failed,___]:=$Failed;
 
 compilelink[f_,uncompiled_,OptionsPattern[]]:=
-  Module[{output,types,funcid,src,lib,workdir,libdir,mldir},
+  Module[{output,types,funcid,src,lib,workdir,libdir,mldir,compiler,errorparser,errors},
     $CppSource="";
     $CompilerOutput="";
     output=f["output"];
@@ -863,7 +878,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       Message[link::libdir];Return[$Failed]];
     MathCompile`$CppSource=
       TemplateApply[$template,<|
-        "funcbody"->output,
+        "funcbody"->toexportbinary@output,
         "argsv"->StringRiffle[#<>"{}"&/@types,", "],
         "args"->StringRiffle[
           MapThread[StringTemplate["wl::librarylink::get<``>(argv[``])"],
@@ -875,12 +890,13 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       Message[link::noheader];Return[$Failed]];
     mldir=$InstallationDirectory<>
       "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
+    compiler=CCompilerDriver`DefaultCCompiler[];
     lib=Quiet@CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
       "Language"->"C++",
       "CompileOptions"->
         If[OptionValue["Debug"],$debugcompileroptions,$compileroptions][
-          CCompilerDriver`DefaultCCompiler[]]<>OptionValue["CompileOptions"],
+          compiler]<>OptionValue["CompileOptions"],
       "CleanIntermediate"->!OptionValue["Debug"],
       "IncludeDirectories"->{mldir,$packagepath<>"/src"},
       "LibraryDirectories"->{mldir};
@@ -890,7 +906,15 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),
       "ShellOutputFunction"->((MathCompile`$CompilerOutput=#)&)
     ];
-    If[lib===$Failed,Message[link::genfail];Return[$Failed]];
+    If[lib===$Failed,
+      Message[link::genfail];
+      errorparser=Lookup[$compilererrorparser,compiler,Null];
+      If[errorparser=!=Null,
+        errors=errorparser[funcid];
+        emitcompilererrors[f["source"],errors];,
+        Message[cxx::error,"Check $CompilerOutput for the errors."]
+      ];
+      Return[$Failed]];
     If[#["ReturnByLink"],IndirectReturn[#["Function"]],#["Function"]]&@
       loadfunction[lib,funcid,f["types"]]
   ]
@@ -918,6 +942,43 @@ $debugcompileroptions=<|
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
     "/std:c++17 /EHsc /Od /DWL_USE_MATHLINK"
 |>
+$compilererrorparser=<|
+  CCompilerDriver`GCCCompiler`GCCCompiler->Function[{id},
+    Flatten[{
+        StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
+        StringCases[#,"error: "~~err___:>err]
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
+  CCompilerDriver`GenericCCompiler`GenericCCompiler->Function[{id},
+    Flatten[{
+        StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
+        StringCases[#,"error: "~~err___:>err]
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]]
+|>
+emitcompilererrors[wlsrc_,parsed_List]:=
+  Module[{cxxsrc,srcrange,errors,message,position,srcpart},
+  Echo@wlsrc;
+    cxxsrc=StringSplit[$CppSource,"\n"];
+    srcrange=MinMax[Flatten@Position[cxxsrc,_String?(StringTake[#,UpTo[2]]=="/*"&)]];
+    errors=DeleteCases[parsed,l_Integer/;!Between[l,srcrange]];
+    errors=Split[errors,Head[#2]=!=Integer&];
+    errors=List@@@Flatten[Thread[Rest[#]->First[#]]&/@errors];
+    errors=MapAt[
+      FromDigits@First@StringCases[
+        cxxsrc[[#]],"/*\\"~~("b"|"e"|"n")~~(l:Shortest[___])~~"*/":>"0"<>l]&,
+      errors,{;;,2}];
+    Do[
+      message=error[[1]];
+      position=error[[2]];
+      If[position=!=0,
+        srcpart={
+          StringTake[wlsrc,{Max[1,position-30],position-1}],
+          StringTake[wlsrc,{Echo@position,position}],
+          StringTake[wlsrc,{position+1,Min[StringLength[wlsrc],position+30]}]};
+        Message[cxx::error,"\!\(\(\"..."<>srcpart[[1]]<>"\"\!\(\""<>srcpart[[2]]<>"\"\+\"\[FilledUpTriangle]\"\)\""<>srcpart[[3]]<>"...\"\)\+\""<>message<>"\"\)"],
+        Message[cxx::error,message<>" (cannot be located)"]
+      ]
+    ,{error,errors}]
+  ]
 
 
 print[id[id_String,_]]:=id

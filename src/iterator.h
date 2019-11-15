@@ -85,7 +85,7 @@ template<bool HasVariable, typename Begin, typename End, typename Step>
 auto make_step_iterator(Begin begin, End end, Step step)
 {
     static_assert(is_real_v<Begin> && is_real_v<End> && is_real_v<Step>,
-        "badargtype");
+        WL_ERROR_ITERATOR_TYPE);
     using T = common_type_t<Begin, Step>;
     if (step == Step(0))
         throw std::logic_error("badvalue");
@@ -137,7 +137,7 @@ auto var_iterator(Any&& any)
 {
     using Type = remove_cvref_t<Any>;
 
-    if constexpr (is_real_v<Type>)
+    if constexpr (array_rank_v<Type> == 0u)
     {
         if constexpr (is_integral_v<Type>)
             return make_step_iterator<true>(Type(1), any, Type(1));
@@ -146,7 +146,6 @@ auto var_iterator(Any&& any)
     }
     else
     {
-        static_assert(array_rank_v<Type> == 1u, "badargtype");
         if constexpr (is_movable_v<Any&&>)
             return list_iterator<Type>(std::move(any));
         else
@@ -161,7 +160,6 @@ auto var_iterator(Any&& any)
 template<typename Any>
 auto iterator(Any&& any)
 {
-    static_assert(is_real_v<remove_cvref_t<Any>>, "badargtype");
     return make_step_iterator<false>(int8_t(1), any, int8_t(1));
 }
 

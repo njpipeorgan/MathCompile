@@ -23,6 +23,7 @@
 #include <string>
 #include <tuple>
 
+#include "macros.h"
 #include "traits.h"
 
 namespace wl

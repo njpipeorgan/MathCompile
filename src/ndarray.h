@@ -64,8 +64,7 @@ struct _small_vector
 
     ~_small_vector()
     {
-        if (!is_static_)
-            data_.dynamic_.~dynamic_t();
+        this->destroy();
     }
 
     explicit _small_vector(size_t size) : size_{size}
@@ -99,18 +98,17 @@ struct _small_vector
         this->is_static_ = is_static;
     }
 
-    explicit _small_vector(const dynamic_t& other) : size_{other.size_}
+    explicit _small_vector(const dynamic_t& other) : size_{other.size()}
     {
         bool is_static = (size_ <= N);
         if (is_static)
-            std::uninitialized_copy(
-                other.begin(), other.end(), static_begin());
+            std::uninitialized_copy_n(other.begin(), size_, static_begin());
         else
             new(&data_.dynamic_) dynamic_t(other);
         this->is_static_ = is_static;
     }
 
-    explicit _small_vector(dynamic_t&& other) : size_{other.size_}
+    explicit _small_vector(dynamic_t&& other) : size_{other.size()}
     {
         new(&data_.dynamic_) dynamic_t(std::move(other));
         this->is_static_ = false;
@@ -120,8 +118,7 @@ struct _small_vector
     {
         if (other.size_ <= N)
         {
-            std::uninitialized_copy(
-                other.begin(), other.end(), this->static_begin());
+            std::uninitialized_copy_n(other.begin(), size_, static_begin());
             this->is_static_ = true;
         }
         else
@@ -134,8 +131,8 @@ struct _small_vector
     _small_vector(_small_vector&& other) : size_{other.size_}
     {
         if (other.is_static_)
-            std::uninitialized_move(
-                other.static_begin(), other.static_end(), static_begin());
+            std::uninitialized_move_n(
+                other.static_begin(), size_, static_begin());
         else
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
         this->is_static_ = other.is_static_;
@@ -143,11 +140,10 @@ struct _small_vector
 
     _small_vector& operator=(const _small_vector& other)
     {
-        this->destory();
+        this->destroy();
         if (other.size_ <= N)
         {
-            std::uninitialized_copy(
-                other.begin(), other.end(), this->static_begin());
+            std::uninitialized_copy_n(other.begin(), size_, static_begin());
             this->is_static_ = true;
         }
         else
@@ -161,15 +157,36 @@ struct _small_vector
 
     _small_vector& operator=(_small_vector&& other)
     {
-        this->destory();
+        this->destroy();
         if (other.is_static_)
-            std::uninitialized_move(
-                other.static_begin(), other.static_end(), static_begin());
+            std::uninitialized_move_n(
+                other.static_begin(), other.size_, static_begin());
         else
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
         this->is_static_ = other.is_static_;
         this->size_ = other.size_;
         return *this;
+    }
+
+    WL_INLINE void destroy_static()
+    {
+        std::destroy(static_begin(), static_end());
+    }
+    WL_INLINE void destroy_dynamic()
+    {
+        data_.dynamic_.~dynamic_t();
+    }
+
+    WL_INLINE void destroy()
+    {
+        if (is_static_)
+        {
+            destroy_static();
+        }
+        else
+        {
+            destroy_dynamic();
+        }
     }
 
     size_t size() const
@@ -206,37 +223,6 @@ struct _small_vector
 
     const T* begin() const { return data(); }
     const T* end() const { return data() + size_; }
-
-    void destroy_static() { std::destroy(static_begin(), static_end()); }
-    void destroy_dynamic() { data_.dynamic_.~dynamic_t(); }
-
-    void destroy()
-    {
-        if (is_static_)
-            destroy_static();
-        else
-            destroy_dynamic();
-    }
-
-    //void to_dynamic()
-    //{
-    //    if (is_static_)
-    //    {
-    //        if constexpr (std::is_trivially_copyable_v<T>)
-    //        {
-    //            dynamic_t new_data(static_begin(), static_end());
-    //            new(&data_.dynamic_) dynamic_t(std::move(new_data));
-    //        }
-    //        else
-    //        {
-    //            dynamic_t new_data(size_);
-    //            std::move(static_begin(), static_end(), new_data.data());
-    //            std::destroy(static_begin(), static_end());
-    //            new(&data_.dynamic_) dynamic_t(std::move(new_data));
-    //        }
-    //        is_static_ = false;
-    //    }
-    //}
 
     void resize(size_t new_size)
     {
@@ -276,10 +262,11 @@ struct _small_vector
 template<typename T, size_t R>
 struct ndarray
 {
-    static_assert(1u <= R && R <= MaximumArrayRank, "badrank");
-    static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
+    static_assert(1u <= R, WL_ERROR_ZERO_RANK);
+    static_assert(R <= MaximumArrayRank, WL_ERROR_LARGE_RANK);
+    static_assert(std::is_same_v<T, remove_cvref_t<T>>, WL_ERROR_INTERNAL);
     static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>,
-        "badargtype");
+        WL_ERROR_ARRAY_VALUE_TYPE);
 
     using value_type = T;
     static constexpr auto rank = R;
@@ -334,7 +321,7 @@ struct ndarray
     template<size_t Level>
     size_t partial_size() const
     {
-        static_assert(Level <= R, "internal");
+        static_assert(Level <= R, WL_ERROR_INTERNAL);
         return utils::size_of_dims<R - Level>(this->dims_.data());
     }
 
@@ -342,7 +329,7 @@ struct ndarray
     template<size_t Level>
     size_t dimension() const
     {
-        static_assert(1 <= Level && Level <= R, "internal");
+        static_assert(1 <= Level && Level <= R, WL_ERROR_INTERNAL);
         return this->dims_[Level - 1];
     }
 
@@ -400,7 +387,7 @@ struct ndarray
     template<size_t Level>
     auto view_begin()
     {
-        static_assert(Level <= R, "internal");
+        static_assert(Level <= R, WL_ERROR_INTERNAL);
         if constexpr (Level == R)
             return this->begin();
         else
@@ -424,7 +411,7 @@ struct ndarray
     template<size_t Level>
     auto view_begin() const
     {
-        static_assert(Level <= R, "internal");
+        static_assert(Level <= R, WL_ERROR_INTERNAL);
         if constexpr (Level == R)
             return this->begin();
         else
@@ -498,7 +485,8 @@ struct ndarray
     template<typename X>
     void append(X&& x)
     {
-        static_assert(array_rank_v<remove_cvref_t<X>> == R - 1u, "badrank");
+        static_assert(array_rank_v<remove_cvref_t<X>> + 1u == R,
+            WL_ERROR_APPEND_RANK);
         if constexpr (R > 1u)
         {
             if (this->size() > 0u && !utils::check_dims<R - 1u>(

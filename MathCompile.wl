@@ -953,22 +953,22 @@ $compilererrorparser=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->Function[{id},
     Flatten[{
         StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
-        StringCases[#,"error: "~~err___:>err]
+        StringDelete["static assertion failed: "]@StringCases[#,"error: "~~err___:>err]
       }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
   CCompilerDriver`GenericCCompiler`GenericCCompiler->Function[{id},
     Flatten[{
         StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
-        StringCases[#,"error: "~~err___:>err]
+        StringDelete["static assertion failed: "]@StringCases[#,"error: "~~err___:>err]
       }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
   CCompilerDriver`IntelCompiler`IntelCompiler->Function[{id},
     Flatten[{
         StringCases[#,"at line "~~l:(DigitCharacter ..)~~" of \""~~___~~id<>".c\"":>FromDigits@l],
-        StringCases[#,": error: "~~err___:>err]
+        StringDelete["static assertion failed with "]@StringCases[#,": error: "~~err___:>err]
       }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->Function[{id},
     Flatten[{
         StringCases[#,id<>".c("~~l:(DigitCharacter ..)~~")":>FromDigits@l],
-        StringCases[#,": error "~~err___:>err]
+        StringDelete["C2338: "]@StringCases[#,": error "~~err___:>err]
       }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]]
 |>
 emitcompilererrors[wlsrc_,parsed_List]:=

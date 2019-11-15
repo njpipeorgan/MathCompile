@@ -1,3 +1,4 @@
+#include <immintrin.h>
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
@@ -6,7 +7,6 @@
 #include <string>
 #include <tuple>
 #include <limits>
-#include <immintrin.h>
 #include <chrono>
 #include <exception>
 #include <iterator>
@@ -18,6 +18,89 @@
 #include <variant>
 #include <cmath>
 #include <random>
+#if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
+#  define WL_RESTRICT __restrict
+#  ifdef __AVX2__
+#    define __AVX__ 1
+#    define __BMI__ 1
+#    define __BMI2__ 1
+#  endif
+#  ifdef __AVX__
+#    define __POPCNT__ 1
+#    define __LZCNT__ 1
+#  endif
+#  define _wl_popcnt64 __popcnt64
+#  define NOMINMAX // disable min, max macros
+#elif defined(__INTEL_COMPILER)
+#  define WL_INLINE __forceinline
+#  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
+#  define WL_RESTRICT __restrict
+#  pragma warning (disable:1011)
+#elif defined(__clang__)
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_RESTRICT __restrict__
+#elif defined(__GNUC__)
+#  define WL_INLINE __attribute__((always_inline))
+#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
+#  define WL_RESTRICT __restrict__
+#endif
+#if defined(__MINGW64__)
+#  define WL_NO_RANDOM_DEVICE 1
+#endif
+namespace wl
+{
+#define WL_FUNCTION(fn) wl::variadic( \
+    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
+    [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
+#define WL_PASS(var) std::forward<decltype(var)>(var)
+#define WL_ERROR_INTERNAL \
+"An internal error is encountered."
+#define WL_ERROR_MUTABLE_TYPE \
+"The type of the result cannot be converted to that of the target."
+#define WL_ERROR_MUTABLE_RANK \
+"The array rank of the result is different from that of the target."
+#define WL_ERROR_ASSIGN_TYPE \
+"The type of the source cannot be converted to that of the target."
+#define WL_ERROR_ASSIGN_RANK \
+"The array rank of the source is different from that of the target."
+#define WL_ERROR_LIST_ELEM_TYPE \
+"The elements of the list do not have a consistent type."
+#define WL_ERROR_LIST_ELEM_RANK \
+"The elements of the list do not have a consistent array rank."
+#define WL_ERROR_MODIFY_TARGET \
+"The target is not a variable, so it cannot be modified."
+#define WL_ERROR_OPERAND_RANK \
+"The operands should be array of the same rank."
+#define WL_ERROR_NUMERIC_ONLY \
+"The function can only take numerical values as its argument(s)."
+#define WL_ERROR_PART_DEPTH \
+"The number of part specifications is larger than the array rank."
+#define WL_ERROR_REQUIRE_ARRAY \
+"The function requires its argument to be an array."
+#define WL_ERROR_REQUIRE_ARRAY_RANK \
+"The function requires its argument to be an array with rank "
+#define WL_ERROR_BAD_LEVEL \
+"The function is called with inappropriate level specifications."
+#define WL_ERROR_LARGE_RANK \
+"The rank of the array produced is too large; the maximum rank is 16."
+#define WL_ERROR_ZERO_RANK \
+"The rank of the array produced is 0; the minimum rank is 1."
+#define WL_ERROR_ARRAY_VALUE_TYPE \
+"Only numerical values and strings can be stored in an array."
+#define WL_ERROR_APPEND_RANK \
+"Only the argument with rank one less than the array can be appended"
+#define WL_ERROR_ITERATOR_TYPE \
+"The bounds of an iterator can only be integers and real numbers."
+#define WL_ERROR_INTEGRAL_RETURN \
+"The specified return type of the values is not an integral type."
+#define WL_ERROR_DIMENSIONS_SPEC \
+"The specified dimensions should all be integers and non-empty."
+#define WL_ERROR_ARRAY_RESHAPE_PAD_TYPE \
+"The type of padding value is not consistent with the type of array."
+}
 namespace wl
 {
 template<typename T, size_t R>
@@ -101,7 +184,7 @@ struct common_type<T, complex<U>> : common_type<complex<U>, T> {};
 template<typename T, typename U>
 struct common_type<complex<T>, U>
 {
-    using type = std::conditional_t<is_integral_v<U>, 
+    using type = std::conditional_t<is_integral_v<U>,
         complex<T>, complex<typename common_type<T, U>::type>>;
 };
 template<typename T, typename U>
@@ -152,16 +235,6 @@ struct value_type<T, std::void_t<typename T::value_type>>
 template<typename T>
 using value_type_t = typename value_type<T>::type;
 template<typename T>
-constexpr auto is_numerical_type_v = is_arithmetic_v<value_type_t<T>>;
-template<typename T>
-constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
-template<typename T>
-constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
-template<typename T>
-constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||
-is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> ||
-std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
-template<typename T>
 struct array_rank : std::integral_constant<size_t, 0u> {};
 template<typename T, size_t R>
 struct array_rank<ndarray<T, R>> :
@@ -177,6 +250,17 @@ struct array_rank<general_view<T, A, V, S, IT, C>> :
     std::integral_constant<size_t, V> {};
 template<typename T>
 constexpr auto array_rank_v = array_rank<T>::value;
+template<typename T>
+constexpr auto is_numerical_type_v = (array_rank_v<T> == 0u ?
+    is_arithmetic_v<T> : is_arithmetic_v<value_type_t<T>>);
+template<typename T>
+constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
+template<typename T>
+constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
+template<typename T>
+constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||
+is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> ||
+std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
 template<typename T>
 struct is_movable : std::false_type {};
 template<typename T, size_t R>
@@ -315,45 +399,6 @@ constexpr auto MaximumArrayRank = 16;
 constexpr auto MaximumArgCount  = 16;
 constexpr auto const_int_infinity  = std::numeric_limits<int64_t>::max();
 constexpr auto const_real_infinity = std::numeric_limits<double>::max();
-}
-#if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
-#  define WL_INLINE __forceinline
-#  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
-#  define WL_RESTRICT __restrict
-#  ifdef __AVX2__
-#    define __AVX__ 1
-#    define __BMI__ 1
-#    define __BMI2__ 1
-#  endif
-#  ifdef __AVX__
-#    define __POPCNT__ 1
-#    define __LZCNT__ 1
-#  endif
-#  define _wl_popcnt64 __popcnt64
-#  define NOMINMAX // disable min, max macros
-#elif defined(__INTEL_COMPILER)
-#  define WL_INLINE __forceinline
-#  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
-#  define WL_RESTRICT __restrict
-#  pragma warning (disable:1011)
-#elif defined(__clang__)
-#  define WL_INLINE __attribute__((always_inline))
-#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
-#  define WL_RESTRICT __restrict__
-#elif defined(__GNUC__)
-#  define WL_INLINE __attribute__((always_inline))
-#  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
-#  define WL_RESTRICT __restrict__
-#endif
-#if defined(__MINGW64__)
-#  define WL_NO_RANDOM_DEVICE 1
-#endif
-namespace wl
-{
-#define WL_FUNCTION(fn) wl::variadic( \
-    [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
-    [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
-#define WL_PASS(var) std::forward<decltype(var)>(var)
 }
 namespace wl
 {
@@ -1919,8 +1964,7 @@ struct _small_vector
     }
     ~_small_vector()
     {
-        if (!is_static_)
-            data_.dynamic_.~dynamic_t();
+        this->destroy();
     }
     explicit _small_vector(size_t size) : size_{size}
     {
@@ -1950,17 +1994,16 @@ struct _small_vector
             new(&data_.dynamic_) dynamic_t(begin, end);
         this->is_static_ = is_static;
     }
-    explicit _small_vector(const dynamic_t& other) : size_{other.size_}
+    explicit _small_vector(const dynamic_t& other) : size_{other.size()}
     {
         bool is_static = (size_ <= N);
         if (is_static)
-            std::uninitialized_copy(
-                other.begin(), other.end(), static_begin());
+            std::uninitialized_copy_n(other.begin(), size_, static_begin());
         else
             new(&data_.dynamic_) dynamic_t(other);
         this->is_static_ = is_static;
     }
-    explicit _small_vector(dynamic_t&& other) : size_{other.size_}
+    explicit _small_vector(dynamic_t&& other) : size_{other.size()}
     {
         new(&data_.dynamic_) dynamic_t(std::move(other));
         this->is_static_ = false;
@@ -1969,8 +2012,7 @@ struct _small_vector
     {
         if (other.size_ <= N)
         {
-            std::uninitialized_copy(
-                other.begin(), other.end(), this->static_begin());
+            std::uninitialized_copy_n(other.begin(), size_, static_begin());
             this->is_static_ = true;
         }
         else
@@ -1982,19 +2024,18 @@ struct _small_vector
     _small_vector(_small_vector&& other) : size_{other.size_}
     {
         if (other.is_static_)
-            std::uninitialized_move(
-                other.static_begin(), other.static_end(), static_begin());
+            std::uninitialized_move_n(
+                other.static_begin(), size_, static_begin());
         else
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
         this->is_static_ = other.is_static_;
     }
     _small_vector& operator=(const _small_vector& other)
     {
-        this->destory();
+        this->destroy();
         if (other.size_ <= N)
         {
-            std::uninitialized_copy(
-                other.begin(), other.end(), this->static_begin());
+            std::uninitialized_copy_n(other.begin(), size_, static_begin());
             this->is_static_ = true;
         }
         else
@@ -2007,15 +2048,34 @@ struct _small_vector
     }
     _small_vector& operator=(_small_vector&& other)
     {
-        this->destory();
+        this->destroy();
         if (other.is_static_)
-            std::uninitialized_move(
-                other.static_begin(), other.static_end(), static_begin());
+            std::uninitialized_move_n(
+                other.static_begin(), other.size_, static_begin());
         else
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
         this->is_static_ = other.is_static_;
         this->size_ = other.size_;
         return *this;
+    }
+    WL_INLINE void destroy_static()
+    {
+        std::destroy(static_begin(), static_end());
+    }
+    WL_INLINE void destroy_dynamic()
+    {
+        data_.dynamic_.~dynamic_t();
+    }
+    WL_INLINE void destroy()
+    {
+        if (is_static_)
+        {
+            destroy_static();
+        }
+        else
+        {
+            destroy_dynamic();
+        }
     }
     size_t size() const
     {
@@ -2045,34 +2105,6 @@ struct _small_vector
     T* end() { return data() + size_; }
     const T* begin() const { return data(); }
     const T* end() const { return data() + size_; }
-    void destroy_static() { std::destroy(static_begin(), static_end()); }
-    void destroy_dynamic() { data_.dynamic_.~dynamic_t(); }
-    void destroy()
-    {
-        if (is_static_)
-            destroy_static();
-        else
-            destroy_dynamic();
-    }
-    //void to_dynamic()
-    //{
-    //    if (is_static_)
-    //    {
-    //        if constexpr (std::is_trivially_copyable_v<T>)
-    //        {
-    //            dynamic_t new_data(static_begin(), static_end());
-    //            new(&data_.dynamic_) dynamic_t(std::move(new_data));
-    //        }
-    //        else
-    //        {
-    //            dynamic_t new_data(size_);
-    //            std::move(static_begin(), static_end(), new_data.data());
-    //            std::destroy(static_begin(), static_end());
-    //            new(&data_.dynamic_) dynamic_t(std::move(new_data));
-    //        }
-    //        is_static_ = false;
-    //    }
-    //}
     void resize(size_t new_size)
     {
         const auto prev_size = size_;
@@ -2109,10 +2141,11 @@ struct _small_vector
 template<typename T, size_t R>
 struct ndarray
 {
-    static_assert(1u <= R && R <= MaximumArrayRank, "badrank");
-    static_assert(std::is_same_v<T, remove_cvref_t<T>>, "internal");
+    static_assert(1u <= R, WL_ERROR_ZERO_RANK);
+    static_assert(R <= MaximumArrayRank, WL_ERROR_LARGE_RANK);
+    static_assert(std::is_same_v<T, remove_cvref_t<T>>, WL_ERROR_INTERNAL);
     static_assert(is_arithmetic_v<T> || is_boolean_v<T> || is_string_v<T>,
-        "badargtype");
+        WL_ERROR_ARRAY_VALUE_TYPE);
     using value_type = T;
     static constexpr auto rank = R;
     using _dims_t = std::array<size_t, R>;
@@ -2156,14 +2189,14 @@ struct ndarray
     template<size_t Level>
     size_t partial_size() const
     {
-        static_assert(Level <= R, "internal");
+        static_assert(Level <= R, WL_ERROR_INTERNAL);
         return utils::size_of_dims<R - Level>(this->dims_.data());
     }
     // uses one-based indexing
     template<size_t Level>
     size_t dimension() const
     {
-        static_assert(1 <= Level && Level <= R, "internal");
+        static_assert(1 <= Level && Level <= R, WL_ERROR_INTERNAL);
         return this->dims_[Level - 1];
     }
     const auto& dims() const
@@ -2209,7 +2242,7 @@ struct ndarray
     template<size_t Level>
     auto view_begin()
     {
-        static_assert(Level <= R, "internal");
+        static_assert(Level <= R, WL_ERROR_INTERNAL);
         if constexpr (Level == R)
             return this->begin();
         else
@@ -2231,7 +2264,7 @@ struct ndarray
     template<size_t Level>
     auto view_begin() const
     {
-        static_assert(Level <= R, "internal");
+        static_assert(Level <= R, WL_ERROR_INTERNAL);
         if constexpr (Level == R)
             return this->begin();
         else
@@ -2298,7 +2331,8 @@ struct ndarray
     template<typename X>
     void append(X&& x)
     {
-        static_assert(array_rank_v<remove_cvref_t<X>> == R - 1u, "badrank");
+        static_assert(array_rank_v<remove_cvref_t<X>> + 1u == R,
+            WL_ERROR_APPEND_RANK);
         if constexpr (R > 1u)
         {
             if (this->size() > 0u && !utils::check_dims<R - 1u>(
@@ -3148,7 +3182,7 @@ template<bool HasVariable, typename Begin, typename End, typename Step>
 auto make_step_iterator(Begin begin, End end, Step step)
 {
     static_assert(is_real_v<Begin> && is_real_v<End> && is_real_v<Step>,
-        "badargtype");
+        WL_ERROR_ITERATOR_TYPE);
     using T = common_type_t<Begin, Step>;
     if (step == Step(0))
         throw std::logic_error("badvalue");
@@ -3195,7 +3229,7 @@ template<typename Any>
 auto var_iterator(Any&& any)
 {
     using Type = remove_cvref_t<Any>;
-    if constexpr (is_real_v<Type>)
+    if constexpr (array_rank_v<Type> == 0u)
     {
         if constexpr (is_integral_v<Type>)
             return make_step_iterator<true>(Type(1), any, Type(1));
@@ -3204,7 +3238,6 @@ auto var_iterator(Any&& any)
     }
     else
     {
-        static_assert(array_rank_v<Type> == 1u, "badargtype");
         if constexpr (is_movable_v<Any&&>)
             return list_iterator<Type>(std::move(any));
         else
@@ -3218,7 +3251,6 @@ auto var_iterator(Any&& any)
 template<typename Any>
 auto iterator(Any&& any)
 {
-    static_assert(is_real_v<remove_cvref_t<Any>>, "badargtype");
     return make_step_iterator<false>(int8_t(1), any, int8_t(1));
 }
 }
@@ -3322,7 +3354,8 @@ constexpr auto _scalar_divide = [](const auto& x, const auto& y)
 template<typename X, typename Y>                                        \
 auto _scalar_##name(X& x, const Y& y)                                   \
 {                                                                       \
-    static_assert(is_convertible_v<common_type_t<X, Y>, X>, "badcast"); \
+    static_assert(is_convertible_v<common_type_t<X, Y>, X>,             \
+        WL_ERROR_MUTABLE_TYPE);                                         \
     x = X(_scalar_##func(x, y));                                        \
     return x;                                                           \
 }
@@ -3339,7 +3372,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
     constexpr auto x_rank = array_rank_v<XType>;                            \
     constexpr auto y_rank = array_rank_v<YType>;                            \
     static_assert(std::is_lvalue_reference_v<X&&> ||                        \
-        is_array_view_v<XType>, "badassign");                               \
+        is_array_view_v<XType>, WL_ERROR_MODIFY_TARGET);                    \
     if constexpr (x_rank > 0)                                               \
     {                                                                       \
         if constexpr (y_rank == 0)                                          \
@@ -3348,7 +3381,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         }                                                                   \
         else                                                                \
         {                                                                   \
-            static_assert(x_rank == y_rank, "badrank");                     \
+            static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);         \
             if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
             if (has_aliasing(x, y))                                         \
@@ -3375,7 +3408,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
     }                                                                       \
     else                                                                    \
     {                                                                       \
-        static_assert(y_rank == 0, "badrank");                              \
+        static_assert(y_rank == 0, WL_ERROR_MUTABLE_RANK);                  \
         _scalar_##name(x, y);                                               \
     }                                                                       \
     return std::forward<decltype(x)>(x);                                    \
@@ -3411,7 +3444,8 @@ auto decrement(X&& x)
 template<typename X>
 auto minus(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](const auto& x) { return -x; },
         std::forward<decltype(x)>(x));
 }
@@ -3429,8 +3463,8 @@ auto plus(X&& x, Y&& y)
 {
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(plus)
     {
-        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+            is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
         return utils::listable_function(_scalar_plus,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
@@ -3441,8 +3475,8 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(plus)
 template<typename X, typename Y>
 auto subtract(X&& x, Y&& y)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_subtract,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
@@ -3460,8 +3494,8 @@ auto times(X&& x, Y&& y)
 {
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(times)
     {
-        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+            is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
         return utils::listable_function(_scalar_times,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
@@ -3472,8 +3506,8 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(times)
 template<typename X, typename Y>
 auto divide(X&& x, Y&& y)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_divide,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
@@ -4581,26 +4615,29 @@ auto set(Dst&& dst, Src&& src) -> decltype(auto)
     using DstValue = value_type_t<DstType>;
     using SrcValue = value_type_t<SrcType>;
     static_assert(std::is_lvalue_reference_v<Dst&&> ||
-        is_array_view_v<DstType>, "badassign");
+        is_array_view_v<DstType>, WL_ERROR_MODIFY_TARGET);
     if constexpr (src_rank == 0u)
     {
         if constexpr (dst_rank == 0u)
         { // scalar -> scalar
-            static_assert(is_convertible_v<SrcType, DstType>, "badargtype");
+            static_assert(is_convertible_v<SrcType, DstType>,
+                WL_ERROR_ASSIGN_TYPE);
             dst = DstType(src);
             return std::forward<decltype(src)>(src);
         }
         else
         { // scalar -> ndarray / array_view
-            static_assert(is_convertible_v<SrcType, DstValue>, "badargtype");
+            static_assert(is_convertible_v<SrcType, DstValue>,
+                WL_ERROR_ASSIGN_TYPE);
             dst.copy_from(make_scalar_view_iterator(DstValue(src)));
             return std::forward<decltype(src)>(src);
         }
     }
     else
     {
-        static_assert(dst_rank == src_rank, "badrank");
-        static_assert(is_convertible_v<SrcValue, DstValue>, "badargtype");
+        static_assert(dst_rank == src_rank, WL_ERROR_ASSIGN_RANK);
+        static_assert(is_convertible_v<SrcValue, DstValue>,
+            WL_ERROR_ASSIGN_TYPE);
         if constexpr (is_array_v<DstType>)
         {
             if constexpr (std::is_same_v<SrcValue, DstValue>)
@@ -4647,9 +4684,9 @@ void _copy_list_array_elements(Iter& ret_iter,
     if constexpr (is_argument_pack_v<FirstType>)
     {
         using ItemType = value_type_t<FirstType>;
-        static_assert(array_rank_v<ItemType> == R, "badrank");
+        static_assert(array_rank_v<ItemType> == R, WL_ERROR_LIST_ELEM_RANK);
         using ValueType = value_type_t<ItemType>;
-        static_assert(is_convertible_v<ValueType, T>, "badargtype");
+        static_assert(is_convertible_v<ValueType, T>, WL_ERROR_LIST_ELEM_TYPE);
         const auto size = first.size();
         for (size_t i = 0u; i < size; ++i, ++ret_iter)
         {
@@ -4661,9 +4698,9 @@ void _copy_list_array_elements(Iter& ret_iter,
     }
     else
     {
-        static_assert(array_rank_v<FirstType> == R, "badrank");
+        static_assert(array_rank_v<FirstType> == R, WL_ERROR_LIST_ELEM_RANK);
         using ValueType = value_type_t<FirstType>;
-        static_assert(is_convertible_v<ValueType, T>, "badargtype");
+        static_assert(is_convertible_v<ValueType, T>, WL_ERROR_LIST_ELEM_TYPE);
         if (!utils::check_dims(first.dims(), dims))
             throw std::logic_error("baddims");
         first.copy_to(ret_iter.begin());
@@ -4683,14 +4720,14 @@ void _copy_list_scalar_elements(T*& ret_iter, First&& first, Rest&&... rest)
     if constexpr (is_argument_pack_v<FirstType>)
     {
         using ItemType = value_type_t<FirstType>;
-        static_assert(is_convertible_v<ItemType, T>, "badargtype");
+        static_assert(is_convertible_v<ItemType, T>, WL_ERROR_LIST_ELEM_TYPE);
         const auto size = first.size();
         for (size_t i = 0; i < size; ++i, ++ret_iter)
             *ret_iter = cast<T>(first.get(i));
     }
     else
     {
-        static_assert(is_convertible_v<FirstType, T>, "badargtype");
+        static_assert(is_convertible_v<FirstType, T>, WL_ERROR_LIST_ELEM_TYPE);
         *ret_iter = cast<T>(std::forward<decltype(first)>(first));
         ++ret_iter;
     }
@@ -4809,7 +4846,8 @@ auto _part_impl3(Array&& a, Indexers&&... indexers) -> decltype(auto)
     using ArrayType = remove_cvref_t<Array>;
     using ValueType = typename ArrayType::value_type;
     constexpr auto is_const = array_is_const_v<Array&&>;
-    static_assert(sizeof...(Indexers) <= array_rank_v<ArrayType>, "internal");
+    static_assert(sizeof...(Indexers) <= array_rank_v<ArrayType>,
+        WL_ERROR_INTERNAL);
     using return_type = typename view_detail::view_type<Indexers...>::
         template return_type<ValueType, is_const, Indexers...>;
     if constexpr (is_array_view_v<return_type>)
@@ -4851,10 +4889,9 @@ template<typename Array, typename... Specs>
 auto part(Array&& a, Specs&&... specs) -> decltype(auto)
 {
     using ArrayType = remove_cvref_t<Array>;
-    static_assert(is_value_type_v<ArrayType>, "badargtype");
     constexpr auto R = array_rank_v<ArrayType>;
-    static_assert(sizeof...(Specs) <= R, "badargc");
-    if constexpr (R == 0)
+    static_assert(sizeof...(Specs) <= R, WL_ERROR_PART_DEPTH);
+    if constexpr (R == 0u)
         return std::forward<decltype(a)>(a);
     else if constexpr (
         ArrayType::category == view_category::Array ||
@@ -4870,21 +4907,22 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
 template<typename Array>
 auto first(Array&& a)
 {
-    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1, "badargtype");
+    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1u,
+        WL_ERROR_REQUIRE_ARRAY);
     return part(a, cidx(0));
 }
 template<typename Array>
 auto last(Array&& a)
 {
-    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1, "badargtype");
+    static_assert(array_rank_v<remove_cvref_t<Array>> >= 1u,
+        WL_ERROR_REQUIRE_ARRAY);
     return part(a, int64_t(-1));
 }
 template<typename Array>
 auto most(Array&& a)
 {
     using AT = remove_cvref_t<Array>;
-    constexpr auto AR = array_rank_v<AT>;
-    static_assert(AR >= 1, "badargtype");
+    static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto size = a.dims()[0];
     if (size <= 1u)
         throw std::logic_error("baddims");
@@ -4894,7 +4932,7 @@ template<typename Array>
 auto rest(Array&& a)
 {
     using AT = remove_cvref_t<Array>;
-    static_assert(array_rank_v<AT> >= 1, "badargtype");
+    static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto size = a.dims()[0];
     if (size <= 1u)
         throw std::logic_error("baddims");
@@ -4904,7 +4942,7 @@ template<typename Begin, typename End, typename Step>
 auto range(Begin begin, End end, Step step)
 {
     static_assert(is_real_v<Begin> && is_real_v<End> && is_real_v<Step>,
-        "badargtype");
+        WL_ERROR_ITERATOR_TYPE);
     using T = common_type_t<Begin, Step>;
     if constexpr (is_integral_v<T>)
     {
@@ -4953,24 +4991,25 @@ auto range(Begin begin, End end, Step step)
 template<typename Begin, typename End>
 auto range(Begin begin, End end)
 {
-    static_assert(is_real_v<Begin> && is_real_v<End>, "badargtype");
+    static_assert(is_real_v<Begin> && is_real_v<End>, WL_ERROR_ITERATOR_TYPE);
     return range(begin, end, int8_t(1));
 }
 template<typename End>
 auto range(End end)
 {
-    static_assert(is_real_v<End>, "badargtype");
+    static_assert(is_real_v<End>, WL_ERROR_ITERATOR_TYPE);
     return range(End(1), end, int8_t(1));
 }
 template<typename Array, int64_t I1, int64_t I2>
 auto total(const Array& a, const_int<I1>, const_int<I2>)
 {
     constexpr auto rank = array_rank_v<Array>;
-    static_assert(rank >= 1, "badargtype");
+    static_assert(rank >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using ValueType = value_type_t<Array>;
     constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + int64_t(rank) + 1;
     constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + int64_t(rank) + 1;
-    static_assert(1 <= L1 && L1 <= L2 && L2 <= int64_t(rank), "badlevel");
+    static_assert(1 <= L1 && L1 <= L2 && L2 <= int64_t(rank),
+        WL_ERROR_BAD_LEVEL);
     if constexpr (Array::category == view_category::General)
         return total(a.to_array(), const_int<I1>{}, const_int<I2>{});
     else
@@ -5060,7 +5099,7 @@ auto mean(const Array& a)
 template<typename Ret = int64_t, typename Array>
 auto dimensions(const Array& a)
 {
-    static_assert(is_integral_v<Ret>, "badrettype");
+    static_assert(is_integral_v<Ret>, WL_ERROR_INTEGRAL_RETURN);
     constexpr auto rank = array_rank_v<Array>;
     if constexpr (rank == 0u)
         return ndarray<Ret, 1u>{};
@@ -5118,9 +5157,9 @@ auto reverse(X&& x, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto rank = array_rank_v<XT>;
-    static_assert(rank >= 1, "badargtype");
+    static_assert(rank >= 1, WL_ERROR_REQUIRE_ARRAY);
     constexpr int64_t Level = I >= 0 ? I : I + int64_t(rank) + 1;
-    static_assert(1 <= Level && Level <= int64_t(rank), "badlevel");
+    static_assert(1 <= Level && Level <= int64_t(rank), WL_ERROR_BAD_LEVEL);
     size_t outer_size = utils::size_of_dims(
         utils::dims_take<1u, Level - 1u>(x.dims()));
     size_t inter_size = utils::size_of_dims(
@@ -5149,10 +5188,10 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
 {
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
-    static_assert(array_rank_v<XT> >= 1, "badargtype");
-    static_assert(all_is_integral_v<Dims...>, "badargtype");
+    static_assert(array_rank_v<XT> >= 1, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
     constexpr auto rank = sizeof...(dims);
-    static_assert(rank >= 1, "badrank");
+    static_assert(rank >= 1, WL_ERROR_DIMENSIONS_SPEC);
     ndarray<XV, rank> ret(std::array<int64_t, rank>{int64_t(dims)...});
     const size_t x_size = x.size();
     const size_t ret_size = ret.size();
@@ -5161,7 +5200,8 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
         x.copy_to(ret.begin());
         if constexpr (!std::is_same_v<Pad, void_type>)
         {
-            static_assert(is_convertible_v<Pad, XV>, "badargtype");
+            static_assert(is_convertible_v<Pad, XV>,
+                WL_ERROR_ARRAY_RESHAPE_PAD_TYPE);
             std::fill(ret.begin() + x_size, ret.end(), cast<XV>(padding));
         }
         else if (ret.is_static()) // only std::array needs initialization
@@ -5179,7 +5219,8 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
 template<typename X, typename... Dims>
 auto array_reshape(X&& x, varg_tag, const Dims&... dims)
 {
-    static_assert(array_rank_v<remove_cvref_t<X>> >= 1, "badargtype");
+    static_assert(array_rank_v<remove_cvref_t<X>> >= 1,
+        WL_ERROR_REQUIRE_ARRAY);
     return array_reshape(std::forward<decltype(x)>(x),
         void_type{}, varg_tag{}, dims...);
 }
@@ -5272,8 +5313,9 @@ auto transpose(const X& x, const_int<Is>...)
     using XV = value_type_t<XT>;
     constexpr auto XR = array_rank_v<XT>;
     constexpr auto NL = sizeof...(Is);
-    static_assert(1 <= NL && NL <= XR, "badargtype");
-    static_assert(_is_valid_transpose<XR, size_t(Is)...>::value, "badlevel");
+    static_assert(1 <= NL && NL <= XR, WL_ERROR_BAD_LEVEL);
+    static_assert(_is_valid_transpose<XR, size_t(Is)...>::value,
+        WL_ERROR_BAD_LEVEL);
     return _transpose_impl(val(x), void_type{},
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
@@ -5287,7 +5329,7 @@ template<typename X>
 auto conjugate_transpose(const X& x)
 {
     constexpr auto XR = array_rank_v<X>;
-    static_assert(XR >= 2u, "badrank");
+    static_assert(XR >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
     using XV = value_type_t<X>;
     if constexpr (is_real_v<XV>)
         return transpose(x, const_int<2>{}, const_int<1>{});
@@ -5391,7 +5433,7 @@ auto flatten_copy(X&& x, Levels...)
 {
     constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
     constexpr auto MaxLevel = _flatten_max_level<Levels...>::value;
-    static_assert(1 <= MaxLevel && MaxLevel <= XR, "badlevel");
+    static_assert(1 <= MaxLevel && MaxLevel <= XR, WL_ERROR_BAD_LEVEL);
     return _flatten_copy_impl<MaxLevel>(std::forward<decltype(x)>(x),
         std::make_index_sequence<XR - MaxLevel>{}, Levels{}...);
 }
@@ -5437,7 +5479,7 @@ auto flatten(X&& x, Levels...)
 {
     constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
     constexpr auto MaxLevel = _flatten_max_level<Levels...>::value;
-    static_assert(1 <= MaxLevel && MaxLevel <= XR, "badlevel");
+    static_assert(1 <= MaxLevel && MaxLevel <= XR, WL_ERROR_BAD_LEVEL);
     return _flatten_impl1<MaxLevel>(std::forward<decltype(x)>(x),
         std::make_index_sequence<XR - MaxLevel>{}, Levels{}...);
 }
@@ -5447,7 +5489,7 @@ auto flatten(X&& x)
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     constexpr auto XR = array_rank_v<XT>;
-    static_assert(1 <= XR, "badlevel");
+    static_assert(1 <= XR, WL_ERROR_BAD_LEVEL);
     std::array<size_t, 1u> ret_dims{utils::size_of_dims(x.dims())};
     if constexpr (is_movable_v<X&&>)
         return ndarray<XV, 1u>(ret_dims, std::move(x.data_vector()));

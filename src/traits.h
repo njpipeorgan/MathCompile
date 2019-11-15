@@ -140,7 +140,7 @@ struct common_type<T, complex<U>> : common_type<complex<U>, T> {};
 template<typename T, typename U>
 struct common_type<complex<T>, U>
 {
-    using type = std::conditional_t<is_integral_v<U>, 
+    using type = std::conditional_t<is_integral_v<U>,
         complex<T>, complex<typename common_type<T, U>::type>>;
 };
 
@@ -208,20 +208,6 @@ struct value_type<T, std::void_t<typename T::value_type>>
 template<typename T>
 using value_type_t = typename value_type<T>::type;
 
-template<typename T>
-constexpr auto is_numerical_type_v = is_arithmetic_v<value_type_t<T>>;
-
-template<typename T>
-constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
-
-template<typename T>
-constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
-
-template<typename T>
-constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||
-is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> ||
-std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
-
 
 template<typename T>
 struct array_rank : std::integral_constant<size_t, 0u> {};
@@ -244,6 +230,23 @@ struct array_rank<general_view<T, A, V, S, IT, C>> :
 
 template<typename T>
 constexpr auto array_rank_v = array_rank<T>::value;
+
+
+template<typename T>
+constexpr auto is_numerical_type_v = (array_rank_v<T> == 0u ?
+    is_arithmetic_v<T> : is_arithmetic_v<value_type_t<T>>);
+
+template<typename T>
+constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
+
+template<typename T>
+constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
+
+template<typename T>
+constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||
+is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> ||
+std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
+
 
 template<typename T>
 struct is_movable : std::false_type {};

@@ -63,4 +63,74 @@ namespace wl
 
 #define WL_PASS(var) std::forward<decltype(var)>(var)
 
+
+// static assertion error messages
+
+#define WL_ERROR_INTERNAL \
+"An internal error is encountered."
+
+#define WL_ERROR_MUTABLE_TYPE \
+"The type of the result cannot be converted to that of the target."
+
+#define WL_ERROR_MUTABLE_RANK \
+"The array rank of the result is different from that of the target."
+
+#define WL_ERROR_ASSIGN_TYPE \
+"The type of the source cannot be converted to that of the target."
+
+#define WL_ERROR_ASSIGN_RANK \
+"The array rank of the source is different from that of the target."
+
+#define WL_ERROR_LIST_ELEM_TYPE \
+"The elements of the list do not have a consistent type."
+
+#define WL_ERROR_LIST_ELEM_RANK \
+"The elements of the list do not have a consistent array rank."
+
+#define WL_ERROR_MODIFY_TARGET \
+"The target is not a variable, so it cannot be modified."
+
+#define WL_ERROR_OPERAND_RANK \
+"The operands should be array of the same rank."
+
+#define WL_ERROR_NUMERIC_ONLY \
+"The function can only take numerical values as its argument(s)."
+
+#define WL_ERROR_PART_DEPTH \
+"The number of part specifications is larger than the array rank."
+
+#define WL_ERROR_REQUIRE_ARRAY \
+"The function requires its argument to be an array."
+
+#define WL_ERROR_REQUIRE_ARRAY_RANK \
+"The function requires its argument to be an array with rank "
+
+#define WL_ERROR_BAD_LEVEL \
+"The function is called with inappropriate level specifications."
+
+#define WL_ERROR_LARGE_RANK \
+"The rank of the array produced is too large; the maximum rank is 16."
+
+#define WL_ERROR_ZERO_RANK \
+"The rank of the array produced is 0; the minimum rank is 1."
+
+#define WL_ERROR_ARRAY_VALUE_TYPE \
+"Only numerical values and strings can be stored in an array."
+
+#define WL_ERROR_APPEND_RANK \
+"Only the argument with rank one less than the array can be appended"
+
+#define WL_ERROR_ITERATOR_TYPE \
+"The bounds of an iterator can only be integers and real numbers."
+
+#define WL_ERROR_INTEGRAL_RETURN \
+"The specified return type of the values is not an integral type."
+
+#define WL_ERROR_DIMENSIONS_SPEC \
+"The specified dimensions should all be integers and non-empty."
+
+#define WL_ERROR_ARRAY_RESHAPE_PAD_TYPE \
+"The type of padding value is not consistent with the type of array."
+
+
 }

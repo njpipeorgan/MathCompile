@@ -132,7 +132,8 @@ constexpr auto _scalar_divide = [](const auto& x, const auto& y)
 template<typename X, typename Y>                                        \
 auto _scalar_##name(X& x, const Y& y)                                   \
 {                                                                       \
-    static_assert(is_convertible_v<common_type_t<X, Y>, X>, "badcast"); \
+    static_assert(is_convertible_v<common_type_t<X, Y>, X>,             \
+        WL_ERROR_MUTABLE_TYPE);                                         \
     x = X(_scalar_##func(x, y));                                        \
     return x;                                                           \
 }
@@ -152,7 +153,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
     constexpr auto x_rank = array_rank_v<XType>;                            \
     constexpr auto y_rank = array_rank_v<YType>;                            \
     static_assert(std::is_lvalue_reference_v<X&&> ||                        \
-        is_array_view_v<XType>, "badassign");                               \
+        is_array_view_v<XType>, WL_ERROR_MODIFY_TARGET);                    \
     if constexpr (x_rank > 0)                                               \
     {                                                                       \
         if constexpr (y_rank == 0)                                          \
@@ -161,7 +162,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         }                                                                   \
         else                                                                \
         {                                                                   \
-            static_assert(x_rank == y_rank, "badrank");                     \
+            static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);         \
             if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
                 throw std::logic_error("baddims");                          \
             if (has_aliasing(x, y))                                         \
@@ -188,7 +189,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
     }                                                                       \
     else                                                                    \
     {                                                                       \
-        static_assert(y_rank == 0, "badrank");                              \
+        static_assert(y_rank == 0, WL_ERROR_MUTABLE_RANK);                  \
         _scalar_##name(x, y);                                               \
     }                                                                       \
     return std::forward<decltype(x)>(x);                                    \
@@ -231,7 +232,8 @@ auto decrement(X&& x)
 template<typename X>
 auto minus(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](const auto& x) { return -x; },
         std::forward<decltype(x)>(x));
 }
@@ -250,8 +252,8 @@ auto plus(X&& x, Y&& y)
 {
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(plus)
     {
-        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+            is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
         return utils::listable_function(_scalar_plus,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
@@ -263,8 +265,8 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(plus)
 template<typename X, typename Y>
 auto subtract(X&& x, Y&& y)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_subtract,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }
@@ -283,8 +285,8 @@ auto times(X&& x, Y&& y)
 {
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(times)
     {
-        static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-        static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+        static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+            is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
         return utils::listable_function(_scalar_times,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
@@ -296,8 +298,8 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(times)
 template<typename X, typename Y>
 auto divide(X&& x, Y&& y)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_divide,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
 }

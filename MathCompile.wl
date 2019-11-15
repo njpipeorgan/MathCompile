@@ -10,12 +10,11 @@ CompileToCode::usage="\!\(\*RowBox[{\"CompileToCode\", \"[\", StyleBox[\"func\",
 CompileToBinary::usage="\!\(\*RowBox[{\"CompileToBinary\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) generates a function compiled as C++.";
 
 
-CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,#["output"]]&@compile[Hold[Function[func]]]
+CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,(*removeannotateindex@*)#["output"]]&@compile[Hold[Function[func]]]
 CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
 
 
-LoadedFunction[compiled_,uncompiled_,False][any___]:=compiled[any]
-LoadedFunction[compiled_,uncompiled_,True][any___]:=Block[{linkreturn},compiled[any];linkreturn]
+IndirectReturn[f_][any___]:=Block[{linkreturn},f[any];linkreturn]
 
 
 $CppSource="";
@@ -57,16 +56,19 @@ link::noheader="The header file \"math_compile.h\" cannot be found.";
 
 
 compile[code_]:=
-  Module[{precodegen,output,types,error},
+  Module[{parsed,sourceidx,precodegen,output,types,error},
     $variabletable=Association[];
     error=Catch[
-        precodegen=semantics@allsyntax@parse[code];
+        Block[{sourceptr=1},parsed=parse[code];];
+        precodegen=semantics@allsyntax@parsed;
         types=getargtypes[precodegen];
         If[MemberQ[types,nil],Message[codegen::notype];Throw["codegen"]];
         output=maincodegen@precodegen;
       ];
     Clear[$variabletable];
-    If[error===Null,<|"output"->output,"types"->types|>,$Failed]
+    If[error===Null,<|
+        "source"->tostring[parsed],"output"->output,"types"->types
+      |>,$Failed]
   ]
 
 
@@ -75,15 +77,28 @@ newvar:=SymbolName@Unique["v"]
 newvarpack:=SymbolName@Unique["vp"]
 
 
-parse[Hold[head_[args___]]]:=parse[Hold[head]]@@(parse/@Hold/@Hold[args])
-
-parse[Hold[s_Symbol]]:=id[SymbolName[Unevaluated@s]];
-parse[Hold[I]]:=id["I"];
-
-parse[Hold[i_Integer]]:=literal[i];
-parse[Hold[i_Real]]:=literal[i];
-parse[Hold[i_String]]:=literal[i];
-
+parse[Hold[head_[args___]]]:=
+  Module[{parsehead,parseargs},
+    parsehead=parse[Hold[head]];
+    parseargs=(sourceptr+=1;parse[#])&/@Hold/@Hold[args];
+    sourceptr+=1;
+    parsehead@@parseargs
+  ]
+parse[Hold[s_Symbol]]:=
+  Module[{name=SymbolName[Unevaluated@s],oldptr=sourceptr},
+    sourceptr+=StringLength@name;
+    id[name,oldptr]
+  ]
+parse[Hold[I]]:=
+  Module[{oldptr=sourceptr},
+    sourceptr+=1;
+    id["I",oldptr]
+  ]
+parse[Hold[i:(_Integer|_Real|_String)]]:=
+  Module[{oldptr=sourceptr},
+    sourceptr+=StringLength@ToString@CForm[i];
+    literal[i,oldptr]
+  ]
 parse[Hold[any_]]:=(Message[parse::unknown,ToString[Unevaluated[any]]];Throw["lexical"])
 
 
@@ -117,130 +132,134 @@ istypespec[spec_]:=!MissingQ@totypename[spec]
 
 
 syntax[list][code_]:=code//.{
-    id["List"][exprs___]:>list[exprs]
+    id["List",p_][exprs___]:>list[p][exprs]
   }
 
 syntax[type][code_]:=code//.{
-    id["Typed"][id[arg_],(literal|id)[type_]/;istypename[type]]:>typed[id[arg],totypespec[type]],
-    id["Typed"][id[arg_],list[(literal|id)[t_],literal[r_]]/;istypename[{t,r}]]:>typed[id[arg],totypespec[{t,r}]],
-    id["Typed"][(literal|id)[type_]/;istypename[type]]:>typed[totypespec[type]],
-    id["Typed"][list[(literal|id)[t_],literal[r_]]/;istypename[{t,r}]]:>typed[totypespec[{t,r}]]
+    id["Typed",p0_][id[arg_,p_],(literal|id)[type_,_]/;istypename[type]]:>
+      typed[p0][id[arg,p],totypespec[type]],
+    id["Typed",p0_][id[arg_,p_],list[_][(literal|id)[t_,_],literal[r_,_]]/;istypename[{t,r}]]:>
+      typed[p0][id[arg,p],totypespec[{t,r}]],
+    id["Typed",p0_][(literal|id)[type_,_]/;istypename[type]]:>
+      typed[p0][totypespec[type]],
+    id["Typed",p0_][list[_][(literal|id)[t_,_],literal[r_,_]]/;istypename[{t,r}]]:>
+      typed[p0][totypespec[{t,r}]]
   }/.{
-    id["Typed"][any___]:>(Message[syntax::badtype,tostring@id["Typed"][any]];Throw["syntax"])
+    id["Typed",_][any___]:>(Message[syntax::badtype,tostring@id["Typed"][any]];Throw["syntax"])
   }
 
 syntax[clause][code_]:=code//.{
-    id[type:("Table"|"Do"|"Sum"|"Product")][expr_,iters__]:>(
-      clause[type][id["Function"][list@@DeleteCases[#[[;;,1]],nil],expr],#[[;;,2]]]&@
+    id[type:("Table"|"Do"|"Sum"|"Product"),p0_][expr_,iters__]:>(
+      clause[type,p0][id["Function",p0][list[0]@@DeleteCases[#[[;;,1]],nil],expr],#[[;;,2]]]&@
         Replace[{iters},{
-            e:Except[list][___]:>{nil,iter[e]},
-            list[e_]:>{nil,iter[e]},
-            list[id[var_],spec:Repeated[_,3]]:>{id[var],variter[spec]},
+            e:Except[list[_]][___]:>{nil,native["iterator",0][e]},
+            list[p1_][e_]:>{nil,native["iterator",p1][e]},
+            list[p1_][id[var_,p2_],spec:Repeated[_,3]]:>{id[var,p2],native["var_iterator",p1][spec]},
             any_:>(Message[syntax::iter,tostring[any]];Throw["syntax"])
           },{1}])
   }/.{
-    any:id[type:("Table"|"Do"|"Sum"|"Product")][___]:>
+    any:id[type:("Table"|"Do"|"Sum"|"Product"),_][___]:>
       (Message[syntax::bad,tostring[any],type];Throw["syntax"])
   }
 
 syntax[mutable][code_]:=code//.{
-    id["AddTo"][id[var_],expr_]:>native["add_to"][id[var],expr],
-    id["SubtractFrom"][id[var_],expr_]:>native["subtract_from"][id[var],expr],
-    id["TimesBy"][id[var_],expr_]:>native["times_by"][id[var],expr],
-    id["DivideBy"][id[var_],expr_]:>native["divide_by"][id[var],expr],
-    id["Increment"][id[var_]]:>native["increment"][id[var]],
-    id["Decrement"][id[var_]]:>native["decrement"][id[var]],
-    id["PreIncrement"][id[var_]]:>native["pre_increment"][id[var]],
-    id["PreDecrement"][id[var_]]:>native["pre_decrement"][id[var]],
-    id["AddTo"][target:id["Part"][id[var_],specs___],expr_]:>native["add_to"][target,expr],
-    id["SubtractFrom"][target:id["Part"][id[var_],specs___],expr_]:>native["subtract_from"][target,expr],
-    id["TimesBy"][target:id["Part"][id[var_],specs___],expr_]:>native["times_by"][target,expr],
-    id["DivideBy"][target:id["Part"][id[var_],specs___],expr_]:>native["divide_by"][target,expr],
-    id["Increment"][target:id["Part"][id[var_],specs___]]:>native["increment"][target],
-    id["Decrement"][target:id["Part"][id[var_],specs___]]:>native["decrement"][target],
-    id["PreIncrement"][target:id["Part"][id[var_],specs___]]:>native["pre_increment"][target],
-    id["PreDecrement"][target:id["Part"][id[var_],specs___]]:>native["pre_decrement"][target],
-    id["AppendTo"][id[var_],expr_]:>native["append_to"][id[var],expr],
-    id["PrependTo"][id[var_],expr_]:>native["prepend_to"][id[var],expr]
+    id["AddTo",p0_][target:id[_,_],expr_]:>native["add_to",p0][target,expr],
+    id["SubtractFrom",p0_][target:id[_,_],expr_]:>native["subtract_from",p0][target,expr],
+    id["TimesBy",p0_][target:id[_,_],expr_]:>native["times_by",p0][target,expr],
+    id["DivideBy",p0_][target:id[_,_],expr_]:>native["divide_by",p0][target,expr],
+    id["Increment",p0_][target:id[_,_]]:>native["increment",p0][target],
+    id["Decrement",p0_][target:id[_,_]]:>native["decrement",p0][target],
+    id["PreIncrement",p0_][target:id[_,_]]:>native["pre_increment",p0][target],
+    id["PreDecrement",p0_][target:id[_,_]]:>native["pre_decrement",p0][target],
+    id["AddTo",p0_][target:id["Part",_][id[_,_],___],expr_]:>native["add_to",p0][target,expr],
+    id["SubtractFrom",p0_][target:id["Part",_][id[_,_],___],expr_]:>native["subtract_from",p0][target,expr],
+    id["TimesBy",p0_][target:id["Part",_][id[_,_],___],expr_]:>native["times_by",p0][target,expr],
+    id["DivideBy",p0_][target:id["Part",_][id[_,_],___],expr_]:>native["divide_by",p0][target,expr],
+    id["Increment",p0_][target:id["Part",_][id[_,_],___]]:>native["increment",p0][target],
+    id["Decrement",p0_][target:id["Part",_][id[_,_],___]]:>native["decrement",p0][target],
+    id["PreIncrement",p0_][target:id["Part",_][id[_,_],___]]:>native["pre_increment",p0][target],
+    id["PreDecrement",p0_][target:id["Part",_][id[_,_],___]]:>native["pre_decrement",p0][target],
+    id["AppendTo",p0_][target:id[_,_],expr_]:>native["append_to",p0][target,expr],
+    id["PrependTo",p0_][target:id[_,_],expr_]:>native["prepend_to",p0][target,expr]
   }/.{
-    any:id[type:("AddTo"|"SubtractFrom"|"TimesBy"|"DivideBy"|"AppendTo"|"PrependTo")][___]:>
+    any:id[type:("AddTo"|"SubtractFrom"|"TimesBy"|"DivideBy"|"AppendTo"|"PrependTo"),_][___]:>
       (Message[syntax::bad,tostring[any],type];Throw["syntax"])
   }
 
 syntax[function][code_]:=
   Module[{
     functionrules={
-      id["Function"][args_,expr_]:>(
-        function[
+      id["Function",p0_][args_,expr_]:>(
+        function[p0][
           id/@#[[;;,1]],   (* argument names *)
           #[[;;,2]],       (* argument types *)
           sequence[expr]    (* function body *)
-          ]&@Replace[If[Head[args]===list,List@@args,{args}],{
-              id[arg_]:>{arg,nil},
-              typed[id[arg_],type_]:>{arg,type},
-              any_:>(Message[syntax::farg,tostring[any]];Throw["syntax"])
+          ]&@Replace[If[MatchQ[Head[args],list[_]],List@@args,{args}],{
+              id[arg_,_]:>{arg,nil},
+              typed[_][id[arg_,_],type_]:>{arg,type},
+              any_:>(Message[syntax::farg,tostring[Echo@any]];Throw["syntax"])
             },{1}]),
-      id["Function"][pure_]:>
+      id["Function",p0_][pure_]:>
         Module[{slots,slotsrule,slotspos},
           slots=Union@Cases[pure,
-            s:id[type:("Slot"|"SlotSequence")][literal[i_Integer/;i>0]]:>
+            s:id[type:("Slot"|"SlotSequence"),_][literal[i_Integer/;i>0,_]]:>
               (s->If[type=="Slot",i,slotseq[i]]),
             {0,Infinity},Heads->True];
           slotsrule=Module[{i=newid,nvar,names},
             nvar=Max[slots[[;;,2]]/.slotseq->Sequence,0]+1;
             If[nvar>$slotmaximum,(Message[syntax::slotmax,nvar-1];Throw["syntax"])];
-            names=MapAt[pack[#]&,id[i,#]&/@Range[nvar],{-1,2}];
+            names=MapAt[pack[#]&,arg[i,#]&/@Range[nvar],{-1,2}];
             (#1->Sequence@@Replace[#2,{slotseq[i_]:>names[[i;;]],i_:>names[[i;;i]]}]&)@@@slots];
           slotspos=(#[[2]]/.pack[i_]:>i)->#&/@Union[slotsrule[[;;,2]]];
-          function[
+          function[p0][
             ReplacePart[Table[nil,Max[slotspos[[;;,1]],0]],slotspos],
             Table[nil,Max[slotspos[[;;,1]],0]],
             sequence[pure/.slotsrule]
           ]
         ],
-      any:id["Function"][___]:>(Message[syntax::bad,tostring[any],"Function"];Throw["syntax"])
+      any:id["Function",_][___]:>(Message[syntax::bad,tostring[any],"Function"];Throw["syntax"])
     }},
     Fold[
       If[#2=={},Replace[#,functionrules],ReplacePart[#,#2->Replace[Extract[##],functionrules]]]&,
       code,
-      Reverse@SortBy[Length]@Position[code,id["Function"][___]]
+      Reverse@SortBy[Length]@Position[code,id["Function",_][___]]
     ]
   ]
 
 syntax[scope][code_]:=code//.{
-    id["Module"][list[vars___],expr_]:>(
-      scope[#[[;;,1]],sequence[sequence@@Cases[#,{var_,init:Except[nil]}:>id["Set"][id[var],init],{1}],expr]]&@
+    id["Module",p0_][list[_][vars___],expr_]:>(
+      scope[p0][#[[;;,1]],sequence[sequence@@Cases[#,{var_,init:Except[nil]}:>id["Set"][id[var],init],{1}],expr]]&@
         Replace[{vars},{
-          id[var_]:>{var,nil},
-          id["Set"][id[var_],init_]:>{var,init},
+          id[var_,_]:>{var,nil},
+          id["Set",_][id[var_,_],init_]:>{var,init},
           any_:>(Message[syntax::scopevar,tostring[any]];Throw["syntax"])
         },{1}])
   }/.{
-    any:id["Module"][___]:>(Message[syntax::bad,tostring[any],"Module"];Throw["syntax"])
+    any:id["Module",_][___]:>(Message[syntax::bad,tostring[any],"Module"];Throw["syntax"])
   }
 
 syntax[branch][code_]:=code//.{
-    id["If"][cond_,true_,false_]:>branchif[cond,sequence@true,sequence@false],
-    id["If"][cond_,true_]:>branchif[cond,sequence@true,sequence@id["Null"]],
-    id["Which"][any__/;EvenQ@Length@{any}]:>
-      branchwhich[native["_which_conditions"]@@(sequence/@{any}[[;;;;2]]),
-        Sequence@@(sequence/@{any}[[2;;;;2]])]
+    id["If",p0_][cond_,true_,false_]:>branchif[p0][cond,sequence@true,sequence@false],
+    id["If",p0_][cond_,true_]:>branchif[p0][cond,sequence@true,sequence@id["Null",0]](*,
+    id["Which",p0_][any__/;EvenQ@Length@{any}]:>
+      branchwhich[p0][native["_which_conditions"]@@(sequence/@{any}[[;;;;2]]),
+        Sequence@@(sequence/@{any}[[2;;;;2]])]*)
   }/.{
-    any:id["If"][___]:>(Message[syntax::bad,tostring[any],"If"];Throw["syntax"]),
-    any:id["Which"][___]:>(Message[syntax::bad,tostring[any],"Which"];Throw["syntax"])
+    any:id["If",_][___]:>(Message[syntax::bad,tostring[any],"If"];Throw["syntax"]),
+    any:id["Which",_][___]:>(Message[syntax::bad,tostring[any],"Which"];Throw["syntax"])
   }
 
 syntax[sequence][code_]:=code//.{
-    id["CompoundExpression"][exprs__]:>sequence[exprs]}//.{
+    id["CompoundExpression",_][exprs__]:>sequence[exprs]}//.{
     sequence[before___,sequence[exprs___],after___]:>sequence[before,exprs,after]}/.{
-    sequence[]:>sequence[id["Null"]]
+    sequence[]:>sequence[id["Null",0]]
   }
 
 syntax[assign][code_]:=code//.{
-    id["Set"][id[var_],expr_]:>assign[id[var],expr],
-    id["Set"][target:id["Part"][id[var_],specs___],expr_]:>assign[target,expr]
+    id["Set",p0_][target:id[_,_],expr_]:>assign[p0][target,expr],
+    id["Set",p0_][target:id["Part",_][id[_,_],___],expr_]:>assign[p0][target,expr]
   }/.{
-    any:id["Set"][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
+    any:id["Set",_][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
   }
 
 syntax[loopbreak][code_]:=Module[{heads,headspos,dopos},
@@ -250,13 +269,14 @@ syntax[loopbreak][code_]:=Module[{heads,headspos,dopos},
       If[Last@heads=!=sequence,
         Message[syntax::badbreak,tostring@Extract[code,Most@p]];Throw["syntax"],
         dopos=Select[
-          Extract[headspos,Position[heads,clause["Do"]]],
+          Extract[headspos,Position[heads,clause["Do",_]]],
           ReplacePart[#,-1->1]==p[[;;Length@#]]&];
         If[Length@dopos==0,
           Message[syntax::breakloc,tostring@Extract[code,Most@p]];Throw["syntax"],
-          code=ReplacePart[code,{Last[dopos]->clause["BreakDo"],p->break[]}];
+          code=ReplacePart[code,{Last[dopos]->
+            clause["BreakDo",Extract[code,Last[dopos]~Join~{0,2}]],p->break[]}];
       ]]
-    ,{p,Position[code,id["Break"][]]}];
+    ,{p,Position[code,id["Break",_][]]}];
     code//.{
         sequence[any___,break[]]:>sequence[any,break[],id["Null"]]
       }
@@ -266,7 +286,7 @@ $syntaxpasses={list,type,clause,mutable,function,scope,branch,sequence,assign,lo
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
-$builtinconstants=const/@
+$builtinconstants=
 <|
   "Null"       ->"null",
   "I"          ->"i",
@@ -284,7 +304,7 @@ $builtinconstants=const/@
   "Khinchin"   ->"khinchin"
 |>;
 
-$builtinfunctions=native/@
+$builtinfunctions=
 <|
 (* scope *)
     (*"Module"*)
@@ -481,20 +501,19 @@ headerseries[expr_,pos_]:=Table[Extract[expr,ReplacePart[Take[pos,n],-1->0]],{n,
 
 variablerename[code_]:=
   Module[{renamerules={
-      scope[ids_,expr_]:>
+      scope[p0_][ids_,expr_]:>
         Module[{vars=Table[newvar,Length@ids]},
           AppendTo[$variabletable,AssociationThread[vars->ids]];
-          scope[vars,expr/.Thread[(id/@ids)->(var/@vars)]]
+          scope[p0][vars,expr/.Thread[(id[#,p_]&/@ids)->(var[#,p]&/@vars)]]
         ],
-      function[ids_,types_,expr_]:>
+      function[p0_][ids_,types_,expr_]:>
         Module[{vars},
           vars=If[MatchQ[#,id[_,pack[_]]],newvarpack,newvar]&/@ids;
           (*AppendTo[$variabletable,AssociationThread[vars->ids]];*)
-          function[vars,types,
-            expr/.
-              MapThread[#1->If[
-                (Length[#]==1&&Count[headerseries[expr,#[[1]]],function]==0)&@
-                  Position[expr,#1],movvar,var][#2]&,{ids,vars}],
+          function[p0][vars,types,
+            expr/.MapThread[#1->If[
+              (Length[#]==1&&Count[headerseries[expr,#[[1]]],function]==0)&@
+                Position[expr,#1],movvar,var][#2]&,{ids/.id[n_]:>id[n,_],vars}],
             Sequence@@If[MemberQ[ids,id[_,pack[_]]],
               With[{var=newvar},{variadic[{var},{nil},expr/.{id[_,i_]:>argv[var,i]}]}],
               {}]
@@ -503,109 +522,109 @@ variablerename[code_]:=
       any_:>(Message[semantics::bad,tostring@any];Throw["semantics"])
     }},
     Fold[If[#2=={},Replace[#,renamerules],ReplacePart[#,#2->Replace[Extract[##],renamerules]]]&,
-      code,Most/@Reverse@SortBy[Length]@Position[code,function|scope]]
+      code,Most/@Reverse@SortBy[Length]@Position[code,function[_]|scope[_]]]
   ]
 
-listtoseq[expr_]:=Replace[expr,list[any___]:>Sequence[any]]
+listtoseq[expr_]:=Replace[expr,list[_][any___]:>Sequence[any]]
 
 functionmacro[code_]:=code//.{
-    id["ConstantArray"][val_,dims_]:>native["constant_array"][val,vargtag,listtoseq[dims]],
-    id["RandomInteger"][spec_,dims_]:>native["random_integer"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomInteger"][spec_]:>native["random_integer"][listtoseq[spec],vargtag],
-    id["RandomInteger"][]:>native["random_integer"][literal[1],vargtag],
-    id["RandomReal"][spec_,dims_]:>native["random_real"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomReal"][spec_]:>native["random_real"][listtoseq[spec],vargtag],
-    id["RandomReal"][]:>native["random_real"][literal[1],vargtag],
-    id["RandomComplex"][spec_,dims_]:>native["random_complex"][listtoseq[spec],vargtag,listtoseq[dims]],
-    id["RandomComplex"][spec_]:>native["random_complex"][listtoseq[spec],vargtag],
-    id["RandomComplex"][]:>native["random_complex"][id["Complex"][literal[1],literal[1]],vargtag],
-    id["RandomVariate"][dist_,dims_]:>native["random_variate"][dist,vargtag,listtoseq[dims]],
-    id["RandomVariate"][dist_]:>native["random_variate"][dist,vargtag],
-    id["RandomChoice"][array_,dims_]:>native["random_choice"][array,vargtag,listtoseq[dims]],
-    id["Count"][array_,id["PatternTest"][id["Blank"][],func_]]:>
-      native["count"][array,vargtag,func],
-    id["Count"][array_,id["PatternTest"][id["Blank"][],func_],list[literal[i_Integer]]]:>
-      native["count"][array,vargtag,func,const[i]],
-    id["Count"][array_,patt_,literal[i_Integer]]:>native["count"][array,patt,const[i]],
-    id["Total"][array_,literal[i_Integer]]:>native["total"][array,const[i]],
-    id["Total"][array_,list[literal[i_Integer]]]:>native["total"][array,const[i],const[i]],
-    id["Total"][array_,list[literal[i1_Integer],literal[i2_Integer]]]:>native["total"][array,const[i1],const[i2]],
-    id["Clip"][any_,list[min_,max_]]:>native["clip"][any,vargtag,min,max],
-    id["Clip"][any_,list[min_,max_],list[vmin_,vmax_]]:>native["clip"][any,vargtag,min,max,vmin,vmax],
-    id["Map"][func_,array_,list[literal[i_Integer]]]:>native["map"][func,array,const[i]],
-    id["Reverse"][array_,literal[i_Integer]]:>native["reverse"][array,const[i]],
-    id["ArrayReshape"][array_,dims_]:>native["array_reshape"][array,vargtag,listtoseq[dims]],
-    id["ArrayReshape"][array_,dims_,padding_]:>native["array_reshape"][array,padding,vargtag,listtoseq[dims]],
-    id["Fold"][func_,x_,id["Reverse"][y_]]:>native["foldr"][func,x,y],
-    id["Fold"][func_,id["Reverse"][y_]]:>native["foldr"][func,y],
-    id["FoldList"][func_,x_,id["Reverse"][y_]]:>native["foldr_list"][func,x,y],
-    id["FoldList"][func_,id["Reverse"][y_]]:>native["foldr_list"][func,y],
-    id["Apply"][func_,list[args___]]:>func[args],
-    id["Apply"][func_,array_,list[literal[i_Integer]]]:>native["apply"][func,array,const[i]],
-    id["MapThread"][func_,list[arrays__]]:>native["map_thread"][func,vargtag,arrays],
-    id["MapThread"][func_,list[arrays__],literal[i_Integer]]:>native["map_thread"][func,const[i],vargtag,arrays],
-    id["MapThread"][func_,array_,literal[i_Integer]]:>native["map_thread"][func,array,const[i]],
-    id["Part"][array_,specs___]:>id["Part"][array,
-      Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx"][literal[i-1]],{1}]],
-    id["Transpose"][array_,list[l:(literal[_Integer]..)]]:>
-      native["transpose"][array,Sequence@@(const/@{l}[[;;,1]])],
-    id["Flatten"][array_,literal[i_Integer]]:>
-      native["flatten"][array,
+    id["ConstantArray",p_][val_,dims_]:>native["constant_array",p][val,vargtag,listtoseq[dims]],
+    id["RandomInteger",p_][spec_,dims_]:>native["random_integer",p][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomInteger",p_][spec_]:>native["random_integer",p][listtoseq[spec],vargtag],
+    id["RandomInteger",p_][]:>native["random_integer",p][literal[1,0],vargtag],
+    id["RandomReal",p_][spec_,dims_]:>native["random_real",p][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomReal",p_][spec_]:>native["random_real",p][listtoseq[spec],vargtag],
+    id["RandomReal",p_][]:>native["random_real",p][literal[1,0],vargtag],
+    id["RandomComplex",p_][spec_,dims_]:>native["random_complex",p][listtoseq[spec],vargtag,listtoseq[dims]],
+    id["RandomComplex",p_][spec_]:>native["random_complex",p][listtoseq[spec],vargtag],
+    id["RandomComplex",p_][]:>native["random_complex",p][id["Complex"][literal[1,0],literal[1,0]],vargtag],
+    id["RandomVariate",p_][dist_,dims_]:>native["random_variate",p][dist,vargtag,listtoseq[dims]],
+    id["RandomVariate",p_][dist_]:>native["random_variate",p][dist,vargtag],
+    id["RandomChoice",p_][array_,dims_]:>native["random_choice",p][array,vargtag,listtoseq[dims]],
+    id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_]]:>native["count",p][array,vargtag,func],
+    id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_],list[literal[i_Integer]]]:>native["count",p][array,vargtag,func,const[i]],
+    id["Count",p_][array_,patt_,literal[i_Integer]]:>native["count",p][array,patt,const[i]],
+    id["Total",p_][array_,literal[i_Integer,_]]:>native["total",p][array,const[i]],
+    id["Total",p_][array_,list[_][literal[i_Integer,_]]]:>native["total",p][array,const[i],const[i]],
+    id["Total",p_][array_,list[_][literal[i1_Integer,_],literal[i2_Integer,_]]]:>native["total",p][array,const[i1],const[i2]],
+    id["Clip",p_][any_,list[_][min_,max_]]:>native["clip",p][any,vargtag,min,max],
+    id["Clip",p_][any_,list[_][min_,max_],list[_][vmin_,vmax_]]:>native["clip",p][any,vargtag,min,max,vmin,vmax],
+    id["Map",p_][func_,array_,list[_][literal[i_Integer,_]]]:>native["map",p][func,array,const[i]],
+    id["Reverse",p_][array_,literal[i_Integer,_]]:>native["reverse",p][array,const[i]],
+    id["ArrayReshape",p_][array_,dims_]:>native["array_reshape",p][array,vargtag,listtoseq[dims]],
+    id["ArrayReshape",p_][array_,dims_,padding_]:>native["array_reshape",p][array,padding,vargtag,listtoseq[dims]],
+    id["Fold",p_][func_,x_,id["Reverse",_][y_]]:>native["foldr",p][func,x,y],
+    id["Fold",p_][func_,id["Reverse",_][y_]]:>native["foldr",p][func,y],
+    id["FoldList",p_][func_,x_,id["Reverse",_][y_]]:>native["foldr_list",p][func,x,y],
+    id["FoldList",p_][func_,id["Reverse",_][y_]]:>native["foldr_list",p][func,y],
+    id["Apply",p_][func_,list[_][args___]]:>func[args],
+    id["Apply",p_][func_,array_,list[_][literal[i_Integer,_]]]:>native["apply",p][func,array,const[i]],
+    id["MapThread",p_][func_,list[_][arrays__]]:>native["map_thread",p][func,vargtag,arrays],
+    id["MapThread",p_][func_,list[_][arrays__],literal[i_Integer,_]]:>native["map_thread",p][func,const[i],vargtag,arrays],
+    id["MapThread",p_][func_,array_,literal[i_Integer,_]]:>native["map_thread",p][func,array,const[i]],
+    id["Part",p_][array_,specs___]:>id["Part",p][array,
+      Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx",0][literal[i-1,0]],{1}]],
+    id["Transpose",p_][array_,list[_][l:(literal[_Integer,_]..)]]:>native["transpose",p][array,Sequence@@(const/@{l}[[;;,1]])],
+    id["Flatten",p_][array_,literal[i_Integer,_]]:>
+      native["flatten",p][array,
         If[0<=i<$rankmaximum,consts@@Range[i+1],
-          (Message[semantics::bad,tostring@id["Flatten"][array,literal[i]]];Throw["semantics"])]],
-    id["Flatten"][array_,l:list[literal[_Integer]..]]:>id["Flatten"][array,list[l]],
-    id["Flatten"][array_,l:list[list[literal[_Integer]..]..]]:>
-      Module[{levels=l/.{list->List,literal->Identity},ints,maxlevel,out},
+          (Message[semantics::bad,tostring@id["Flatten"][array,literal[i,0]]];Throw["semantics"])]],
+    id["Flatten",p_][array_,l:list[_][literal[_Integer,_]..]]:>id["Flatten",p][array,list[l]],
+    id["Flatten",p_][array_,l:list[_][list[_][literal[_Integer,_]..]..]]:>
+      Module[{levels=l/.{list[_]->List,literal->(#1&)},ints,maxlevel,out},
         ints=Cases[levels,_Integer,-1];
         If[1<=Min[ints]&&(maxlevel=Max[ints])<=$rankmaximum&&DuplicateFreeQ[ints],
         out=Join[levels,List/@Complement[Range[maxlevel],ints]];
-        native[If[#==Range[Length@#]&@Flatten[out],"flatten_copy","flatten"]][
+        native[If[#==Range[Length@#]&@Flatten[out],"flatten_copy","flatten"],p][
           array,Sequence@@(consts@@@out)],
-        (Message[semantics::bad,tostring@id["Flatten"][array,l]];Throw["semantics"])]
+        (Message[semantics::bad,tostring@id["Flatten",p][array,l]];Throw["semantics"])]
       ],
-    id["Composition"][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
-    id["RightComposition"][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
-    id["Composition"][]:>native["identity"],
-    id["RightComposition"][]:>native["identity"],
-    id["NestWhile"][func_,expr_,test_,literal[i_Integer],id["Infinity"],any___]:>
-      native["nest_while"][func,expr,test,const[i],const["int_infinity"],any],
-    id["NestWhileList"][func_,expr_,test_,literal[i_Integer],id["Infinity"],any___]:>
-      native["nest_while_list"][func,expr,test,const[i],const["int_infinity"],any],
-    id["NestWhile"][func_,expr_,test_,literal[i_Integer],any___]:>
-      native["nest_while"][func,expr,test,const[i],any],
-    id["NestWhileList"][func_,expr_,test_,literal[i_Integer],any___]:>
-      native["nest_while_list"][func,expr,test,const[i],any],
-    id["FixedPoint"][any___,id["Rule"][id["SameTest"],pred_]]:>native["fixed_point"][any,vargtag,pred],
-    id["FixedPointList"][any___,id["Rule"][id["SameTest"],pred_]]:>native["fixed_point_list"][any,vargtag,pred],
-    id["AllTrue"][array_,test_,literal[i_Integer]]:>native["all_true"][array,test,const[i]],
-    id["AnyTrue"][array_,test_,literal[i_Integer]]:>native["any_true"][array,test,const[i]],
-    id["NoneTrue"][array_,test_,literal[i_Integer]]:>native["none_true"][array,test,const[i]],
-    id["Join"][any__,literal[i_Integer]]:>native["join"][const[i],any],
-    id["Position"][any_,id["PatternTest"][id["Blank"][],func_],list[literal[i_Integer]]]:>
-      native["position"][any,vargtag,func,const[i]],
-    id["Position"][any_,patt_,list[literal[i_Integer]]]:>native["position"][any,patt,const[i]],
-    id["Cases"][any_,id["PatternTest"][id["Blank"][],func_],list[literal[i_Integer]]]:>
-      native["cases"][any,vargtag,func,const[i]],
-    id["Cases"][any_,patt_,list[literal[i_Integer]]]:>native["cases"][any,patt,const[i]]
+    id["Composition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
+    id["RightComposition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
+    id["Composition",p_][]:>native["identity",p],
+    id["RightComposition",p_][]:>native["identity",p],
+    id["NestWhile",p_][func_,expr_,test_,literal[i_Integer,_],id["Infinity",_],any___]:>
+      native["nest_while",p][func,expr,test,const[i],const["int_infinity"],any],
+    id["NestWhileList",p_][func_,expr_,test_,literal[i_Integer,_],id["Infinity",_],any___]:>
+      native["nest_while_list",p][func,expr,test,const[i],const["int_infinity"],any],
+    id["NestWhile",p_][func_,expr_,test_,literal[i_Integer,_],any___]:>
+      native["nest_while",p][func,expr,test,const[i],any],
+    id["NestWhileList",p_][func_,expr_,test_,literal[i_Integer,_],any___]:>
+      native["nest_while_list",p][func,expr,test,const[i],any],
+    id["FixedPoint",p_][any___,id["Rule",_][id["SameTest",_],pred_]]:>native["fixed_point",p][any,vargtag,pred],
+    id["FixedPointList",p_][any___,id["Rule",_][id["SameTest",_],pred_]]:>native["fixed_point_list",p][any,vargtag,pred],
+    id["AllTrue",p_][array_,test_,literal[i_Integer,_]]:>native["all_true",p][array,test,const[i]],
+    id["AnyTrue",p_][array_,test_,literal[i_Integer,_]]:>native["any_true",p][array,test,const[i]],
+    id["NoneTrue",p_][array_,test_,literal[i_Integer,_]]:>native["none_true",p][array,test,const[i]],
+    id["Join",p_][any__,literal[i_Integer,_]]:>native["join",p][const[i],any],
+    id["Position",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
+      native["position",p][any,vargtag,func,const[i]],
+    id["Position",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["position",p][any,patt,const[i]],
+    id["Cases",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
+      native["cases",p][any,vargtag,func,const[i]],
+    id["Cases",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["cases",p][any,patt,const[i]]
   }
 
 arithmeticmacro[code_]:=code//.{
-    id["Plus"][x1_,x2_,xs__]:>id["Plus"][id["Plus"][x1,x2],xs],
-    id["Plus"][x1_,id["Times"][literal[-1],x2_]]:>id["Subtract"][x1,x2]
+    id["Plus",p_][x1_,x2_,xs__]:>id["Plus",p][id["Plus",0][x1,x2],xs],
+    id["Plus",p_][x1_,id["Times",_][literal[-1,_],x2_]]:>id["Subtract",p][x1,x2]
   }//.{
-    id["Times"][literal[-1],x_]:>id["Minus"][x]
+    id["Times",p_][literal[-1],x_]:>id["Minus",p][x]
   }//.{
-    id["Times"][x1_,x2_,xs__]:>id["Times"][id["Times"][x1,x2],xs],
-    id["Times"][x1_,id["Power"][x2_,literal[-1]]]:>id["Divide"][x1,x2]
+    id["Times",p_][x1_,x2_,xs__]:>id["Times",p][id["Times",0][x1,x2],xs],
+    id["Times",p_][x1_,id["Power",_][x2_,literal[-1,_]]]:>id["Divide",p][x1,x2]
   }//.{
-    id["Plus"][x___,id["Plus"][y___],z___]:>id["Plus"][x,y,z],
-    id["Times"][x___,id["Times"][y___],z___]:>id["Times"][x,y,z]
+    id["Plus",p_][x___,id["Plus",_][y___],z___]:>id["Plus",p][x,y,z],
+    id["Times",p_][x___,id["Times",_][y___],z___]:>id["Times",p][x,y,z]
   }
 
+builtinlookup[table_,key_,found_,notfound_]:=If[KeyExistsQ[table,key],found[table[key]],notfound[key]];
+
 resolvesymbols[code_]:=code//.{
-    id[func_][args___]:>Lookup[$builtinfunctions,func,id[func]][args]
+    id[func_,p_][args___]:>builtinlookup[$builtinfunctions,func,native[#,p]&,id[#,p]&][args]
   }/.{
-    id[any_]:>Lookup[$builtinconstants,any,Lookup[$builtinfunctions,any,id[any]]]
+    id[any_,p_]:>builtinlookup[$builtinconstants,any,const[#,p]&,
+      builtinlookup[$builtinfunctions,#,native[#,p]&,id[#,p]&]&]
   }
 
 lexicalorder[a_,b_]:=
@@ -616,10 +635,10 @@ lexicalorder[a_,b_]:=
 findinit[code_]:=
   Module[{sequencepos,scopevarpos,scopevar,initpos,initscopepos,refpos},
     sequencepos=Most/@Position[code,sequence];
-    scopevarpos=<|Catenate[Module[{p=Most[#]},#->Append[p,2]&/@Extract[code,Append[p,1]]]&/@Position[code,scope]]|>;
+    scopevarpos=<|Catenate[Module[{p=Most[#]},#->Append[p,2]&/@Extract[code,Append[p,1]]]&/@Position[code,scope[_]]]|>;
     scopevar=Keys[scopevarpos];
     initpos=First@Sort[#,lexicalorder]&/@
-      GroupBy[{Extract[code,Join[Most[#],{1,1}]],Most[#]}&/@Position[code,assign],First->Last];
+      GroupBy[{Extract[code,Join[Most[#],{1,1}]],Most[#]}&/@Position[code,assign[_]],First->Last];
     refpos=First@Sort[#,lexicalorder]&/@
       DeleteMissing@AssociationThread[scopevar->#/@scopevar]&@
         GroupBy[Module[{p=Most[#]},Extract[code,Append[p,1]]->p]&/@Position[code,var],First->Last];
@@ -640,79 +659,82 @@ semantics[code_]:=findinit@resolvesymbols@arithmeticmacro@functionmacro@variable
 
 
 nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]
-getargtypes[function[_,types_,__]]:=types
+getargtypes[function[_][_,types_,__]]:=types
 expandpack[var_String]:=If[StringTake[var,2]=="vp","...",""]
 anyispack[vars_List]:=AnyTrue[vars,StringTake[#,2]=="vp"&]
+
+annotateindex[p_Integer/;p>0]:="/*"<>ToString[p]<>"*/"
+annotateindex[___]:="/**/"
+removeannotateindex[code_String]:=StringDelete[code,"/*"~~Shortest[___]~~"*/"]
 
 codegen[args[vars_,types_],___]:=
   MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
 codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString[i-1]<>")"
 codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString[i-1]<>")"
 
-codegen[function[vars_,types_,sequence[exprs___]],any___]:=
-  {"[&](",Riffle[If[!anyispack[vars],Append[#,"auto&&..."],#]&@codegen[args[vars,types]],", "],")",
+codegen[function[p_][vars_,types_,sequence[exprs___]],any___]:=
+  {annotateindex[p],"[&](",
+    Riffle[If[!anyispack[vars],Append[#,"auto&&..."],#]&@codegen[args[vars,types]],", "],")",
     codegen[sequence[exprs],If[{any}=={"Scope"},"Scope","Return"]]}
-codegen[variadic[vars_,types_,sequence[exprs___]],___]:=
-  {"[&](",Riffle[codegen[args[vars,types]],", "],")",codegen[sequence[exprs],"Return"]}
-codegen[function[vars_,types_,sequence[exprs___],variadic[specs___]],___]:=
-  codegen[native["variadic"][function[vars,types,sequence[exprs]],variadic[specs]]]
+codegen[variadic[p_][vars_,types_,sequence[exprs___]],___]:=
+  {annotateindex[p],"[&](",Riffle[codegen[args[vars,types]],", "],")",codegen[sequence[exprs],"Return"]}
+codegen[function[p_][vars_,types_,sequence[exprs___],variadic[specs___]],___]:=
+  codegen[native["variadic",p][function[p][vars,types,sequence[exprs]],variadic[p][specs]]]
 
-codegen[scope[_,sequence[exprs___]],any___]:=codegen[sequence[exprs],any]
+codegen[scope[p_][_,sequence[exprs___]],any___]:={annotateindex[p],codegen[sequence[exprs],any]}
 
-codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native["val"][expr]]}
+codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native["val",0][expr]]}
 
-codegen[assign[var_,expr_],___]:=codegen[native["set"][var,expr]]
+codegen[assign[p_][var_,expr_],___]:=codegen[native["set",p][var,expr]]
 
-codegen[literal[s_String],___]:="std::string("<>ToString@CForm[s]<>")"
-codegen[literal[i_Integer],___]:="int64_t("<>ToString@CForm[i]<>")"
-codegen[literal[r_Real],___]:=ToString@CForm[r]
-codegen[const[i_Integer],___]:="wl::const_int<"<>ToString@CForm[i]<>">{}"
-codegen[c:consts[(_Integer)..],___]:="wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">{}"
-codegen[const[s_String],___]:="wl::const_"<>s
+codegen[literal[s_String,p_],___]:={annotateindex[p],"std::string("<>ToString@CForm[s]<>")"}
+codegen[literal[i_Integer,p_],___]:={annotateindex[p],"int64_t("<>ToString@CForm[i]<>")"}
+codegen[literal[r_Real,p_],___]:={annotateindex[p],ToString@CForm[r]}
+codegen[const[i_Integer],___]:={annotateindex[],"wl::const_int<"<>ToString@CForm[i]<>">{}"}
+codegen[c:consts[(_Integer)..],___]:={annotateindex[],"wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">{}"}
+codegen[const[s_String,p___],___]:={annotateindex[p],"wl::const_"<>s}
 
-codegen[native[name_],"Function"]:="wl::"<>name
-codegen[native[name_],___]:="WL_FUNCTION(wl::"<>name<>")"
+codegen[native[name_,p_],"Function"]:={annotateindex[p],"wl::"<>name}
+codegen[native[name_,p_],___]:={annotateindex[p],"WL_FUNCTION(wl::"<>name<>")"}
 
-codegen[vargtag,___]:="wl::varg_tag{}"
-codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"
+codegen[vargtag,___]:={annotateindex[],"wl::varg_tag{}"}
+(*codegen[leveltag[l_Integer],___]:="wl::level_tag<"<>ToString@CForm[l]<>">{}"*)
 
-codegen[clause[type_][func_,{iters___}],___]:={
-    "wl::clause_"<>nativename[type],"(",
+codegen[clause[type_,p_][func_,{iters___}],___]:={
+    annotate[p],"wl::clause_"<>nativename[type],"(",
     codegen[func,If[type=="Do"||type=="BreakDo","Scope","Return"]],",",
     Riffle[codegen[#,"Return"]&/@{iters},", "],")"}
-codegen[iter[expr___],___]:=codegen[native["iterator"][expr]]
-codegen[variter[expr___],___]:=codegen[native["var_iterator"][expr]]
 
 codegen[type[t_String],___]:=t
 codegen[type["array"[t_,r_]],___]:="wl::ndarray<"<>t<>", "<>ToString[r]<>">"
-codegen[typed[any_],___]:=codegen[type[any]]<>"{}"
+codegen[typed[p_][any_],___]:={annotateindex[p],codegen[type[any]]<>"{}"}
 
-codegen[var[name_],___]:=name<>expandpack[name]
-codegen[movvar[name_],___]:="WL_PASS("<>name<>")"<>expandpack[name]
-codegen[id[name_],___]:=(Message[semantics::undef,name];Throw["semantics"])
+codegen[var[name_,p___],___]:={annotateindex[p],name<>expandpack[name]}
+codegen[movvar[name_,p___],___]:={annotateindex[p],"WL_PASS("<>name<>")"<>expandpack[name]}
+codegen[id[name_,___],___]:=(Message[semantics::undef,name];Throw["semantics"])
 
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]
 codegen[sequence[expr___],"Scope"]:={"{",({codegen[#],";"}&/@{expr}),"}"}
 codegen[sequence[most___,initialize[var_,expr_]],"Return"]:=codegen[sequence[most,initialize[var,expr],var],"Return"]
-codegen[sequence[most___,last_],"Return"]:={"{",({codegen[#],";"}&/@{most}),"return ",codegen[native["val"][last]],";","}"}
+codegen[sequence[most___,last_],"Return"]:={"{",({codegen[#],";"}&/@{most}),"return ",codegen[native["val",0][last]],";","}"}
 codegen[sequence[expr___],"Hold"]:={"[&]",codegen[sequence[expr],"Return"]}
 codegen[sequence[expr___],___]:={codegen[sequence[expr],"Hold"],"()"}
 
-codegen[branchif[cond_,expr1_,expr2_],___]:=
-  codegen[native["branch_if"][cond,expr1,expr2],"Hold"]
-codegen[branchwhich[conds_,cases__],___]:=
-  codegen[native["which"][conds,cases],"Hold"]
+codegen[branchif[p_][cond_,expr1_,expr2_],___]:=
+  codegen[native["branch_if",p][cond,expr1,expr2],"Hold"]
+(*codegen[branchwhich[conds_,cases__],___]:=
+  codegen[native["which"][conds,cases],"Hold"]*)
 codegen[break[]]:="throw wl::loop_break{}"
 
-codegen[list[any___],___]:=codegen[native["list"][any]]
+codegen[list[p_][any___],___]:=codegen[native["list",p][any]]
 
 codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
-codegen[native[name_][args___],any___]:={codegen[native[name],"Function"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
+codegen[native[name_,p_][args___],any___]:={codegen[native[name,p],"Function"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
 
-codegen[any_,rest___]:=(Message[codegen::bad,tostring[any]];Throw["codegen"])
+codegen[any_,rest___]:=(Message[codegen::bad,tostring[any]];"<codegen>")
 
-initcodegen[function[vars_,types_,expr_]]:=
-  Flatten@{"auto main_function(",Riffle[codegen[args[vars,types]],", "],")",codegen[expr,"Return"]}
+initcodegen[function[p_][vars_,types_,expr_]]:=
+  Flatten@{annotateindex[p],"auto main_function(",Riffle[codegen[args[vars,types]],", "],")",codegen[expr,"Return"]}
   
 codeformat[segments_List]:=
   StringRiffle[#,{"","\n","\n"}]&@
@@ -763,6 +785,7 @@ loadfunction[libpath_String,funcid_String,args_]:=
   ]
 
 
+$boilerplatelength=21;
 $template="
 #include \"librarylink.h\"
 
@@ -852,7 +875,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       Message[link::noheader];Return[$Failed]];
     mldir=$InstallationDirectory<>
       "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
-    lib=CCompilerDriver`CreateLibrary[
+    lib=Quiet@CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
       "Language"->"C++",
       "CompileOptions"->
@@ -868,7 +891,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "ShellOutputFunction"->((MathCompile`$CompilerOutput=#)&)
     ];
     If[lib===$Failed,Message[link::genfail];Return[$Failed]];
-    LoadedFunction[#["Function"],uncompiled,#["ReturnByLink"]]&@
+    If[#["ReturnByLink"],IndirectReturn[#["Function"]],#["Function"]]&@
       loadfunction[lib,funcid,f["types"]]
   ]
 
@@ -897,34 +920,26 @@ $debugcompileroptions=<|
 |>
 
 
-print[id["Set"][x_,y_]]:=RowBox[{print@x,"=",print@y}]
-print[id["List"][args___]]:=RowBox[Join[{"{"},Riffle[print/@{args},","],{"}"}]]
-print[id["Plus"][args__/;Length@{args}>=2]]:=RowBox[Join[{"("},Riffle[print/@{args},"+"],{")"}]]
-print[id["Times"][args__/;Length@{args}>=2]]:=RowBox[Join[{"("},Riffle[print/@{args},"\[Cross]"],{")"}]]
-print[id["Power"][x_,y_]]:=SuperscriptBox[print@x,print@y]
-print[native[any_][args___]]:=RowBox[Join[{any,"["},Riffle[print/@{args},","],{"]"}]]
-print[native[any_]]:=any
-print[typed[any_]]:=RowBox[{"Typed","[",ToString[any],"]"}]
-print[id["Slot"][x_]]:=RowBox[{"#",print@x}]
-print[head_[args___]]:=RowBox[Join[{print@head,"["},Riffle[print/@{args},","],{"]"}]]
-print[id[id_String]]:=id
-print[var[var_String]]:=var
-print[movvar[var_String]]:=RowBox[{"move","(",var,")"}]
-print[literal[literal_]]:=ToString@CForm@literal
-print[list[args___]]:=RowBox[Join[{"{"},Riffle[print/@{args},","],{"}"}]]
-print[iter[spec__]]:=RowBox[Join[{"Iterator","["},Riffle[print/@{spec},","],{"]"}]]
-print[variter[spec__]]:=RowBox[Join[{"Iterator","["},Riffle[(print/@{spec}),","],{"]"}]]
-print[clause[type_][func_,iters_List]]:=RowBox[{type,"[",print[func],",",print[list@@iters],"]"}]
-print[mutable[type_][var_,expr_]]:=print@id[type][var,expr]
-print[function[args_,types_,expr_]]:=RowBox[{"Function","[",print[list@@(id/@args)],",",print[expr],"]"}]
-print[scope[vars_,expr_]]:=RowBox[{"Module","[",print[list@@(id/@vars)],",",print[expr],"]"}]
-print[branch[cond_,true_,false_]]:=print@id["If"][cond,true,false];
-print[sequence[exprs__]]:=RowBox[Join[{"("},Riffle[(print/@{exprs}),";"],{")"}]]
-print[assign[var_,expr_]]:=RowBox[{print@var,"=",print@expr}]
-print[initialize[var_,expr_]]:=RowBox[{print@var,"=",print@expr}]
+print[id[id_String,_]]:=id
+print[literal[literal_,_]]:=ToString@CForm@literal
+print[head_[args___]]:={print@head,"[",Riffle[print/@{args},","],"]"}
+
+print[native[any_,_][args___]]:={any,"[",Riffle[print/@{args},","],"]"}
+print[native[any_,_]]:=any
+print[typed[_][any_]]:={"Typed","[",ToString[any],"]"}
+print[var[var_String,_]]:=var
+print[movvar[var_String,_]]:={"WL_PASS","(",var,")"}
+print[list[_][args___]]:={"{",Riffle[print/@{args},","],"}"}
+print[clause[type_,_][func_,iters_List]]:={type,"[",print[func],",",print[list@@iters],"]"}
+print[function[_][args_,types_,expr_]]:={"Function","[",print[list@@(id/@args)],",",print[expr],"]"}
+print[scope[_][vars_,expr_]]:={"Module","[",print[list@@(id/@vars)],",",print[expr],"]"}
+print[branchif[_][cond_,true_,false_]]:=print[id["If"][cond,true,false]];
+print[sequence[exprs__]]:={"(",Riffle[(print/@{exprs}),";"],")"}
+print[assign[_][var_,expr_]]:={print@var,"=",print@expr}
+print[initialize[var_,expr_]]:={print@var,"=",print@expr}
 print[any_]:=any
 
-tostring[any_]:=ToString@DisplayForm[print[any]]
+tostring[any_]:=StringJoin@Flatten@print[any]
 
 
 End[];

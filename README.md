@@ -34,7 +34,7 @@ cf[{1,2,3,4}]    (* gives 24 *)
 Without a C++ compiler, you can still check the intermediate C++ code using `CompileToCode`:
 ```
 CompileToCode[
-  Function[{Typed[x,{Integer,1}]},Apply[Times,x]];
+  Function[{Typed[x,{Integer,1}]},Apply[Times,x]]
 ]
 ```
 The result is a C++ function named `main_function`:

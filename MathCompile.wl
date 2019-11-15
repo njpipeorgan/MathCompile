@@ -21,6 +21,14 @@ $CppSource="";
 $CompilerOutput="";
 
 
+parse
+syntax
+semantics
+codegen
+link
+cxx
+
+
 Begin["`Private`"];
 
 
@@ -60,7 +68,7 @@ compile[code_]:=
   Module[{parsed,sourceidx,precodegen,output,types,error},
     $variabletable=Association[];
     error=Catch[
-        $sourceptr=2;
+        $sourceptr=1;
         parsed=parse[code];
         precodegen=semantics@allsyntax@parsed;
         types=getargtypes[precodegen];
@@ -79,13 +87,12 @@ newvar:=SymbolName@Unique["v"]
 newvarpack:=SymbolName@Unique["vp"]
 
 
-$sourceptr=0;
-
 parse[Hold[head_[args___]]]:=
-  Module[{parsehead,parseargs={}},
+  Module[{parsehead,arglist,parseargs={}},
     parsehead=parse[Hold[head]];
-    Scan[($sourceptr+=1;AppendTo[parseargs,parse[#]];)&,Hold/@Hold[args]];
-    $sourceptr+=1;
+    arglist=List@@(Hold/@Hold[args]);
+    parseargs=($sourceptr++;parse[#])&/@arglist;
+    $sourceptr+=If[Length[arglist]==0,2,1];
     parsehead@@parseargs
   ]
 parse[Hold[s_Symbol]]:=
@@ -952,11 +959,20 @@ $compilererrorparser=<|
     Flatten[{
         StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
         StringCases[#,"error: "~~err___:>err]
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
+  CCompilerDriver`IntelCompiler`IntelCompiler->Function[{id},
+    Flatten[{
+        StringCases[#,"at line "~~l:(DigitCharacter ..)~~" of \""~~___~~id<>".c\"":>FromDigits@l],
+        StringCases[#,": error: "~~err___:>err]
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->Function[{id},
+    Flatten[{
+        StringCases[#,id<>".c("~~l:(DigitCharacter ..)~~")":>FromDigits@l],
+        StringCases[#,": error "~~err___:>err]
       }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]]
 |>
 emitcompilererrors[wlsrc_,parsed_List]:=
   Module[{cxxsrc,srcrange,errors,message,position,srcpart},
-  Echo@wlsrc;
     cxxsrc=StringSplit[$CppSource,"\n"];
     srcrange=MinMax[Flatten@Position[cxxsrc,_String?(StringTake[#,UpTo[2]]=="/*"&)]];
     errors=DeleteCases[parsed,l_Integer/;!Between[l,srcrange]];
@@ -967,21 +983,21 @@ emitcompilererrors[wlsrc_,parsed_List]:=
         cxxsrc[[#]],"/*\\"~~("b"|"e"|"n")~~(l:Shortest[___])~~"*/":>"0"<>l]&,
       errors,{;;,2}];
     Do[
-      message=error[[1]];
+      message=If[StringLength[#]>80,StringTake[#,{1,77}]<>"...",#]&@error[[1]];
       position=error[[2]];
       If[position=!=0,
-        srcpart={
+        srcpart=StringTake[ToString@CForm[#],{2,-2}]&/@{
           StringTake[wlsrc,{Max[1,position-30],position-1}],
-          StringTake[wlsrc,{Echo@position,position}],
+          StringTake[wlsrc,{position,position}],
           StringTake[wlsrc,{position+1,Min[StringLength[wlsrc],position+30]}]};
-        Message[cxx::error,"\!\(\(\"..."<>srcpart[[1]]<>"\"\!\(\""<>srcpart[[2]]<>"\"\+\"\[FilledUpTriangle]\"\)\""<>srcpart[[3]]<>"...\"\)\+\""<>message<>"\"\)"],
+        Message[cxx::error,"\!\(\(\"..."<>srcpart[[1]]<>"\"\!\(\""<>srcpart[[2]]<>"\"\+\"\[And]\"\)\""<>srcpart[[3]]<>"...\"\)\+\""<>message<>"\"\)"],
         Message[cxx::error,message<>" (cannot be located)"]
       ]
     ,{error,errors}]
   ]
 
 
-print[id[id_String,_]]:=id
+print[id[id_String,___]]:=id
 print[literal[literal_,_]]:=ToString@CForm@literal
 print[head_[args___]]:={print@head,"[",Riffle[print/@{args},","],"]"}
 

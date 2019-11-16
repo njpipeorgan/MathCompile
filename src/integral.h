@@ -31,15 +31,17 @@ namespace wl
 template<typename X>
 auto even_q(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
-        static_assert(is_real_v<XV>, "badargtype");
         if constexpr (is_integral_v<XV>)
             return boolean((x & XV(1)) == XV(0));
-        else
+        else if constexpr (is_float_v<XV>)
             return boolean(std::fmod(x, XV(2)) == XV(0));
+        else
+            return const_false;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
@@ -47,15 +49,17 @@ auto even_q(X&& x)
 template<typename X>
 auto odd_q(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
-        static_assert(is_real_v<XV>, "badargtype");
         if constexpr (is_integral_v<XV>)
             return boolean((x & XV(1)) == XV(1));
-        else
+        else if constexpr (is_float_v<XV>)
             return boolean(std::fmod(x, XV(2)) == std::copysign(XV(1), x));
+        else
+            return const_false;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
@@ -63,13 +67,13 @@ auto odd_q(X&& x)
 template<typename X, typename Y>
 auto divisible(X&& x, Y&& y)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
+        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x, const auto& y)
     {
         using XV = remove_cvref_t<decltype(x)>;
         using YV = remove_cvref_t<decltype(y)>;
-        static_assert(is_real_v<XV> && is_real_v<YV>, "badargtype");
+        static_assert(is_real_v<XV> && is_real_v<YV>, WL_ERROR_REAL_TYPE_ARG);
         if constexpr (is_integral_v<XV> && is_integral_v<YV>)
         {
             using C = std::conditional_t<
@@ -152,7 +156,8 @@ inline uint64_t _lucas_l(uint64_t n)
 template<typename X>
 auto fibonacci(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -181,7 +186,8 @@ auto fibonacci(X&& x)
 template<typename X>
 auto lucas_l(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;

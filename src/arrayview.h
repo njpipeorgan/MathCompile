@@ -114,7 +114,7 @@ size_t convert_index(const IndexType& idx, const size_t& dim)
     }
     else
     {
-        static_assert(is_integral_v<IndexType>, "internal");
+        static_assert(is_integral_v<IndexType>, WL_ERROR_INTERNAL);
         ptrdiff_t pos_idx = idx >= 0 ?
             idx : idx + ptrdiff_t(dim) + 1;
         if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
@@ -290,9 +290,9 @@ struct span
     static constexpr auto default_end = std::is_same_v<End, all_type>;
     static constexpr auto default_step = std::is_same_v<Step, all_type>;
 
-    static_assert(default_begin || is_integral_v<Begin>, "badargtype");
-    static_assert(default_end || is_integral_v<End>, "badargtype");
-    static_assert(default_step || is_integral_v<Step>, "badargtype");
+    static_assert((default_begin || is_integral_v<Begin>) &&
+        (default_end || is_integral_v<End>) &&
+        (default_step || is_integral_v<Step>), WL_ERROR_INTEGRAL_TYPE_ARG);
 
     Begin begin_;
     End end_;
@@ -405,8 +405,8 @@ auto make_indexer(const span<Begin, End, Step>& s, size_t dim)
 template<typename IndexType, size_t Rank>
 auto make_indexer(const ndarray<IndexType, Rank>& list, size_t dim)
 {
-    static_assert(Rank == 1u, "badargtype");
-    static_assert(is_integral_v<IndexType>, "badidxtype");
+    static_assert(Rank == 1u && is_integral_v<IndexType>,
+        WL_ERROR_INDEXER_LIST);
     return list_indexer(list.begin(), list.end(), dim);
 }
 
@@ -419,7 +419,7 @@ auto make_indexer(const IndexType& index, size_t dim)
         return scalar_indexer(index, dim);
     else
     {
-        static_assert(is_integral_v<IndexType>, "badidxtype");
+        static_assert(is_integral_v<IndexType>, WL_ERROR_INDEXER_SCALAR);
         return scalar_indexer(index, dim);
     }
 }
@@ -457,7 +457,7 @@ struct simple_view
         const _base_dims_t& base_dims, const Specs&... specs) :
         identifier_{base_id}, size_{1u}
     {
-        static_assert(sizeof...(Specs) == ArrayRank, "internal");
+        static_assert(sizeof...(Specs) == ArrayRank, WL_ERROR_INTERNAL);
         this->_initialize<0u>(specs...);
         this->data_ = base_data + 
             utils::linear_position(base_dims, specs.offset()...);
@@ -468,12 +468,14 @@ struct simple_view
     {
         if constexpr (Level < ArrayRank - ViewRank)
         {
-            static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
+            static_assert(std::is_same_v<Spec1, scalar_indexer>,
+                WL_ERROR_INTERNAL);
             this->_initialize<Level + 1u>(specs...);
         }
         else
         {
-            static_assert(!std::is_same_v<Spec1, scalar_indexer>, "internal");
+            static_assert(!std::is_same_v<Spec1, scalar_indexer>,
+                WL_ERROR_INTERNAL);
             constexpr size_t ViewLevel = Level - (ArrayRank - ViewRank);
             this->dims_[ViewLevel] = spec1.size();
             this->size_ *= this->dims_[ViewLevel];
@@ -696,7 +698,7 @@ struct regular_view
         const _base_dims_t& base_dims, const Specs&... specs) :
         identifier_{base_id}, size_{1u}
     {
-        static_assert(sizeof...(Specs) == ArrayRank, "internal");
+        static_assert(sizeof...(Specs) == ArrayRank, WL_ERROR_INTERNAL);
         this->stride_ = 1;
         this->_initialize<0u>(base_dims, specs...);
         this->data_ = base_data +
@@ -709,12 +711,14 @@ struct regular_view
     {
         if constexpr (Level < ArrayRank - ViewRank - StrideRank)
         {
-            static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
+            static_assert(std::is_same_v<Spec1, scalar_indexer>,
+                WL_ERROR_INTERNAL);
             this->_initialize<Level + 1>(dims, specs...);
         }
         else if constexpr (Level < ArrayRank - StrideRank)
         {
-            static_assert(!std::is_same_v<Spec1, scalar_indexer>, "internal");
+            static_assert(!std::is_same_v<Spec1, scalar_indexer>,
+                WL_ERROR_INTERNAL);
             constexpr size_t ViewLevel = Level -
                 (ArrayRank - ViewRank - StrideRank);
             this->dims_[ViewLevel] = spec1.size();
@@ -726,7 +730,8 @@ struct regular_view
         }
         else
         {
-            static_assert(std::is_same_v<Spec1, scalar_indexer>, "internal");
+            static_assert(std::is_same_v<Spec1, scalar_indexer>,
+                WL_ERROR_INTERNAL);
             this->stride_ *= dims[Level];
             if constexpr (Level < ArrayRank - 1u)
                 _initialize<Level + 1u>(dims, specs...);
@@ -808,7 +813,8 @@ struct regular_view
 template<typename T, size_t ArrayRank, size_t ViewRank, size_t StrideRank, typename IndexersTuple, bool Const>
 struct general_view
 {
-    static_assert(ViewRank == std::tuple_size_v<IndexersTuple>, "internal");
+    static_assert(ViewRank == std::tuple_size_v<IndexersTuple>,
+        WL_ERROR_INTERNAL);
 
     static constexpr auto is_const = Const;
     static constexpr auto array_rank = ArrayRank;
@@ -843,7 +849,8 @@ struct general_view
         const _base_dims_t& base_dims, Specs&&... specs) :
         identifier_{base_id}, size_{1u}
     {
-        static_assert(sizeof...(Specs) == ArrayRank, "internal");
+        static_assert(sizeof...(Specs) == ArrayRank,
+            WL_ERROR_INTERNAL);
         this->_initialize<0u, 0u>(
             base_dims, std::forward<decltype(specs)>(specs)...);
         this->data_ = base_data +
@@ -1071,7 +1078,8 @@ auto _data_coverage(const View& view)
         return std::make_pair(view.data(), view.data() + view.size() - 1u);
     else
     {
-        static_assert(View::category == view_category::Regular, "internal");
+        static_assert(View::category == view_category::Regular,
+            WL_ERROR_INTERNAL);
         return std::make_pair(view.data(),
             view.data() + (view.size() - 1u) * view.stride() +
             (view.stride() > 0 ? 1 : -1));

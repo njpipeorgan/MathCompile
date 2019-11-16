@@ -32,7 +32,8 @@ namespace wl
 template<typename X>                                                        \
 WL_INLINE auto name(X&& x)                                                  \
 {                                                                           \
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,                   \
+        WL_ERROR_NUMERIC_ONLY);                                             \
     return utils::listable_function([](auto x) {                            \
             using PX = promote_integral_t<decltype(x)>;                     \
             return expr;                                                    \
@@ -43,8 +44,8 @@ WL_INLINE auto name(X&& x)                                                  \
 template<typename X, typename Y>                                            \
 WL_INLINE auto name(X&& x, Y&& y)                                           \
 {                                                                           \
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");    \
-    static_assert(is_numerical_type_v<remove_cvref_t<Y>>, "badargtype");    \
+    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&                 \
+        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);     \
     return utils::listable_function([](auto x, auto y) {                    \
             using PX = promote_integral_t<decltype(x)>;                     \
             using PY = promote_integral_t<decltype(y)>;                     \

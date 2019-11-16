@@ -116,7 +116,7 @@ struct link_t
         else if constexpr (is_string_v<T>)
             noerror = MLPutString(link_, val.c_str());
         else
-            static_assert(always_false_v<T>, "badargtype");
+            static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
         if (!noerror)
             this->failed();
         return *this;

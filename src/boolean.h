@@ -41,7 +41,7 @@ auto bool_and(X&& x, Y&& y)
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_and)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
-            is_boolean_v<remove_cvref_t<Y>>, "badargtype");
+            is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x && y;
     }
 }
@@ -64,7 +64,7 @@ auto bool_or(X&& x, Y&& y)
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_or)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
-            is_boolean_v<remove_cvref_t<Y>>, "badargtype");
+            is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x || y;
     }
 }
@@ -87,7 +87,7 @@ auto bool_xor(X&& x, Y&& y)
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_xor)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
-            is_boolean_v<remove_cvref_t<Y>>, "badargtype");
+            is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x ^ y;
     }
 }
@@ -117,8 +117,8 @@ auto bool_xnor(Args&&... args)
 template<typename Ret = int64_t, typename X>
 auto boole(X&& x)
 {
-    static_assert(is_boolean_type_v<remove_cvref_t<X>>, "badargtype");
-    static_assert(is_arithmetic_v<Ret>, "badrettype");
+    static_assert(is_boolean_type_v<remove_cvref_t<X>>, WL_ERROR_BOOLEAN_ARG);
+    static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
     auto pure = [](boolean x) { return Ret(x); };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
 }
@@ -129,7 +129,7 @@ auto bit_not(X&& x)
     auto pure = [](auto x)
     {
         using XV = decltype(x);
-        static_assert(is_integral_v<XV>, "badargtype");
+        static_assert(is_integral_v<XV>, WL_ERROR_INTEGRAL_TYPE_ARG);
         return XV(~x);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
@@ -141,7 +141,7 @@ auto bit_length(X&& x)
     auto pure = [](auto x)
     {
         using XV = decltype(x);
-        static_assert(is_integral_v<XV>, "badargtype");
+        static_assert(is_integral_v<XV>, WL_ERROR_INTEGRAL_TYPE_ARG);
         if constexpr (std::is_unsigned_v<XV>)
             return Ret(64) - Ret(utils::_lzcnt(x));
         else
@@ -158,7 +158,8 @@ auto bit_and(X&& x, Y&& y)
     {
         using XV = remove_cvref_t<X>;
         using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>, "badargtype");
+        static_assert(is_integral_v<XV> && is_integral_v<YV>,
+            WL_ERROR_INTEGRAL_TYPE_ARG);
         using C = common_type_t<XV, YV>;
         return C(C(x) & C(y));
     }
@@ -175,7 +176,8 @@ auto bit_or(X&& x, Y&& y)
     {
         using XV = remove_cvref_t<X>;
         using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>, "badargtype");
+        static_assert(is_integral_v<XV> && is_integral_v<YV>,
+            WL_ERROR_INTEGRAL_TYPE_ARG);
         using C = common_type_t<XV, YV>;
         return C(C(x) | C(y));
     }
@@ -192,7 +194,8 @@ auto bit_xor(X&& x, Y&& y)
     {
         using XV = remove_cvref_t<X>;
         using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>, "badargtype");
+        static_assert(is_integral_v<XV> && is_integral_v<YV>,
+            WL_ERROR_INTEGRAL_TYPE_ARG);
         using C = common_type_t<XV, YV>;
         return C(C(x) ^ C(y));
     }
@@ -210,7 +213,7 @@ auto _bit_shift_impl(X&& x, Y&& y)
         using XV = decltype(x);
         using YV = decltype(y);
         static_assert(is_integral_v<XV> && is_integral_v<YV>,
-            "badargtype");
+            WL_ERROR_INTEGRAL_TYPE_ARG);
         if constexpr (ShiftLeft)
         {
             return (std::is_unsigned_v<YV> || y >= YV(0)) ? XV(x << y) :

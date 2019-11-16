@@ -98,7 +98,7 @@ numericarray_data_t get_numeric_array_type()
     else if constexpr (std::is_same_v<T, complex<double>>)
         return MNumericArray_Type_Complex_Real64;
     else
-        static_assert(always_false_v<T>, "badtype");
+        static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
 }
 
 template<typename T, size_t R>
@@ -203,7 +203,7 @@ auto get(MArgument arg)
     }
     else
     {
-        static_assert(always_false_v<T>, "internal");
+        static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
         return 0;
     }
 }
@@ -320,7 +320,7 @@ void set(MArgument& res, const T& val)
     }
     else
     {
-        static_assert(always_false_v<T>, "internal");
+        static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
     }
 }
 

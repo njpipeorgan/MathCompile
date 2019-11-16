@@ -65,7 +65,7 @@ auto _clause_impl(Skip& skip_flag,
 template<typename Fn, typename... Iters>
 auto clause_do(Fn fn, const Iters&... iters)
 {
-    static_assert(sizeof...(Iters) >= 1, "internal");
+    static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
     wl::void_type skip_flag;    // skip flag is not used
     _clause_impl(skip_flag, fn, iters...);
     return wl::void_type{};
@@ -74,7 +74,7 @@ auto clause_do(Fn fn, const Iters&... iters)
 template<typename Fn, typename... Iters>
 auto clause_break_do(Fn fn, const Iters&... iters)
 {
-    static_assert(sizeof...(Iters) >= 1, "internal");
+    static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
     wl::void_type skip_flag;    // skip flag is not used
     try
     {
@@ -90,22 +90,24 @@ template<typename Fn, typename... Iters>
 auto clause_table(Fn fn, const Iters&... iters)
 {
     constexpr auto outer_rank = sizeof...(iters);
-    static_assert(outer_rank >= 1u, "internal");
+    static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
-    static_assert(is_numerical_type_v<InnerType>, "badargtype");
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
 
     if (outer_size == 0u)
     {
-        if constexpr (is_arithmetic_v<InnerType>)
-            return ndarray<InnerType, outer_rank>(outer_dims);
+        if constexpr (array_rank_v<InnerType> == 0u)
+            return ndarray<InnerType, outer_rank>{};
         else
-            throw std::logic_error("badvalue");
+        {
+            return ndarray<value_type_t<InnerType>,
+                outer_rank + array_rank_v<InnerType>>{};
+        }
     }
     else
     {
-        if constexpr (is_arithmetic_v<InnerType>)
+        if constexpr (array_rank_v<InnerType> == 0u)
         {
             ndarray<InnerType, outer_rank> ret(outer_dims);
             auto ret_iter = ret.begin();
@@ -148,9 +150,9 @@ template<typename Fn, typename... Iters>
 auto clause_sum(Fn fn, const Iters&... iters)
 {
     constexpr auto outer_rank = sizeof...(iters);
-    static_assert(outer_rank >= 1u, "internal");
+    static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
-    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    static_assert(is_numerical_type_v<InnerType>, WL_ERROR_SUM_ELEMENT);
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
 
@@ -185,9 +187,9 @@ template<typename Fn, typename... Iters>
 auto clause_product(Fn fn, const Iters&... iters)
 {
     constexpr auto outer_rank = sizeof...(iters);
-    static_assert(outer_rank >= 1u, "internal");
+    static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
-    static_assert(is_numerical_type_v<InnerType>, "badargtype");
+    static_assert(is_numerical_type_v<InnerType>, WL_ERROR_SUM_ELEMENT);
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
 

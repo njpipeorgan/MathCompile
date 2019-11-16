@@ -91,7 +91,19 @@ namespace wl
 "The target is not a variable, so it cannot be modified."
 
 #define WL_ERROR_OPERAND_RANK \
-"The operands should be array of the same rank."
+"The operands should be scalars or arrays of the same rank."
+
+#define WL_ERROR_OPERAND_TYPE \
+"The operands should contain values of the same type."
+
+#define WL_ERROR_FUNCTION_TYPE \
+"The argument is not a function gives an appropriate type."
+
+#define WL_ERROR_PRED_TYPE \
+"The argument is not a valid predicate."
+
+#define WL_ERROR_ORDER_PRED_TYPE \
+"The argument is not a valid ordering function."
 
 #define WL_ERROR_NUMERIC_ONLY \
 "The function can only take numerical values as its argument(s)."
@@ -106,7 +118,7 @@ namespace wl
 "The function requires its argument to be an array with rank "
 
 #define WL_ERROR_BAD_LEVEL \
-"The function is called with inappropriate level specifications."
+"The function is not called with appropriate level specifications."
 
 #define WL_ERROR_LARGE_RANK \
 "The rank of the array produced is too large; the maximum rank is 16."
@@ -114,17 +126,26 @@ namespace wl
 #define WL_ERROR_ZERO_RANK \
 "The rank of the array produced is 0; the minimum rank is 1."
 
+#define WL_ERROR_LARGE_ARGC \
+"The number of arguments is too large; the maximum count is 16."
+
 #define WL_ERROR_ARRAY_VALUE_TYPE \
 "Only numerical values and strings can be stored in an array."
 
 #define WL_ERROR_APPEND_RANK \
-"Only the argument with rank one less than the array can be appended"
+"The argument to be appended or prepended does not have an appropriate rank."
+
+#define WL_ERROR_JOIN_RANK \
+"The arrays to be joined should have the same rank."
+
+#define WL_ERROR_JOIN_VALUE_TYPE \
+"The values to be concatenated should have consistent types."
 
 #define WL_ERROR_ITERATOR_TYPE \
 "The bounds of an iterator can only be integers and real numbers."
 
-#define WL_ERROR_INTEGRAL_RETURN \
-"The specified return type of the values is not an integral type."
+#define WL_ERROR_BAD_RETURN \
+"The specified return type of the values is invalid."
 
 #define WL_ERROR_DIMENSIONS_SPEC \
 "The specified dimensions should all be integers and non-empty."
@@ -132,5 +153,46 @@ namespace wl
 #define WL_ERROR_ARRAY_RESHAPE_PAD_TYPE \
 "The type of padding value is not consistent with the type of array."
 
+#define WL_ERROR_POSITION_RANK \
+"The pattern should have a smaller rank than the array."
+
+#define WL_ERROR_RANDOM_BOUNDS \
+"The bounds of the random numbers do not have appropriate types."
+
+#define WL_ERROR_BRANCH_RETURN \
+"All branches should have the same return type."
+
+#define WL_ERROR_SUM_ELEMENT \
+"The elements of accumulation should be of numerical types."
+
+#define WL_ERROR_MAP_THREAD_LEVEL \
+"The level specified should be less than the rank of all arrays."
+
+#define WL_ERROR_NEST_TYPE \
+"The type should be consistent when the function is applied repeatedly."
+
+#define WL_ERROR_COUNTING_ARG \
+"The argument indicating a count should be an integer."
+
+#define WL_ERROR_INDEXER_LIST \
+"The specification should be a list of integers."
+
+#define WL_ERROR_INDEXER_SCALAR \
+"The specification should be All or an integer."
+
+#define WL_ERROR_REAL_TYPE_ARG \
+"The arguments should be integers or real numbers."
+
+#define WL_ERROR_INTEGRAL_TYPE_ARG \
+"The arguments should be integers."
+
+#define WL_ERROR_BOOLEAN_ARG \
+"The arguments should be logical values."
+
+#define WL_ERROR_BAD_COMPARE \
+"The values cannot be compared with each other."
+
+#define WL_ERROR_BAD_CAST \
+"The requested type conversion is not valid."
 
 }

@@ -108,7 +108,8 @@ using _tuple_append_t = typename _tuple_append<T, Args>::type;
 template<typename Fn, typename T, typename Args, typename = void>
 struct _apply_nargs : _apply_nargs<Fn, T, _tuple_append_t<T, Args>>
 {
-    static_assert(std::tuple_size_v<Args> <= MaximumArgCount, "internal");
+    static_assert(std::tuple_size_v<Args> <= MaximumArgCount, 
+        WL_ERROR_INTERNAL);
 };
 
 template<typename Fn, typename T, typename... Args>
@@ -135,12 +136,11 @@ auto _apply_fixed_impl(Function f, Iter iter, std::index_sequence<Is...>)
 template<typename Function, typename X, int64_t I>
 auto apply(Function f, const X& x, const_int<I>)
 {
-    //static_assert(is_variadic_function_v<Function>, "badargtype");
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 1u, "badrank");
+    static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
     constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(0 <= Level && Level < int64_t(R), "badlevel");
+    static_assert(0 <= Level && Level < int64_t(R), WL_ERROR_BAD_LEVEL);
 
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<Level + 1u>();
@@ -239,7 +239,7 @@ auto apply(Function f, X&& x)
 template<typename T, size_t R, typename Function>
 auto _select_impl(const ndarray<T, R>& a, Function f)
 {
-    static_assert(R >= 2u, "internal");
+    static_assert(R >= 2u, WL_ERROR_INTERNAL);
     ndarray<T, R> ret;
     auto view_iter = a.template view_begin<1u>();
     auto view_end = a.template view_end<1u>();
@@ -247,7 +247,7 @@ auto _select_impl(const ndarray<T, R>& a, Function f)
     for (; view_iter != view_end; ++view_iter)
     {
         auto out = f(*view_iter);
-        static_assert(is_boolean_v<decltype(out)>, "badfunctype");
+        static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
         if (out)
             ret.append(*view_iter);
     }
@@ -258,14 +258,14 @@ template<typename X, typename Function>
 auto select(X&& x, Function f)
 {
     using XT = remove_cvref_t<X>;
-    static_assert(array_rank_v<XT> >= 1u, "badrank");
+    static_assert(array_rank_v<XT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     if constexpr (array_rank_v<XT> == 1u)
     {
         std::vector<value_type_t<XT>> ret;
         x.for_each([&](const auto& a)
             {
                 auto out = f(a);
-                static_assert(is_boolean_v<decltype(out)>, "badfunctype");
+                static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
                 if (out) ret.push_back(a);
             });
         return ndarray<value_type_t<XT>, 1u>(
@@ -280,13 +280,13 @@ auto count(const X& x, varg_tag, Function f, const_int<I>)
 {
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
-    static_assert(1u <= Level && Level <= XR, "badlevel");
+    static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
 
     size_t item_count = 0;
     if constexpr (XR == Level)
     {
         using RT = remove_cvref_t<decltype(f(value_type_t<X>{}))>;
-        static_assert(is_boolean_v<RT>, "badfunctype");
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
         x.for_each([&](const auto& a) { if (f(a)) ++item_count; });
     }
     else
@@ -295,7 +295,7 @@ auto count(const X& x, varg_tag, Function f, const_int<I>)
         auto view_iter = valx.template view_begin<Level>();
         const auto view_end = valx.template view_end<Level>();
         using RT = remove_cvref_t<decltype(f(*view_iter))>;
-        static_assert(is_boolean_v<RT>, "badfunctype");
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
         for (; view_iter != view_end; ++view_iter)
         {
             if (f(*view_iter))
@@ -317,7 +317,7 @@ auto count(const X& x, const Y& y, const_int<I>)
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
-    static_assert(1u <= Level && Level + YR == XR, "badlevel");
+    static_assert(1u <= Level && Level + YR == XR, WL_ERROR_BAD_LEVEL);
 
     size_t item_count = 0;
     const auto& valy = allows<view_category::Array>(y);
@@ -348,7 +348,7 @@ auto count(const X& x, const Y& y)
 template<size_t Level, typename Function, typename T, size_t R>
 auto _map_impl(Function f, const ndarray<T, R>& a)
 {
-    static_assert(1 <= Level && Level <= R, "badlevel");
+    static_assert(1 <= Level && Level <= R, WL_ERROR_BAD_LEVEL);
     auto a_iter = a.template view_begin<Level>();
     using RT = remove_cvref_t<decltype(f(*a_iter))>;
     const auto map_dims = utils::dims_take<1, Level>(a.dims());
@@ -385,9 +385,9 @@ auto map(Function f, X&& x, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 1, "badrank");
+    static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
     constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(1 <= Level && Level <= int64_t(R), "badlevel");
+    static_assert(1 <= Level && Level <= int64_t(R), WL_ERROR_BAD_LEVEL);
     if constexpr (R == size_t(Level))
     {
         using RT = remove_cvref_t<decltype(f(value_type_t<XT>{}))>;
@@ -411,9 +411,9 @@ auto scan(Function f, X&& x, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 1, "badrank");
+    static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
     constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(1 <= Level && Level <= int64_t(R), "badlevel");
+    static_assert(1 <= Level && Level <= int64_t(R), WL_ERROR_BAD_LEVEL);
 
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<Level>();
@@ -478,10 +478,11 @@ auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
 template<typename Function, int64_t I, typename... Args>
 auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
 {
-    static_assert(sizeof...(Args) >= 1u, "badargc");
-    static_assert(1 <= I, "badlevel");
+    static_assert(1 <= I, WL_ERROR_BAD_LEVEL);
     static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
-        "badargtype");
+        WL_ERROR_MAP_THREAD_LEVEL);
+    if constexpr (sizeof...(Args) == 0u)
+        return ndarray<
     return _map_thread_impl1<size_t(I)>(f,
         val(std::forward<decltype(args)>(args))...);
 }
@@ -498,9 +499,9 @@ auto map_thread(Function f, X&& x, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 2u, "badrank");
+    static_assert(R >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
     constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(1 <= Level && Level < int64_t(R), "badlevel");
+    static_assert(1 <= Level && Level < int64_t(R), WL_ERROR_BAD_LEVEL);
 
     const auto& valx = val(std::forward<decltype(x)>(x));
     const auto map_dims = utils::dims_take<2u, Level + 1u>(valx.dims());
@@ -597,7 +598,7 @@ auto nest(Function f, X&& x, const int64_t n)
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        "badargtype");
+        WL_ERROR_NEST_TYPE);
     constexpr auto rank = array_rank_v<XT0>;
     if (n < 0) throw std::logic_error("badargv");
 
@@ -627,7 +628,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        "badargtype");
+        WL_ERROR_NEST_TYPE);
     constexpr auto rank = array_rank_v<XT0>;
     if (n < 0) throw std::logic_error("badargv");
 
@@ -694,20 +695,20 @@ struct _nest_while_queue
     void push(X&& x)
     {
         using XT = remove_cvref_t<X>;
-        static_assert(array_rank_v<XT> == R, "badrank");
+        static_assert(array_rank_v<XT> == R, WL_ERROR_NEST_TYPE);
         ++current_;
         if (current_ == size_)
             current_ = 0u;
         auto& dst = queue_[current_];
         if constexpr (_is_scalar)
         {
-            static_assert(is_convertible_v<XT, T>, "badargtype");
+            static_assert(is_convertible_v<XT, T>, WL_ERROR_NEST_TYPE);
             dst = std::forward<decltype(x)>(x);
         }
         else
         {
             using XV = value_type_t<XT>;
-            static_assert(is_convertible_v<XV, T>, "badargtype");
+            static_assert(is_convertible_v<XV, T>, WL_ERROR_NEST_TYPE);
             if constexpr (std::is_same_v<XV, T> && is_movable_v<X&&>)
                 dst = std::move(x);
             else
@@ -744,7 +745,7 @@ struct _nest_while_queue
     {
         auto res = std::forward<decltype(fn)>(fn)(
             queue_[current_ - Is + (Is > current_ ? size_ : size_t(0))]...);
-        static_assert(is_boolean_v<decltype(res)>, "badfunctype");
+        static_assert(is_boolean_v<decltype(res)>, WL_ERROR_PRED_TYPE);
         return res;
     }
 
@@ -761,7 +762,7 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
     const int64_t input_max = const_int_infinity,
     const int64_t offset = 0u)
 {
-    static_assert(0 <= N && N <= MaximumArgCount, "badargv");
+    static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
     const auto history_size = size_t(std::max(N, -offset + 1));
     const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
@@ -770,7 +771,7 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        "badargtype");
+        WL_ERROR_NEST_TYPE);
     constexpr auto XR = array_rank_v<XT0>;
 
     if (max_steps < num_args)
@@ -844,7 +845,7 @@ template<typename Function, typename X, typename Test, int64_t N>
 auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
     const int64_t input_max = const_int_infinity)
 {
-    static_assert(0 <= N && N <= MaximumArgCount, "badargv");
+    static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
     const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
 
@@ -852,7 +853,7 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        "badargtype");
+        WL_ERROR_NEST_TYPE);
     constexpr auto XR = array_rank_v<XT0>;
 
     if (max_steps < num_args)
@@ -975,7 +976,8 @@ auto _fold_list_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
 template<bool List, bool FoldL, typename Function, typename Y>
 auto _fold_impl1(Function f, Y&& y)
 {
-    static_assert(array_rank_v<remove_cvref_t<Y>> >= 1u, "badargtype");
+    static_assert(array_rank_v<remove_cvref_t<Y>> >= 1u,
+        WL_ERROR_REQUIRE_ARRAY);
     const size_t n = y.dims()[0];
     if (n < 1u) throw std::logic_error("baddims");
     const auto& valy = val(std::forward<decltype(y)>(y));
@@ -1007,7 +1009,7 @@ template<bool List, bool FoldL, typename Function, typename X, typename Y>
 auto _fold_impl1(Function f, X&& x, Y&& y)
 {
     using YT = remove_cvref_t<Y>;
-    static_assert(array_rank_v<YT> >= 1u, "badargtype");
+    static_assert(array_rank_v<YT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto& valy = val(std::forward<decltype(y)>(y));
     const size_t n = valy.dims()[0];
     if constexpr (List)
@@ -1065,7 +1067,7 @@ auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
         [=](const auto& a, const auto& b)
         {
             auto same = pred(a, b);
-            static_assert(is_boolean_v<decltype(same)>, "badfunctype");
+            static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
             return !same;
         }, const_int<2>{}, max);
 }
@@ -1099,7 +1101,7 @@ auto fixed_point_list(Function f, X&& x, const int64_t max,
         [=](const auto& a, const auto& b)
         {
             auto same = pred(a, b);
-            static_assert(is_boolean_v<decltype(same)>, "badfunctype");
+            static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
             return !same;
         }, const_int<2>{}, max);
 }
@@ -1202,13 +1204,13 @@ auto all_true(X&& x, Test test, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
-    static_assert(XR >= 1u, "badrank");
-    static_assert(1 <= I && I <= XR, "badlevel");
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<I>();
     const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
-        "badfunctype");
+        WL_ERROR_PRED_TYPE);
     auto ret = true;
     for (; ret && x_iter != x_end; ++x_iter)
         ret = ret && test(*x_iter);
@@ -1226,13 +1228,13 @@ auto any_true(X&& x, Test test, const_int<I>)
 {
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
-    static_assert(XR >= 1u, "badrank");
-    static_assert(1 <= I && I <= XR, "badlevel");
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<I>();
     const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
-        "badfunctype");
+        WL_ERROR_PRED_TYPE);
     auto ret = false;
     for (; !ret && x_iter != x_end; ++x_iter)
         ret = ret || test(*x_iter);

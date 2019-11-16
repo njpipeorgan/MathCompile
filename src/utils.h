@@ -30,7 +30,7 @@ namespace wl
 template<typename Y, typename XV, size_t XR>
 auto cast(ndarray<XV, XR>&& x) -> decltype(auto)
 {
-    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
+    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, WL_ERROR_BAD_CAST);
     using YV = value_type_t<Y>;
     if constexpr (std::is_same_v<XV, YV>)
         return std::move(x);
@@ -45,7 +45,7 @@ auto cast(ndarray<XV, XR>&& x) -> decltype(auto)
 template<typename Y, typename XV, size_t XR>
 auto cast(const ndarray<XV, XR>& x) -> decltype(auto)
 {
-    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
+    static_assert(is_convertible_v<ndarray<XV, XR>, Y>, WL_ERROR_BAD_CAST);
     using YV = value_type_t<Y>;
     if constexpr (std::is_same_v<XV, YV>)
         return x;
@@ -65,7 +65,7 @@ auto cast(const X& x)
         constexpr auto XR = array_rank_v<X>;
         using XV = value_type_t<X>;
         using YV = value_type_t<Y>;
-        static_assert(is_convertible_v<ndarray<XV, XR>, Y>, "badcast");
+        static_assert(is_convertible_v<ndarray<XV, XR>, Y>, WL_ERROR_BAD_CAST);
         if constexpr (std::is_same_v<XV, YV>)
             return x.to_array();
         else
@@ -77,8 +77,8 @@ auto cast(const X& x)
     }
     else
     {
-        static_assert(is_real_v<X>, "badargtype");
-        static_assert(is_convertible_v<X, Y>, "badcast");
+        static_assert(is_real_v<X>, WL_ERROR_BAD_CAST);
+        static_assert(is_convertible_v<X, Y>, WL_ERROR_BAD_CAST);
         return Y(x);
     }
 }
@@ -86,28 +86,28 @@ auto cast(const X& x)
 template<typename Y, typename X>
 auto cast(const complex<X>& x)
 {
-    static_assert(is_complex_v<Y>, "badcast");
+    static_assert(is_complex_v<Y>, WL_ERROR_BAD_CAST);
     return std::complex<value_type_t<Y>>(x);
 }
 
 template<typename Y>
 auto cast(const boolean& x)
 {
-    static_assert(is_boolean_v<Y>, "badcast");
+    static_assert(is_boolean_v<Y>, WL_ERROR_BAD_CAST);
     return x;
 }
 
 template<typename Y>
 auto cast(const std::string& x)
 {
-    static_assert(is_string_v<Y>, "badcast");
+    static_assert(is_string_v<Y>, WL_ERROR_BAD_CAST);
     return x;
 }
 
 template<typename Y>
 auto cast(std::string&& x)
 {
-    static_assert(is_string_v<Y>, "badcast");
+    static_assert(is_string_v<Y>, WL_ERROR_BAD_CAST);
     return std::move(x);
 }
 
@@ -146,7 +146,7 @@ auto _dims_take_impl(const size_t* dims, std::index_sequence<Is...>)
 template<size_t I1, size_t I2>
 auto dims_take(const size_t* dims)
 {
-    static_assert(1u <= I1 && 1u <= I2, "internal");
+    static_assert(1u <= I1 && 1u <= I2, WL_ERROR_INTERNAL);
     if constexpr (I1 <= I2)
         return _dims_take_impl(dims + I1 - 1,
             std::make_index_sequence<I2 - I1 + 1>{});
@@ -162,7 +162,8 @@ auto dims_take(const std::array<size_t, R>& dims)
         return std::array<size_t, 0u>{};
     else
     {
-        static_assert(1u <= I1 && I1 <= R && 1u <= I2 && I2 <= R, "internal");
+        static_assert(1u <= I1 && I1 <= R && 1u <= I2 && I2 <= R,
+            WL_ERROR_INTERNAL);
         return dims_take<I1, I2>(dims.data());
     }
 }
@@ -183,7 +184,7 @@ auto _size_of_dims_impl(const Dims* dims, std::index_sequence<Is...>)
 template<size_t R, typename Dims>
 auto size_of_dims(const Dims* dims)
 {
-    static_assert(is_integral_v<Dims>, "internal");
+    static_assert(is_integral_v<Dims>, WL_ERROR_INTERNAL);
     if constexpr (R == 0u)
         return size_t(1);
     else
@@ -193,7 +194,7 @@ auto size_of_dims(const Dims* dims)
 template<size_t R, typename Dims>
 auto size_of_dims(const std::array<Dims, R>& dims)
 {
-    static_assert(is_integral_v<Dims>, "internal");
+    static_assert(is_integral_v<Dims>, WL_ERROR_INTERNAL);
     if constexpr (R == 0u)
         return size_t(1);
     else
@@ -220,7 +221,7 @@ template<size_t R>
 auto check_dims(const std::array<size_t, R>& dims1,
     const std::array<size_t, R>& dims2)
 {
-    static_assert(R >= 1u, "internal");
+    static_assert(R >= 1u, WL_ERROR_INTERNAL);
     return check_dims_impl(dims1.data(), dims2.data(),
         std::make_index_sequence<R>{});
 }
@@ -240,7 +241,7 @@ void _linear_position_impl(const std::array<size_t, R>& dims, size_t& pos,
 template<size_t R, typename... Is>
 size_t linear_position(const std::array<size_t, R>& dims, const Is&... is)
 {
-    static_assert(R == sizeof...(Is), "internal");
+    static_assert(R == sizeof...(Is), WL_ERROR_INTERNAL);
     size_t pos = 0u;
     _linear_position_impl<0u>(dims, pos, is...);
     return pos;
@@ -323,7 +324,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
     }
     else
     {
-        static_assert(x_rank == y_rank, "badrank");
+        static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);
         if (!utils::check_dims(x.dims(), y.dims()))
             throw std::logic_error("baddims");
         using XV = typename XT::value_type;
@@ -447,7 +448,7 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
 template<typename X>
 auto _lzcnt(X x)
 {
-    static_assert(std::is_unsigned_v<X>, "internal");
+    static_assert(std::is_unsigned_v<X>, WL_ERROR_INTERNAL);
 #if defined(__LZCNT__)
     return _lzcnt_u64(uint64_t(x));
 #elif defined(__POPCNT__)

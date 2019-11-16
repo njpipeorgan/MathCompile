@@ -29,7 +29,7 @@ namespace wl
 template<typename Re, typename Im>
 auto make_complex(const Re& re, const Im& im)
 {
-    static_assert(is_real_v<Re> && is_real_v<Im>, "badargtype");
+    static_assert(is_real_v<Re> && is_real_v<Im>, WL_ERROR_REAL_TYPE_ARG);
     using C = common_type_t<Re, Im>;
     using T = std::conditional_t<std::is_same_v<C, float>, float, double>;
     return complex<T>(T(re), T(im));
@@ -38,7 +38,8 @@ auto make_complex(const Re& re, const Im& im)
 template<typename X>
 auto re(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto scalar_re = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -53,7 +54,8 @@ auto re(X&& x)
 template<typename X>
 auto im(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto scalar_im = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -68,7 +70,8 @@ auto im(X&& x)
 template<typename X>
 auto arg(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto scalar_arg = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -90,7 +93,8 @@ auto arg(X&& x)
 template<typename X>
 auto conjugate(X&& x)
 {
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>, "badargtype");
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
     auto scalar_conjugate = [](const auto& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
@@ -107,7 +111,8 @@ template<typename X>
 auto re_im(X&& x)
 {
     using XT = remove_cvref_t<X>;
-    static_assert(is_numerical_type_v<XT>, "badargtype");
+    static_assert(is_numerical_type_v<XT>,
+        WL_ERROR_NUMERIC_ONLY);
     constexpr auto rank = array_rank_v<XT>;
     if constexpr (rank == 0)
     {
@@ -130,7 +135,8 @@ template<typename X>
 auto abs_arg(X&& x)
 {
     using XT = remove_cvref_t<X>;
-    static_assert(is_numerical_type_v<XT>, "badargtype");
+    static_assert(is_numerical_type_v<XT>,
+        WL_ERROR_NUMERIC_ONLY);
     constexpr auto rank = array_rank_v<XT>;
     if constexpr (rank == 0)
     {

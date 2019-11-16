@@ -44,7 +44,7 @@ constexpr auto _max = [](const auto x, const auto y)
 template<typename T>
 struct uniform
 {
-    static_assert(is_real_v<T>, "internal");
+    static_assert(is_real_v<T>, WL_ERROR_INTERNAL);
     using value_type = T;
     static constexpr size_t rank = 0;
 
@@ -72,7 +72,7 @@ struct uniform
 template<typename T>
 struct uniform<complex<T>>
 {
-    static_assert(is_float_v<T>, "internal");
+    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
     using value_type = complex<T>;
     static constexpr size_t rank = 0;
 
@@ -101,7 +101,7 @@ struct uniform<complex<T>>
 template<typename T>
 struct normal
 {
-    static_assert(is_float_v<T>, "internal");
+    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
     using value_type = T;
     static constexpr size_t rank = 0;
 
@@ -128,12 +128,12 @@ struct normal
 template<typename Dist, typename... Dims>
 auto _random_variate_impl(Dist dist, const Dims&... dims)
 {
-    static_assert(all_is_integral_v<Dims...>, "badargtype");
+    static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
     using T = typename Dist::value_type;
     constexpr size_t R1 = Dist::rank;
     constexpr size_t R2 = sizeof...(dims);
     constexpr size_t R = R1 + R2;
-    static_assert(R1 == 0u, "internal");
+    static_assert(R1 == 0u, WL_ERROR_OPERAND_RANK);
 
     if constexpr (R2 == 0u)
         return dist();
@@ -148,7 +148,7 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
 template<typename Min, typename Max, typename... Dims>
 auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(all_is_integral_v<Min, Max>, "badargtype");
+    static_assert(all_is_integral_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
     using T = common_type_t<Min, Max>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
@@ -157,14 +157,14 @@ auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dim
 template<typename Max, typename... Dims>
 auto random_integer(const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(is_integral_v<Max>, "badargtype");
+    static_assert(is_integral_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_integer(Max{}, max, varg_tag{}, dims...);
 }
 
 template<typename Min, typename Max, typename... Dims>
 auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(is_real_v<Min> && is_real_v<Max>, "badargtype");
+    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     using C = common_type_t<Min, Max>;
     using T = std::conditional_t<is_integral_v<C>, double, C>;
     auto dist = distribution::uniform<T>(T(min), T(max));
@@ -174,14 +174,15 @@ auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 template<typename Max, typename... Dims>
 auto random_real(const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(is_real_v<Max>, "badargtype");
+    static_assert(is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_real(Max{}, max, varg_tag{}, dims...);
 }
 
 template<typename Min, typename Max, typename... Dims>
 auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>, "badargtype");
+    static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>,
+        WL_ERROR_RANDOM_BOUNDS);
     using C = common_type_t<value_type_t<Min>, value_type_t<Max>>;
     using T = std::conditional_t<std::is_same_v<C, float>,
         complex<float>, complex<double>>;
@@ -192,7 +193,7 @@ auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dim
 template<typename Max, typename... Dims>
 auto random_complex(const Max& max, varg_tag, const Dims&... dims)
 {
-    static_assert(is_arithmetic_v<Max>, "badargtype");
+    static_assert(is_arithmetic_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_complex(Max{}, max, varg_tag{}, dims...);
 }
 
@@ -200,7 +201,7 @@ template<typename Array>
 auto random_choice(const Array& x)
 {
     constexpr auto XR = array_rank_v<Array>;
-    static_assert(XR >= 1u, "badrank");
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using XV = value_type_t<Array>;
     const auto& valx = allows<view_category::Regular>(x);
     const auto x_iter = valx.begin();
@@ -226,7 +227,7 @@ auto _random_choice_impl(const Array& x,
     const std::array<size_t, OuterRank>& outer_dims)
 {
     constexpr auto XR = array_rank_v<Array>;
-    static_assert(XR >= 1u, "badrank");
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using XV = value_type_t<Array>;
     const auto& valx = allows<view_category::Regular>(x);
     const auto x_iter = valx.begin();
@@ -258,7 +259,7 @@ auto _random_choice_impl(const Array& x,
 template<typename Array, typename... Dims>
 auto random_choice(const Array& x, varg_tag, const Dims&... dims)
 {
-    static_assert(all_is_integral_v<Dims...>, "badargtype");
+    static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
     if (!((dims > 0) && ...))
         throw std::logic_error("baddims");
     return _random_choice_impl(x,

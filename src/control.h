@@ -62,7 +62,7 @@ auto branch_if(const boolean cond, A&& a, B&& b)
 {
     using AT = decltype(val(std::declval<A&&>()()));
     using BT = decltype(val(std::declval<B&&>()()));
-    static_assert(_branch_type_check<AT, BT>::value, "badrettype");
+    static_assert(_branch_type_check<AT, BT>::value, WL_ERROR_BRANCH_RETURN);
     if constexpr (_branch_returns_value<AT>::value)
     {
         return cond ? val(std::forward<decltype(a)>(a)()) :
@@ -89,7 +89,8 @@ template<typename... Conds>
 auto _which_conditions(Conds&&... conds)
 {
     static_assert(std::conjunction_v<std::is_same<
-        remove_cvref_t<decltype(conds())>, boolean>...>, "badargtype");
+        remove_cvref_t<decltype(conds())>, boolean>...>,
+        WL_ERROR_BRANCH_RETURN);
     size_t n = 0u;
     [[maybe_unused]] auto _1 = ((conds() ? true : (++n, false)) || ...);
     return n;
@@ -135,7 +136,8 @@ template<typename... Cases>
 auto which(const size_t n, Cases&&... cases)
 {
     static_assert(_branch_type_check<
-        decltype(val(std::declval<Cases&&>()()))...>::value, "badrettype");
+        decltype(val(std::declval<Cases&&>()()))...>::value,
+        WL_ERROR_BRANCH_RETURN);
     using FirstType =
         decltype(val(std::declval<_get_first_type_t<Cases&&...>>()()));
     if constexpr (_branch_returns_value<FirstType>::value)

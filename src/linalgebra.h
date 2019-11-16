@@ -69,7 +69,7 @@ template<typename X, typename Y>
 auto dot(const X& x, const Y& y)
 {
     static_assert(is_numerical_type_v<X> && is_numerical_type_v<Y>,
-        "badargtype");
+        WL_ERROR_NUMERIC_ONLY);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(XR >= 1u && YR >= 1u);

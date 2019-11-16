@@ -6948,9 +6948,19 @@ auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
     static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
         WL_ERROR_MAP_THREAD_LEVEL);
     if constexpr (sizeof...(Args) == 0u)
-        return ndarray<
-    return _map_thread_impl1<size_t(I)>(f,
-        val(std::forward<decltype(args)>(args))...);
+    {
+        using RT = remove_cvref_t<decltype(f())>;
+        constexpr auto RR = array_rank_v<RT>;
+        if constexpr (RR > 0u)
+            return ndarray<value_type_t<RT>, RR + size_t(I)>{};
+        else
+            return ndarray<RT, size_t(I)>{};
+    }
+    else
+    {
+        return _map_thread_impl1<size_t(I)>(f,
+            val(std::forward<decltype(args)>(args))...);
+    }
 }
 template<typename Function, typename... Args>
 auto map_thread(Function f, varg_tag, Args&&... args)

@@ -919,7 +919,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       If[errorparser=!=Null,
         errors=errorparser[funcid];
         emitcompilererrors[f["source"],errors];,
-        Message[cxx::error,"Check $CompilerOutput for the errors."]
+        Message[cxx::error,"Check $CompilerOutput for the errors."];
       ];
       Return[$Failed]];
     If[#["ReturnByLink"],IndirectReturn[#["Function"]],#["Function"]]&@
@@ -977,6 +977,8 @@ emitcompilererrors[wlsrc_,parsed_List]:=
     srcrange=MinMax[Flatten@Position[cxxsrc,_String?(StringTake[#,UpTo[2]]=="/*"&)]];
     errors=DeleteCases[parsed,l_Integer/;!Between[l,srcrange]];
     errors=Split[errors,Head[#2]=!=Integer&];
+    If[Length@errors===0,
+      Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
     errors=List@@@Flatten[Thread[Rest[#]->First[#]]&/@errors];
     errors=MapAt[
       FromDigits@First@StringCases[

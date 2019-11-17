@@ -14,9 +14,6 @@ CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"
 CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
 
 
-IndirectReturn[f_][any___]:=Block[{linkreturn},f[any];linkreturn]
-
-
 $CppSource="";
 $CompilerOutput="";
 
@@ -30,6 +27,9 @@ cxx
 
 
 Begin["`Private`"];
+
+
+IndirectReturn[f_][any___]:=Block[{linkreturn},f[any];linkreturn]
 
 
 $packagepath=DirectoryName[$InputFileName];
@@ -728,7 +728,7 @@ codegen[clause[type_,p_][func_,{iters___}],___]:={
 
 codegen[type[t_String],___]:=t
 codegen[type["array"[t_,r_]],___]:="wl::ndarray<"<>t<>", "<>ToString[r]<>">"
-codegen[typed[p_][any_],___]:={annotatebegin[p],codegen[type[any]],"{",annotateend[p],"}"}
+codegen[typed[p_][any_],___]:={annotatebegin[p],"(",codegen[type[any]]<>"{}",annotateend[p],")"}
 
 codegen[var[name_,p___],___]:={annotatebegin[p],name<>expandpack[name],annotateend[p]}
 codegen[movvar[name_,p___],___]:={annotatebegin[p],"WL_PASS("<>name<>")"<>expandpack[name],annotateend[p]}
@@ -907,7 +907,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "CleanIntermediate"->!OptionValue["Debug"],
       "IncludeDirectories"->{mldir,$packagepath<>"/src"},
       "LibraryDirectories"->{mldir};
-      "Libraries"->{"ml64i4"},
+      "Libraries"->{"ML64i4"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
       "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),
@@ -931,7 +931,7 @@ $compileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
     "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",""]<>
+    If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",(*clang*)""]<>
       "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`IntelCompiler`IntelCompiler->
     "-std=c++17 -Kc++ -O3 -restrict -fp-model fast=2 -march=native -DWL_USE_MATHLINK",
@@ -942,7 +942,7 @@ $debugcompileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
     "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",""]<>
+    If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",(*clang*)""]<>
       "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native -DWL_USE_MATHLINK",
   CCompilerDriver`IntelCompiler`IntelCompiler->
     "-std=c++17 -Kc++ -O0 -g -restrict -march=native -debug all -traceback -check-uninit -DWL_USE_MATHLINK",
@@ -950,33 +950,43 @@ $debugcompileroptions=<|
     "/std:c++17 /EHsc /Od /DWL_USE_MATHLINK"
 |>
 $compilererrorparser=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler->Function[{id},
-    Flatten[{
+  CCompilerDriver`GCCCompiler`GCCCompiler->Function[{id},{
+      Split[#,Head[#2]=!=Integer&]&,Flatten[{
         StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
         StringDelete["static assertion failed: "]@StringCases[#,"error: "~~err___:>err]
-      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
-  CCompilerDriver`GenericCCompiler`GenericCCompiler->Function[{id},
-    Flatten[{
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}],
+  CCompilerDriver`GenericCCompiler`GenericCCompiler->
+    If[$SystemID=="Windows-x86-64",
+    (*MinGW*)Function[{id},{
+      Split[#,Head[#2]=!=Integer&]&,Flatten[{
         StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
         StringDelete["static assertion failed: "]@StringCases[#,"error: "~~err___:>err]
-      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
-  CCompilerDriver`IntelCompiler`IntelCompiler->Function[{id},
-    Flatten[{
-        StringCases[#,"at line "~~l:(DigitCharacter ..)~~" of \""~~___~~id<>".c\"":>FromDigits@l],
-        StringDelete["static assertion failed with "]@StringCases[#,": error: "~~err___:>err]
-      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]],
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->Function[{id},
-    Flatten[{
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}],
+    (*Clang*)Function[{id},{
+      Reverse/@Split[#,Head[#1]=!=Integer&]&,Flatten[{
+        StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
+          StringDelete["static_assert"~~__~~"'"~~Shortest[__]~~"' "]@
+            StringCases[#,"error: "~~err___:>err]
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}]]
+      ,
+  CCompilerDriver`IntelCompiler`IntelCompiler->Function[{id},{
+      Reverse/@Split[#,Head[#1]=!=Integer&]&,Flatten[
+        StringCases[$CompilerOutput<>"\n",{
+          "at line "~~l:(DigitCharacter ..)~~Shortest[m___]~~id<>".c\""
+            /;StringFreeQ[m,"at line"]:>FromDigits[l]-1,
+          "error: "~~Shortest[err___]~~"\n":>
+            StringDelete["static_assert"~~__~~"'"~~Shortest[__]~~"' "]@err}]]}],
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->Function[{id},{
+      Reverse/@Split[#,Head[#1]=!=Integer&]&,Flatten[{
         StringCases[#,id<>".c("~~l:(DigitCharacter ..)~~")":>FromDigits@l],
         StringDelete["C2338: "]@StringCases[#,": error "~~err___:>err]
-      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]]
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}]
 |>
-emitcompilererrors[wlsrc_,parsed_List]:=
+emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
   Module[{cxxsrc,srcrange,errors,message,position,srcpart},
     cxxsrc=StringSplit[$CppSource,"\n"];
     srcrange=MinMax[Flatten@Position[cxxsrc,_String?(StringTake[#,UpTo[2]]=="/*"&)]];
-    errors=DeleteCases[parsed,l_Integer/;!Between[l,srcrange]];
-    errors=Split[errors,Head[#2]=!=Integer&];
+    errors=extract@DeleteCases[parsed,l_Integer/;!Between[l,srcrange]];
     If[Length@errors===0,
       Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
     errors=List@@@Flatten[Thread[Rest[#]->First[#]]&/@errors];
@@ -985,15 +995,16 @@ emitcompilererrors[wlsrc_,parsed_List]:=
         cxxsrc[[#]],"/*\\"~~("b"|"e"|"n")~~(l:Shortest[___])~~"*/":>"0"<>l]&,
       errors,{;;,2}];
     Do[
-      message=If[StringLength[#]>80,StringTake[#,{1,77}]<>"...",#]&@error[[1]];
+      message=ToString@CForm@If[StringLength[#]>80,
+        StringTake[#,{1,77}]<>"...",#]&@error[[1]];
       position=error[[2]];
       If[position=!=0,
         srcpart=StringTake[ToString@CForm[#],{2,-2}]&/@{
           StringTake[wlsrc,{Max[1,position-30],position-1}],
           StringTake[wlsrc,{position,position}],
           StringTake[wlsrc,{position+1,Min[StringLength[wlsrc],position+30]}]};
-        Message[cxx::error,"\!\(\(\"..."<>srcpart[[1]]<>"\"\!\(\""<>srcpart[[2]]<>"\"\+\"\[And]\"\)\""<>srcpart[[3]]<>"...\"\)\+\""<>message<>"\"\)"],
-        Message[cxx::error,message<>" (cannot be located)"]
+        Message[cxx::error,"\!\(\(\"..."<>srcpart[[1]]<>"\"\!\(\""<>srcpart[[2]]<>"\"\+\"\[And]\"\)\""<>srcpart[[3]]<>"...\"\)\+"<>message<>"\)"],
+        Message[cxx::error,"\!\("<>message<>"\) (cannot be located)"]
       ]
     ,{error,errors}]
   ]

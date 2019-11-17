@@ -79,9 +79,9 @@ namespace wl
 #define WL_ERROR_FUNCTION_TYPE \
 "The argument is not a function gives an appropriate type."
 #define WL_ERROR_PRED_TYPE \
-"The argument is not a valid predicate."
+"The function is not called with a valid predicate."
 #define WL_ERROR_ORDER_PRED_TYPE \
-"The argument is not a valid ordering function."
+"The function is not called with a valid ordering function."
 #define WL_ERROR_NUMERIC_ONLY \
 "The function can only take numerical values as its argument(s)."
 #define WL_ERROR_PART_DEPTH \

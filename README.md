@@ -1,6 +1,6 @@
-MathCompile is a package that translates *Wolfram Language* functions into C++ code, and generate dynamic libraries that can be called in *Wolfram Language*.
+MathCompile is a package that translates *Wolfram Language* functions into C++ code and generate dynamic libraries that can be called in *Wolfram Language*.
 
-MathCompile is focused on improving the availability of functional programming and covering the functionalities provided by the built-in compiler. Currently, MathCompile supports 9 constants and over 170 functions; see the [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Functions) for the full list. 
+MathCompile is focused on improving the availability of functional programming and covering the functionalities provided by the built-in compiler. Currently, MathCompile supports 9 constants and over 180 functions; see the [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Compilable-Functions) for the full list. 
 
 # Prerequisites
 
@@ -12,7 +12,7 @@ To compile functions to binary, a C++ compiler supporting C++17 standard is requ
 
 To know more about MathCompile, see the [Wiki](https://github.com/njpipeorgan/MathCompile/wiki).
 
-To learn about how to use MathCompile, see the [Guide](https://github.com/njpipeorgan/MathCompile/wiki/Guide).
+To learn about how to install and use MathCompile, see the [Guide](https://github.com/njpipeorgan/MathCompile/wiki/Guide).
 
 # Basic usage
 
@@ -23,7 +23,7 @@ First, load the package:
 If you have a supported C++ compiler, compile a function to binary using `CompileToBinary`:
 ```
 cf=CompileToBinary[
-  Function[{Typed[x,{Integer,1}]},Apply[Times,x]];
+  Function[{Typed[x,{Integer,1}]},Apply[Times,x]]
 ]
 ```
 Use this compiled function just like a normal *Wolfram Language* funcion:

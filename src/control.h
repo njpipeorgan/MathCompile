@@ -156,4 +156,41 @@ auto which(const size_t n, Cases&&... cases)
     }
 }
 
+template<typename Test, typename Incr, typename Body>
+auto loop_for(Test test, Incr incr, Body body)
+{
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
+        WL_ERROR_LOOP_TEST);
+    try
+    {
+        while (test())
+        {
+            body();
+            incr();
+        }
+    }
+    catch (const loop_break&)
+    {
+    }
+    return const_null;
+}
+
+template<typename Test, typename Body>
+auto loop_while(Test test, Body body)
+{
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
+        WL_ERROR_LOOP_TEST);
+    try
+    {
+        while (test())
+        {
+            body();
+        }
+    }
+    catch (const loop_break&)
+    {
+    }
+    return const_null;
+}
+
 }

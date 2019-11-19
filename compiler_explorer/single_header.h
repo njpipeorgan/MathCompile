@@ -142,6 +142,8 @@ namespace wl
 "The values cannot be compared with each other."
 #define WL_ERROR_BAD_CAST \
 "The requested type conversion is not valid."
+#define WL_ERROR_LOOP_TEST \
+"The test statement should evaluates to a logical value."
 }
 namespace wl
 {
@@ -3703,6 +3705,41 @@ auto which(const size_t n, Cases&&... cases)
             std::forward<decltype(cases)>(cases)...);
     }
 }
+template<typename Test, typename Incr, typename Body>
+auto loop_for(Test test, Incr incr, Body body)
+{
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
+        WL_ERROR_LOOP_TEST);
+    try
+    {
+        while (test())
+        {
+            body();
+            incr();
+        }
+    }
+    catch (const loop_break&)
+    {
+    }
+    return const_null;
+}
+template<typename Test, typename Body>
+auto loop_while(Test test, Body body)
+{
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
+        WL_ERROR_LOOP_TEST);
+    try
+    {
+        while (test())
+        {
+            body();
+        }
+    }
+    catch (const loop_break&)
+    {
+    }
+    return const_null;
+}
 }
 namespace wl
 {
@@ -3744,14 +3781,6 @@ auto _clause_impl(Skip& skip_flag,
 }
 template<typename Fn, typename... Iters>
 auto clause_do(Fn fn, const Iters&... iters)
-{
-    static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
-    wl::void_type skip_flag;    // skip flag is not used
-    _clause_impl(skip_flag, fn, iters...);
-    return wl::void_type{};
-}
-template<typename Fn, typename... Iters>
-auto clause_break_do(Fn fn, const Iters&... iters)
 {
     static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
     wl::void_type skip_flag;    // skip flag is not used

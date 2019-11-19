@@ -195,4 +195,7 @@ namespace wl
 #define WL_ERROR_BAD_CAST \
 "The requested type conversion is not valid."
 
+#define WL_ERROR_LOOP_TEST \
+"The test statement should evaluates to a logical value."
+
 }

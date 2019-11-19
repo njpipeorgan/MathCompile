@@ -62,17 +62,17 @@ auto _clause_impl(Skip& skip_flag,
     }
 }
 
-template<typename Fn, typename... Iters>
-auto clause_do(Fn fn, const Iters&... iters)
-{
-    static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
-    wl::void_type skip_flag;    // skip flag is not used
-    _clause_impl(skip_flag, fn, iters...);
-    return wl::void_type{};
-}
+//template<typename Fn, typename... Iters>
+//auto clause_do(Fn fn, const Iters&... iters)
+//{
+//    static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
+//    wl::void_type skip_flag;    // skip flag is not used
+//    _clause_impl(skip_flag, fn, iters...);
+//    return wl::void_type{};
+//}
 
 template<typename Fn, typename... Iters>
-auto clause_break_do(Fn fn, const Iters&... iters)
+auto clause_do(Fn fn, const Iters&... iters)
 {
     static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
     wl::void_type skip_flag;    // skip flag is not used

@@ -260,6 +260,16 @@ syntax[branch][code_]:=code//.{
     any:id["If",_][___]:>(Message[syntax::bad,tostring[any],"If"];Throw["syntax"]),
     any:id["Which",_][___]:>(Message[syntax::bad,tostring[any],"Which"];Throw["syntax"])
   }
+  
+syntax[loop][code_]:=code//.{
+    id["For",p0_][start_,test_,incr_,body_]:>sequence[start,loopfor[p0][sequence@test,sequence@incr,sequence@body]],
+    id["For",p0_][start_,test_,incr_]:>sequence[start,loopfor[p0][sequence@test,sequence@incr,sequence[]]],
+    id["While",p0_][test_,body_]:>loopwhile[p0][sequence@test,sequence@body],
+    id["While",p0_][test_]:>loopwhile[p0][sequence@test,sequence[]]
+  }/.{
+    any:id["For",_][___]:>(Message[syntax::bad,tostring[any],"For"];Throw["syntax"]),
+    any:id["While",_][___]:>(Message[syntax::bad,tostring[any],"While"];Throw["syntax"])
+  }
 
 syntax[sequence][code_]:=code//.{
     id["CompoundExpression",_][exprs__]:>sequence[exprs]}//.{
@@ -274,27 +284,31 @@ syntax[assign][code_]:=code//.{
     any:id["Set",_][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
   }
 
-syntax[loopbreak][code_]:=Module[{heads,headspos,dopos},
+syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
     Do[
       headspos=Table[Append[p[[;;i]],0],{i,Length@p-1}];
       heads=Extract[code,headspos];
       If[Last@heads=!=sequence,
         Message[syntax::badbreak,tostring@Extract[code,Most@p]];Throw["syntax"],
-        dopos=Select[
-          Extract[headspos,Position[heads,clause["Do",_]]],
-          ReplacePart[#,-1->1]==p[[;;Length@#]]&];
-        If[Length@dopos==0,
-          Message[syntax::breakloc,tostring@Extract[code,Most@p]];Throw["syntax"],
-          code=ReplacePart[code,{Last[dopos]->
-            clause["BreakDo",Extract[code,Last[dopos]~Join~{0,2}]],p->break[]}];
-      ]]
+        breakpos=Join[
+          Select[Extract[headspos,Position[heads,clause["Do",_]]],
+            ReplacePart[#,-1->1(*body of Do*)]==p[[;;Length@#]]&],
+          Select[Extract[headspos,Position[heads,loopfor[_]]],
+            ReplacePart[#,-1->3(*body of For*)]==p[[;;Length@#]]&],
+          Select[Extract[headspos,Position[heads,loopwhile[_]]],
+            ReplacePart[#,-1->2(*body of While*)]==p[[;;Length@#]]&]];
+        If[Length@breakpos==0,
+          Message[syntax::breakloc,tostring@Extract[code,Most@p]];Throw["syntax"]]
+      ]
     ,{p,Position[code,id["Break",_][]]}];
     code//.{
-        sequence[any___,break[]]:>sequence[any,break[],id["Null"]]
+        id["Break",_][]:>break[]
+      }//.{
+        sequence[any___,break[]]:>sequence[any,break[],id["Null",0]]
       }
   ]
 
-$syntaxpasses={list,type,clause,mutable,function,scope,branch,sequence,assign,loopbreak};
+$syntaxpasses={list,type,clause,mutable,function,scope,branch,loop,sequence,assign,loopbreak};
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
@@ -753,6 +767,11 @@ codegen[branchif[p_][cond_,expr1_,expr2_],___]:=
   codegen[native["branch_if",p][cond,expr1,expr2],"Hold"]
 (*codegen[branchwhich[conds_,cases__],___]:=
   codegen[native["which"][conds,cases],"Hold"]*)
+
+codegen[loopfor[p_][test_,incr_,body_],___]:=
+  codegen[native["loop_for",p][test,incr,body],"Hold"]
+codegen[loopwhile[p_][test_,body_],___]:=
+  codegen[native["loop_while",p][test,body],"Hold"]
 codegen[break[]]:="throw wl::loop_break{}"
 
 codegen[list[p_][any___],___]:=codegen[native["list",p][any]]

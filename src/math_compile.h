@@ -36,3 +36,6 @@
 #include "linalgebra.h"
 #include "functional.h"
 
+namespace wl
+{
+}

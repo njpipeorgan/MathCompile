@@ -483,6 +483,8 @@ $builtinfunctions=
   "Dot"             ->"dot",
   "Position"        ->"position",
   "Cases"           ->"cases",
+  "MemberQ"         ->"member_q",
+  "FreeQ"           ->"free_q",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",
@@ -614,7 +616,13 @@ functionmacro[code_]:=code//.{
     id["Position",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["position",p][any,patt,const[i]],
     id["Cases",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
       native["cases",p][any,vargtag,func,const[i]],
-    id["Cases",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["cases",p][any,patt,const[i]]
+    id["Cases",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["cases",p][any,patt,const[i]],
+    id["MemberQ",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
+      native["member_q",p][any,vargtag,func,const[i]],
+    id["MemberQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["member_q",p][any,patt,const[i]],
+    id["FreeQ",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
+      native["free_q",p][any,vargtag,func,const[i]],
+    id["FreeQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["free_q",p][any,patt,const[i]]
   }
 
 arithmeticmacro[code_]:=code//.{
@@ -990,6 +998,8 @@ emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
     If[Length@errors===0,
       Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
     errors=List@@@Flatten[Thread[Rest[#]->First[#]]&/@errors];
+    If[Length@errors===0,
+      Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
     errors=MapAt[
       FromDigits@First@StringCases[
         cxxsrc[[#]],"/*\\"~~("b"|"e"|"n")~~(l:Shortest[___])~~"*/":>"0"<>l]&,

@@ -196,8 +196,8 @@ boolean less_equal(const X& x, const Y& y)
     return boolean(x <= y);
 }
 
-template<typename X, typename Y>
-boolean equal(const X& x, const Y& y)
+template<bool DimChecked, typename X, typename Y>
+boolean _equal_impl(const X& x, const Y& y)
 {
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -217,30 +217,43 @@ boolean equal(const X& x, const Y& y)
     }
     else
     {
-        if (!utils::check_dims(x.dims(), y.dims()))
-            return const_false;
+        if constexpr (!DimChecked)
+            if (!utils::check_dims(x.dims(), y.dims()))
+                return const_false;
         if constexpr (X::category != view_category::General)
         {
             auto equal_flag = true;
             y.for_each([&](const auto& a, const auto& b)
                 {
-                    equal_flag = equal(a, b);
+                    equal_flag = _equal_impl<true>(a, b);
                     return !equal_flag;
                 }, x.begin());
             return boolean(equal_flag);
         }
         else if constexpr (Y::category != view_category::General)
         {
-            return equal(y, x);
+            return _equal_impl<true>(y, x);
         }
         else
         {
             if constexpr (sizeof(value_type_t<X>) < sizeof(value_type_t<Y>))
-                return equal(x.to_array(), y);
+                return _equal_impl<true>(x.to_array(), y);
             else
-                return equal(x, y.to_array());
+                return _equal_impl<true>(x, y.to_array());
         }
     }
+}
+
+template<typename X, typename Y>
+boolean equal(const X& x, const Y& y)
+{
+    return _equal_impl<false>(x, y);
+}
+
+template<typename X, typename Y>
+boolean equal(const X& x, const Y& y, dim_checked)
+{
+    return _equal_impl<true>(x, y);
 }
 
 template<typename X, typename Y>
@@ -250,7 +263,13 @@ boolean unequal(const X& x, const Y& y)
 }
 
 template<typename X, typename Y>
-boolean same_q(const X& x, const Y& y)
+boolean unequal(const X& x, const Y& y, dim_checked)
+{
+    return !equal(x, y, dim_checked{});
+}
+
+template<typename X, typename Y, typename... DimChecked>
+boolean same_q(const X& x, const Y& y, DimChecked...)
 {
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -258,15 +277,15 @@ boolean same_q(const X& x, const Y& y)
         std::is_same_v<value_type_t<X>, value_type_t<Y>>;
 
     if constexpr (XR == YR && same_type)
-        return equal(x, y);
+        return equal(x, y, DimChecked{}...);
     else
         return const_false;
 }
 
-template<typename X, typename Y>
-boolean unsame_q(const X& x, const Y& y)
+template<typename X, typename Y, typename... DimChecked>
+boolean unsame_q(const X& x, const Y& y, DimChecked...)
 {
-    return !same_q(x, y);
+    return !same_q(x, y, DimChecked{}...);
 }
 
 template<typename X, typename Y>

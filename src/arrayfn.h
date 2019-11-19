@@ -1872,16 +1872,30 @@ auto cases(const X& x, const Y& y, const_int<I>)
 {
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
-    constexpr auto YR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
-    if constexpr (XR == YR + Level)
+
+    if constexpr (XR != YR + Level)
     {
-        const auto& valy = allows<view_category::Simple>(y);
-        return cases(x, [&](const auto& a) { return same_q(a, valy); });
+        return ndarray<value_type_t<X>, XR - Level + 1u>{};
     }
     else
     {
-        return ndarray<value_type_t<X>, XR - Level + 1u>{};
+        auto same_dims = true;
+        if constexpr (YR > 0u)
+            same_dims = utils::check_dims<YR>(
+                x.dims().data() + Level, y.dims().data());
+        if (!same_dims)
+        {
+            return ndarray<value_type_t<X>, XR - Level + 1u>{};
+        }
+        else
+        {
+            const auto& valy = allows<view_category::Simple>(y);
+            return cases(x, varg_tag{},
+                [&](const auto& a) { return same_q(a, valy, dim_checked{}); },
+                const_int<Level>{});
+        }
     }
 }
 
@@ -1892,6 +1906,95 @@ auto cases(const X& x, const Y& y)
     constexpr auto YR = array_rank_v<Y>;
     static_assert(YR < XR, WL_ERROR_POSITION_RANK);
     return cases(x, y, const_int<XR - YR>{});
+}
+
+template<typename X, typename Function, int64_t I>
+auto member_q(const X& x, varg_tag, Function f, const_int<I>)
+{
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
+    using XV = value_type_t<X>;
+
+    if constexpr (XR == Level)
+    {
+        using RT = remove_cvref_t<decltype(f(XV{}))>;
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        auto ret = false;
+        x.for_each([&](const auto& a) {
+            ret = ret || f(a); return ret; });
+        return boolean(ret);
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        using RT = remove_cvref_t<decltype(f(*view_iter))>;
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        auto ret = false;
+        for (; view_iter != view_end && !ret; ++view_iter)
+            ret = ret || f(*view_iter);
+        return boolean(ret);
+    }
+}
+
+template<typename X, typename Y, int64_t I>
+auto member_q(const X& x, const Y& y, const_int<I>)
+{
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
+    if constexpr (XR != YR + Level)
+    {
+        return const_false;
+    }
+    else
+    {
+        auto same_dims = true;
+        if constexpr (YR > 0u)
+            same_dims = utils::check_dims<YR>(
+                x.dims().data() + Level, y.dims().data());
+        if (!same_dims)
+        {
+            return const_false;
+        }
+        else
+        {
+            const auto& valy = allows<view_category::Simple>(y);
+            return member_q(x, varg_tag{},
+                [&](const auto& a) { return same_q(a, valy, dim_checked{}); },
+                const_int<Level>{});
+        }
+    }
+}
+
+template<typename X, typename Y>
+auto member_q(const X& x, const Y& y)
+{
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(YR < XR, WL_ERROR_POSITION_RANK);
+    return member_q(x, y, const_int<XR - YR>{});
+}
+
+template<typename X, typename Function, int64_t I>
+auto free_q(const X& x, varg_tag, Function f, const_int<I>)
+{
+    return !member_q(x, varg_tag{}, f, const_int<I>{});
+}
+
+template<typename X, typename Y, int64_t I>
+auto free_q(const X& x, const Y& y, const_int<I>)
+{
+    return !member_q(x, y, const_int<I>{});
+}
+
+template<typename X, typename Y, int64_t I>
+auto free_q(const X& x, const Y& y)
+{
+    return !member_q(x, y);
 }
 
 }

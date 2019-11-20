@@ -21,6 +21,7 @@
 #include "ndarray.h"
 #include "arrayview.h"
 #include "numerical.h"
+#include "functional.h"
 #include "utils.h"
 
 namespace wl
@@ -72,7 +73,7 @@ auto dot(const X& x, const Y& y)
         WL_ERROR_NUMERIC_ONLY);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
-    static_assert(XR >= 1u && YR >= 1u);
+    static_assert(XR >= 1u && YR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using XV = value_type_t<X>;
     using YV = value_type_t<Y>;
     using C = common_type_t<XV, YV>;
@@ -128,5 +129,155 @@ auto dot(const X& x, const Y& y)
         }
     }
 }
+
+template<typename X, typename Y, typename Z, typename... Rest>
+auto dot(const X& x, const Y& y, const Z& z, const Rest&... rest)
+{
+    return dot(dot(x, y), z, rest...);
+}
+
+template<typename C, typename X, typename Y, typename F>
+void _inner_f(C* WL_RESTRICT pc, const X* WL_RESTRICT px, const ptrdiff_t dx,
+    const Y* WL_RESTRICT py, const ptrdiff_t dy, size_t n, F f)
+{
+    if (dx != 1)
+    {
+        if (dy != 1)
+            for (size_t i = 0; i < n; ++i)
+                pc[i] = f(px[i], py[i]);
+        else
+            for (size_t i = 0; i < n; ++i)
+                pc[i] = f(px[i], py[i * dy]);
+    }
+    else
+    {
+        if (dy != 1)
+            for (size_t i = 0; i < n; ++i)
+                pc[i] = f(px[i * dx], py[i]);
+        else
+            for (size_t i = 0; i < n; ++i)
+                pc[i] = f(px[i], py[i]);
+    }
+}
+
+template<typename C, typename X, typename Y, typename F, typename G>
+auto _inner_vv(const X* WL_RESTRICT px, const Y* WL_RESTRICT py,
+    const size_t K, F f, G g)
+{
+    ndarray<C, 1u> c(std::array<size_t, 1u>{K});
+    auto pc = c.data();
+    auto pack = argument_pack<C*, false>(pc, K);
+    _inner_f(pc, px, 1, py, 1, K, f);
+    return g(pack);
+}
+
+template<typename C, typename Z, typename X, typename Y, typename F, typename G>
+void _inner_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K, F f, G g)
+{
+    ndarray<C, 1u> c(std::array<size_t, 1u>{K});
+    auto pc = c.data();
+    auto pack = argument_pack<C*, false>(pc, K);
+    for (size_t m = 0; m < M; ++m, ++pz)
+    {
+        _inner_f(pc, px + m, M, py, 1, K, f);
+        *pz = g(pack);
+    }
+}
+
+template<typename C, typename Z, typename X, typename Y, typename F, typename G>
+void _inner_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t K, const size_t N, F f, G g)
+{
+    ndarray<C, 1u> c(std::array<size_t, 1u>{K});
+    auto pc = c.data();
+    auto pack = argument_pack<C*, false>(pc, K);
+    for (size_t n = 0; n < N; ++n, ++pz)
+    {
+        _inner_f(pc, px, 1, py + n, N, K, f);
+        *pz = g(pack);
+    }
+}
+
+template<typename C, typename Z, typename X, typename Y, typename F, typename G>
+void _inner_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N,
+    F f, G g)
+{
+    ndarray<C, 1u> c(std::array<size_t, 1u>{K});
+    auto pc = c.data();
+    auto pack = argument_pack<C*, false>(pc, K);
+    for (size_t m = 0; m < M; ++m)
+    {
+        for (size_t n = 0; n < N; ++n, ++pz)
+        {
+            _inner_f(pc, px + m, M, py + n, N, K, f);
+            *pz = g(pack);
+        }
+    }
+}
+
+
+template<typename F, typename X, typename Y, typename G>
+auto inner(F f, const X& x, const Y& y, G g)
+{
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR >= 1u && YR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<X>;
+    using YV = value_type_t<Y>;
+    using C = remove_cvref_t<decltype(f(XV{}, YV{}))>;
+    using Z = remove_cvref_t<decltype(
+        g(std::declval<argument_pack<C*, false>>()))>;
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto& valy = allows<view_category::Simple>(y);
+    const auto* px = valx.data();
+    const auto* py = valy.data();
+
+    const auto K = valx.dims()[0];
+    if (K != valy.dims()[0])
+        throw std::logic_error("baddims");
+
+    if constexpr (XR == 1u)
+    {
+        if constexpr (YR == 1u)
+        {
+            return _inner_vv<C>(px, py, K, f, g);
+        }
+        else
+        {
+            const auto ret_dims = utils::dims_take<2u, YR>(valy.dims());
+            ndarray<Z, YR - 1u> ret(ret_dims);
+            const auto N = ret.size();
+            auto* pz = ret.data();
+            _inner_vm<C>(pz, px, py, K, N, f, g);
+            return ret;
+        }
+    }
+    else
+    {
+        if constexpr (YR == 1u)
+        {
+            const auto ret_dims = utils::dims_take<2u, XR>(valx.dims());
+            ndarray<Z, XR - 1u> ret(ret_dims);
+            const auto M = ret.size();
+            auto* pz = ret.data();
+            _inner_mv<C>(pz, px, py, M, K, f, g);
+            return ret;
+        }
+        else
+        {
+            const auto M_dims = utils::dims_take<2u, XR>(valx.dims());
+            const auto N_dims = utils::dims_take<2u, YR>(valy.dims());
+            const auto M = utils::size_of_dims(M_dims);
+            const auto N = utils::size_of_dims(N_dims);
+            ndarray<Z, XR + YR - 2u> ret(utils::dims_join(M_dims, N_dims));
+            auto* pz = ret.data();
+            _inner_mm<C>(pz, px, py, M, K, N, f, g);
+            return ret;
+        }
+    }
+}
+
 
 }

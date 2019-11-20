@@ -495,6 +495,7 @@ $builtinfunctions=
   "Prepend"         ->"prepend",
   "Union"           ->"set_union",
   "Dot"             ->"dot",
+  "Inner"           ->"inner",
   "Position"        ->"position",
   "Cases"           ->"cases",
   "MemberQ"         ->"member_q",

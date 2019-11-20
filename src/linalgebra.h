@@ -137,26 +137,18 @@ auto dot(const X& x, const Y& y, const Z& z, const Rest&... rest)
 }
 
 template<typename C, typename X, typename Y, typename F>
-void _inner_f(C* WL_RESTRICT pc, const X* WL_RESTRICT px, const ptrdiff_t dx,
-    const Y* WL_RESTRICT py, const ptrdiff_t dy, size_t n, F f)
+void _inner_f(C* WL_RESTRICT pc, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const ptrdiff_t dy, size_t K, F f)
 {
-    if (dx != 1)
+    if (dy != 1)
     {
-        if (dy != 1)
-            for (size_t i = 0; i < n; ++i)
-                pc[i] = f(px[i], py[i]);
-        else
-            for (size_t i = 0; i < n; ++i)
-                pc[i] = f(px[i], py[i * dy]);
+        for (size_t k = 0; k < K; ++k)
+            pc[k] = f(px[k], py[k * dy]);
     }
     else
     {
-        if (dy != 1)
-            for (size_t i = 0; i < n; ++i)
-                pc[i] = f(px[i * dx], py[i]);
-        else
-            for (size_t i = 0; i < n; ++i)
-                pc[i] = f(px[i], py[i]);
+        for (size_t k = 0; k < K; ++k)
+            pc[k] = f(px[k], py[k]);
     }
 }
 
@@ -167,7 +159,7 @@ auto _inner_vv(const X* WL_RESTRICT px, const Y* WL_RESTRICT py,
     ndarray<C, 1u> c(std::array<size_t, 1u>{K});
     auto pc = c.data();
     auto pack = argument_pack<C*, false>(pc, K);
-    _inner_f(pc, px, 1, py, 1, K, f);
+    _inner_f(pc, px, py, 1, K, f);
     return g(pack);
 }
 
@@ -178,9 +170,9 @@ void _inner_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     ndarray<C, 1u> c(std::array<size_t, 1u>{K});
     auto pc = c.data();
     auto pack = argument_pack<C*, false>(pc, K);
-    for (size_t m = 0; m < M; ++m, ++pz)
+    for (size_t m = 0; m < M; ++m, ++pz, px += K)
     {
-        _inner_f(pc, px + m, M, py, 1, K, f);
+        _inner_f(pc, px, py, 1, K, f);
         *pz = g(pack);
     }
 }
@@ -192,9 +184,9 @@ void _inner_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     ndarray<C, 1u> c(std::array<size_t, 1u>{K});
     auto pc = c.data();
     auto pack = argument_pack<C*, false>(pc, K);
-    for (size_t n = 0; n < N; ++n, ++pz)
+    for (size_t n = 0; n < N; ++n, ++pz, ++py)
     {
-        _inner_f(pc, px, 1, py + n, N, K, f);
+        _inner_f(pc, px, py, N, K, f);
         *pz = g(pack);
     }
 }
@@ -207,11 +199,11 @@ void _inner_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     ndarray<C, 1u> c(std::array<size_t, 1u>{K});
     auto pc = c.data();
     auto pack = argument_pack<C*, false>(pc, K);
-    for (size_t m = 0; m < M; ++m)
+    for (size_t m = 0; m < M; ++m, px += K)
     {
         for (size_t n = 0; n < N; ++n, ++pz)
         {
-            _inner_f(pc, px + m, M, py + n, N, K, f);
+            _inner_f(pc, px, py + n, N, K, f);
             *pz = g(pack);
         }
     }
@@ -234,7 +226,7 @@ auto inner(F f, const X& x, const Y& y, G g)
     const auto* px = valx.data();
     const auto* py = valy.data();
 
-    const auto K = valx.dims()[0];
+    const auto K = valx.dims()[XR - 1u];
     if (K != valy.dims()[0])
         throw std::logic_error("baddims");
 
@@ -258,7 +250,7 @@ auto inner(F f, const X& x, const Y& y, G g)
     {
         if constexpr (YR == 1u)
         {
-            const auto ret_dims = utils::dims_take<2u, XR>(valx.dims());
+            const auto ret_dims = utils::dims_take<1u, XR - 1u>(valx.dims());
             ndarray<Z, XR - 1u> ret(ret_dims);
             const auto M = ret.size();
             auto* pz = ret.data();
@@ -267,7 +259,7 @@ auto inner(F f, const X& x, const Y& y, G g)
         }
         else
         {
-            const auto M_dims = utils::dims_take<2u, XR>(valx.dims());
+            const auto M_dims = utils::dims_take<1u, XR - 1u>(valx.dims());
             const auto N_dims = utils::dims_take<2u, YR>(valy.dims());
             const auto M = utils::size_of_dims(M_dims);
             const auto N = utils::size_of_dims(N_dims);

@@ -17,6 +17,7 @@
 #include <numeric>
 #include <variant>
 #include <cmath>
+#include <functional>
 #include <random>
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  define WL_INLINE __forceinline
@@ -161,6 +162,8 @@ using string = std::string;
 struct void_type;
 struct all_type;
 struct boolean;
+template<typename F>
+struct function;
 template<typename ArgIter, bool HasStride = false>
 struct argument_pack;
 template<typename Normal, typename Variadic>
@@ -331,6 +334,8 @@ struct is_convertible
             array_rank_v<T> == array_rank_v<U> &&
             _is_convertible_impl<value_type_t<T>, value_type_t<U>>::value);
 };
+template<typename T, typename Ret, typename... Args>
+struct is_convertible<T, function<Ret(Args...)>> : std::true_type {};
 template<typename T>
 struct is_convertible<T, T> : std::true_type {};
 template<typename T, typename U>
@@ -666,11 +671,15 @@ auto cast(const X& x)
             return ret;
         }
     }
-    else
+    else if constexpr (is_real_v<X>)
     {
-        static_assert(is_real_v<X>, WL_ERROR_BAD_CAST);
         static_assert(is_convertible_v<X, Y>, WL_ERROR_BAD_CAST);
         return Y(x);
+    }
+    else
+    {
+        static_assert(std::is_same_v<Y, X>, WL_ERROR_BAD_CAST);
+        return x;
     }
 }
 template<typename Y, typename X>
@@ -3588,6 +3597,39 @@ auto divide(X&& x, Y&& y)
 }
 namespace wl
 {
+template<typename F>
+struct function;
+template<typename Ret, typename... Args>
+struct function<Ret(Args...)>
+{
+    std::function<Ret(const Args&...)> f_;
+    function()
+    {
+        f_ = [](const Args&...) { return Ret{}; };
+    }
+    template<typename F>
+    explicit function(F f)
+    {
+        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
+            f(std::declval<const Args&>()...))>>);
+        f_ = f;
+    }
+    template<typename F>
+    auto& operator=(F f)
+    {
+        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
+            f(std::declval<const Args&>()...))>>);
+        f_ = f;
+        return *this;
+    }
+    template<typename... Any>
+    auto operator()(Any&&... any) -> decltype(auto)
+    {
+        static_assert(sizeof...(Any) == sizeof...(Args));
+        static_assert((std::is_same_v<remove_cvref_t<Any>, Args> && ...));
+        return f_(std::forward<decltype(any)>(any)...);
+    }
+};
 template<typename ArgIter, bool HasStride>
 struct argument_pack
 {

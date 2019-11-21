@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include "traits.h"
 #include "types.h"
 #include "ndarray.h"
@@ -25,6 +27,46 @@
 
 namespace wl
 {
+
+template<typename F>
+struct function;
+
+template<typename Ret, typename... Args>
+struct function<Ret(Args...)>
+{
+    std::function<Ret(const Args&...)> f_;
+
+    function()
+    {
+        f_ = [](const Args&...) { return Ret{}; };
+    }
+
+    template<typename F>
+    explicit function(F f)
+    {
+        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
+            f(std::declval<const Args&>()...))>>);
+        f_ = f;
+    }
+
+    template<typename F>
+    auto& operator=(F f)
+    {
+        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
+            f(std::declval<const Args&>()...))>>);
+        f_ = f;
+        return *this;
+    }
+
+    template<typename... Any>
+    auto operator()(Any&&... any) -> decltype(auto)
+    {
+        static_assert(sizeof...(Any) == sizeof...(Args));
+        static_assert((std::is_same_v<remove_cvref_t<Any>, Args> && ...));
+        return f_(std::forward<decltype(any)>(any)...);
+    }
+};
+
 
 template<typename ArgIter, bool HasStride>
 struct argument_pack

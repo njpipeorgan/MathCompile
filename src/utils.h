@@ -75,11 +75,15 @@ auto cast(const X& x)
             return ret;
         }
     }
-    else
+    else if constexpr (is_real_v<X>)
     {
-        static_assert(is_real_v<X>, WL_ERROR_BAD_CAST);
         static_assert(is_convertible_v<X, Y>, WL_ERROR_BAD_CAST);
         return Y(x);
+    }
+    else
+    {
+        static_assert(std::is_same_v<Y, X>, WL_ERROR_BAD_CAST);
+        return x;
     }
 }
 

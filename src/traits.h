@@ -51,6 +51,9 @@ struct all_type;
 
 struct boolean;
 
+template<typename F>
+struct function;
+
 template<typename ArgIter, bool HasStride = false>
 struct argument_pack;
 
@@ -279,6 +282,9 @@ struct is_convertible
             array_rank_v<T> == array_rank_v<U> &&
             _is_convertible_impl<value_type_t<T>, value_type_t<U>>::value);
 };
+
+template<typename T, typename Ret, typename... Args>
+struct is_convertible<T, function<Ret(Args...)>> : std::true_type {};
 
 template<typename T>
 struct is_convertible<T, T> : std::true_type {};

@@ -133,7 +133,8 @@ $typenames={
 Apply[(totypename[#1]:=#2)&,$typenames,{1}];
 Apply[(totypespec[#2]:=#1)&,$typenames,{1}];
 totypename["array"[type:Except["void"|"array"[___]],rank_Integer/;rank>=1]]:={totypename[type],rank}
-totypespec[{type_/;(type!="Void"&&istypename[type]),rank_Integer/;rank>=1}]:="array"[totypespec[type],rank]
+totypespec[ndarray[type_/;(type!="Void"&&istypename[type]),rank_Integer/;rank>=1]]:="array"[totypespec[type],rank]
+totypespec[({args___}->ret_)/;AllTrue[{args,ret},istypename]]:="func"[(totypespec/@{args}),totypespec@ret]
 
 totypename[any___]:=Missing[]
 totypespec[any___]:=Missing[]
@@ -147,16 +148,20 @@ syntax[list][code_]:=code//.{
   }
 
 syntax[type][code_]:=code//.{
-    id["Typed",p0_][id[arg_,p_],(literal|id)[type_,_]/;istypename[type]]:>
-      typed[p0][id[arg,p],totypespec[type]],
-    id["Typed",p0_][id[arg_,p_],list[_][(literal|id)[t_,_],literal[r_,_]]/;istypename[{t,r}]]:>
-      typed[p0][id[arg,p],totypespec[{t,r}]],
-    id["Typed",p0_][(literal|id)[type_,_]/;istypename[type]]:>
-      typed[p0][totypespec[type]],
-    id["Typed",p0_][list[_][(literal|id)[t_,_],literal[r_,_]]/;istypename[{t,r}]]:>
-      typed[p0][totypespec[{t,r}]]
+    id["Typed",p0_][id[arg_,p_],type_]:>typed[p0][id[arg,p],typespec[type]],
+    id["Typed",p0_][type_]:>typed[p0][typespec[type]]
+  }//.{
+    typespec[type_]:>typespec[type//.{
+        (literal|id)[t_,_]:>t,
+        list[_][t_,r_Integer]:>ndarray[t,r],
+        id["Rule",_][list[_][args___],ret_]:>({args}->ret),
+        id["Rule",_][arg_,ret_]:>({arg}->ret)
+      }]
+  }//.{
+    typespec[type_]:>If[istypename[type],totypespec[type],typespec[type]]
   }/.{
-    id["Typed",_][any___]:>(Message[syntax::badtype,tostring@id["Typed"][any]];Throw["syntax"])
+    id["Typed",_][any___]:>(Message[syntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"]),
+    typespec[any___]:>(Message[syntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"])
   }
 
 syntax[clause][code_]:=code//.{
@@ -751,6 +756,7 @@ codegen[clause[type_,p_][func_,{iters___}],___]:={
 
 codegen[type[t_String],___]:=t
 codegen[type["array"[t_,r_]],___]:="wl::ndarray<"<>t<>", "<>ToString[r]<>">"
+codegen[type["func"[{args___},ret_]],___]:="wl::function<"<>codegen[type[ret]]<>"("<>StringRiffle[codegen@*type/@{args},","]<>")>"
 codegen[typed[p_][any_],___]:={annotatebegin[p],"(",codegen[type[any]]<>"{}",annotateend[p],")"}
 
 codegen[var[name_,p___],___]:={annotatebegin[p],name<>expandpack[name],annotateend[p]}

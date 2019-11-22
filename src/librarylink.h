@@ -274,7 +274,7 @@ void set_expr(const Any& any)
 {
     mathlink::link_t link;
     link.put("EvaluatePacket", 1).put("CompoundExpression", 2).
-        put("Set", 2).put("linkreturn");
+        put("Set", 2).put("MathCompile`Private`linkreturn");
     if constexpr (is_array_v<Any>)
         link.put_array(any.dims(), any.data());
     else

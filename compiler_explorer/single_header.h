@@ -14,6 +14,7 @@
 #include <vector>
 #include <cassert>
 #include <array>
+#include <initializer_list>
 #include <numeric>
 #include <variant>
 #include <cmath>
@@ -2220,27 +2221,31 @@ struct ndarray
     {
     }
     template<typename DimsT>
-    ndarray(const std::array<DimsT, rank>& dims, const T& val) :
+    ndarray(const std::array<DimsT, R>& dims, const T& val) :
         data_(utils::size_of_dims(dims), val)
     {
         std::copy(dims.begin(), dims.end(), this->dims_.data());
     }
     template<typename DimsT>
-    ndarray(const std::array<DimsT, rank>& dims) :
+    ndarray(const std::array<DimsT, R>& dims) :
         data_(utils::size_of_dims(dims))
     {
         std::copy(dims.begin(), dims.end(), this->dims_.data());
     }
     template<typename FwdIter>
-    ndarray(std::array<size_t, rank> dims, FwdIter begin, FwdIter end) :
+    ndarray(std::array<size_t, R> dims, FwdIter begin, FwdIter end) :
         dims_{dims}, data_(begin, end)
     {
     }
-    ndarray(std::array<size_t, rank> dims, _data_t&& movable) :
+    ndarray(std::array<size_t, R> dims, std::initializer_list<T> data) :
+        dims_{dims}, data_(data.begin(), data.end())
+    {
+    }
+    ndarray(std::array<size_t, R> dims, _data_t&& movable) :
         dims_{dims}, data_(std::move(movable))
     {
     }
-    ndarray(std::array<size_t, rank> dims, std::vector<T>&& movable) :
+    ndarray(std::array<size_t, R> dims, std::vector<T>&& movable) :
         dims_{dims}, data_(std::move(movable))
     {
     }

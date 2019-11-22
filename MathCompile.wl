@@ -21,6 +21,7 @@ $CompilerOutput="";
 parse
 syntax
 semantics
+optim
 codegen
 link
 cxx
@@ -52,6 +53,8 @@ semantics::undef="Identifier `1` is not found.";
 semantics::noinit="Variable `1` is declared but not initialized.";
 semantics::badinit="Variable `1` is initialized in a nested scope.";
 semantics::badref="Variable `1` is referenced before initialization.";
+optim::elemtype="The types of the elements in the list `1` are not consistent."
+optim::elemdims="The dimensions of the elements in the list `1` are not consistent."
 codegen::bad="Cannot generate code for `1`.";
 codegen::notype="One or more arguments of the main function is declared without types.";
 link::rettype="Failed to retrieve the return type of the compiled function.";
@@ -67,10 +70,11 @@ cxx::error="`1`";
 compile[code_]:=
   Module[{parsed,sourceidx,precodegen,output,types,error},
     $variabletable=Association[];
+    $statictable=Association[];
     error=Catch[
         $sourceptr=1;
         parsed=parse[code];
-        precodegen=semantics@allsyntax@parsed;
+        precodegen=alloptim@semantics@allsyntax@parsed;
         types=getargtypes[precodegen];
         If[MemberQ[types,nil],Message[codegen::notype];Throw["codegen"]];
         output=maincodegen@precodegen;
@@ -698,6 +702,19 @@ findinit[code_]:=
 semantics[code_]:=findinit@resolvesymbols@arithmeticmacro@functionmacro@variablerename[code]
 
 
+optim[array][code_]:=code//.{
+    list[p_][v:(literal[_,_]..)]:>(If[SameQ@@(Head/@#),
+      regularlist[p][Head[#[[1]]],{Length@#},#],
+      (Message[optim::elemtype,tostring@list[0][v]];Throw["syntax"])]&@{v}[[;;,1]]),
+    list[p_][v:(regularlist[_][__]..)]:>(If[SameQ@@(#[[;;,1]])&&SameQ@@(#[[;;,2]]),
+      regularlist[p][#[[1,1]],Prepend[#[[1,2]],Length@#],#[[;;,3]]],
+      (Message[optim::elemdims,tostring@list[0][v]];Throw["syntax"])]&@{v})
+  };
+
+$optimpasses={array};
+alloptim[code_]:=Fold[optim[#2][#1]&,code,$optimpasses];
+
+
 nativename[str_]:=StringRiffle[ToLowerCase@StringCases[str,RegularExpression["[A-Z][a-z]*"]],"_"]
 getargtypes[function[_][_,types_,__]]:=types
 expandpack[var_String]:=If[StringTake[var,2]=="vp","...",""]
@@ -782,6 +799,12 @@ codegen[loopwhile[p_][test_,body_],___]:=
 codegen[break[]]:="throw wl::loop_break{}"
 
 codegen[list[p_][any___],___]:=codegen[native["list",p][any]]
+codegen[regularlist[p_][t_,dims_,array_]]:={
+  annotatebegin[p],
+  codegen[type[totypespec@ndarray[ToString@t,Length@dims]]],"(",
+  StringRiffle[ToString@*CForm/@dims,{"{",", ","}"}],", ",
+  StringRiffle[ToString@*CForm/@Flatten@array,{"{",", ","}"}],
+  annotatebegin[p],")"}
 
 codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
 codegen[native[name_,p_][args___],any___]:=
@@ -1056,6 +1079,7 @@ print[typed[_][any_]]:={"Typed","[",ToString[any],"]"}
 print[var[var_String,_]]:=var
 print[movvar[var_String,_]]:={"WL_PASS","(",var,")"}
 print[list[_][args___]]:={"{",Riffle[print/@{args},","],"}"}
+print[regularlist[_][_,dims_,array_]]:=print@Map[literal[#,0]&,Apply[list[0],array,{0,Length@dims-1}],{-1}]
 print[clause[type_,_][func_,iters_List]]:={type,"[",print[func],",",print[list@@iters],"]"}
 print[function[_][args_,types_,expr_]]:={"Function","[",print[list@@(id/@args)],",",print[expr],"]"}
 print[scope[_][vars_,expr_]]:={"Module","[",print[list@@(id/@vars)],",",print[expr],"]"}

@@ -21,6 +21,9 @@
 #include <functional>
 #include <random>
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
+#  if _MSC_VER < 1920
+#    pragma message (": error cxx::compilerver")
+#  endif
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(loop(ivdep))
 #  define WL_RESTRICT __restrict
@@ -36,15 +39,24 @@
 #  define _wl_popcnt64 __popcnt64
 #  define NOMINMAX // disable min, max macros
 #elif defined(__INTEL_COMPILER)
+#  if __INTEL_COMPILER < 1900
+#    pragma message ("error: cxx::compilerver")
+#  endif
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #  define WL_RESTRICT __restrict
 #  pragma warning (disable:1011)
 #elif defined(__clang__)
+#  if __clang_major__ < 5
+#    pragma message ("error: cxx::compilerver")
+#  endif
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #elif defined(__GNUC__)
+#  if __GNUC__ < 7
+#    pragma message ("error: cxx::compilerver")
+#  endif
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__

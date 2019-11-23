@@ -64,6 +64,7 @@ link::workdir="The working directory does not exist.";
 link::libdir="The library directory does not exist.";
 link::genfail="Failed to generate the library.";
 link::noheader="The header file \"math_compile.h\" cannot be found.";
+cxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information."
 cxx::error="`1`";
 
 
@@ -1044,20 +1045,21 @@ emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
     cxxsrc=StringSplit[$CppSource,"\n"];
     srcrange=MinMax[Flatten@Position[cxxsrc,_String?(StringTake[#,UpTo[2]]=="/*"&)]];
     errors=extract@DeleteCases[parsed,l_Integer/;!Between[l,srcrange]];
+    If[AnyTrue[errors,Head[#]===String&&StringContainsQ[#,"cxx::compilerver"]&,2],
+      (Message[cxx::compilerver];Return[])];
     If[Length@errors===0,
       Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
-    errors=List@@@Flatten[Thread[Rest[#]->First[#]]&/@errors];
+    errors=List@@@Flatten[If[Head@First[#]===Integer,Thread[Rest[#]->First[#]],Thread[#->0]]&/@errors];
     If[Length@errors===0,
       Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
-    errors=MapAt[
-      FromDigits@First@StringCases[
-        cxxsrc[[#]],"/*\\"~~("b"|"e"|"n")~~(l:Shortest[___])~~"*/":>"0"<>l]&,
+    errors=MapAt[If[#==0,0,FromDigits@First@StringCases[
+        cxxsrc[[#]],"/*\\"~~("b"|"e"|"n")~~(l:Shortest[___])~~"*/":>"0"<>l]]&,
       errors,{;;,2}];
     Do[
       message=ToString@CForm@If[StringLength[#]>80,
         StringTake[#,{1,77}]<>"...",#]&@error[[1]];
       position=error[[2]];
-      If[position=!=0,
+      If[TrueQ[position>0],
         srcpart=StringTake[ToString@CForm[#],{2,-2}]&/@{
           StringTake[wlsrc,{Max[1,position-30],position-1}],
           StringTake[wlsrc,{position,position}],

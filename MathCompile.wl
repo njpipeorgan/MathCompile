@@ -654,13 +654,15 @@ arithmeticmacro[code_]:=code//.{
     id["Plus",p_][x1_,x2_,xs__]:>id["Plus",p][id["Plus",0][x1,x2],xs],
     id["Plus",p_][x1_,id["Times",_][literal[-1,_],x2_]]:>id["Subtract",p][x1,x2]
   }//.{
-    id["Times",p_][literal[-1],x_]:>id["Minus",p][x]
+    id["Times",p_][literal[-1,_],x_]:>id["Minus",p][x]
   }//.{
     id["Times",p_][x1_,x2_,xs__]:>id["Times",p][id["Times",0][x1,x2],xs],
     id["Times",p_][x1_,id["Power",_][x2_,literal[-1,_]]]:>id["Divide",p][x1,x2]
   }//.{
     id["Plus",p_][x___,id["Plus",_][y___],z___]:>id["Plus",p][x,y,z],
     id["Times",p_][x___,id["Times",_][y___],z___]:>id["Times",p][x,y,z]
+  }//.{
+    id["Power",p_][x_,literal[y_Integer,_]]:>native["power",p][x,const[y]]
   }
 
 builtinlookup[table_,key_,found_,notfound_]:=If[KeyExistsQ[table,key],found[table[key]],notfound[key]];

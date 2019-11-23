@@ -167,18 +167,24 @@ auto clause_sum(Fn fn, const Iters&... iters)
     {
         auto ret = fn(iters[0]...);
         bool skip_flag = true;      // skip flag is not used
-        _clause_impl(skip_flag,
-            [&](const auto&... args)
-            {
-                auto item = fn(args...);
-                if constexpr (array_rank_v<InnerType> > 0u)
+        if constexpr (array_rank_v<InnerType> >= 1u)
+        {
+            _clause_impl(skip_flag,
+                [&](const auto&... args)
                 {
+                    auto item = fn(args...);
                     if (!utils::check_dims(ret.dims(), item.dims()))
                         throw std::logic_error("baddims");
-                }
-                add_to(ret, item);
-            },
-            iters...);
+                    add_to(ret, item);
+                },
+                iters...);
+        }
+        else
+        {
+            _clause_impl(skip_flag,
+                [&](const auto&... args) { add_to(ret, fn(args...)); },
+                iters...);
+        }
         return ret;
     }
 }

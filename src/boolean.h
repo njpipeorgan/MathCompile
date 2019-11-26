@@ -38,12 +38,14 @@ constexpr auto implies(boolean x, boolean y)
 template<typename X, typename Y>
 auto bool_and(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_and)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
             is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x && y;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Iter, bool HasStride>
 auto _variadic_bool_and(const argument_pack<Iter, HasStride>& args)
@@ -61,12 +63,14 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_and)
 template<typename X, typename Y>
 auto bool_or(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_or)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
             is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x || y;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Iter, bool HasStride>
 auto _variadic_bool_or(const argument_pack<Iter, HasStride>& args)
@@ -84,12 +88,14 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_or)
 template<typename X, typename Y>
 auto bool_xor(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_xor)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
             is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x ^ y;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bool_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_xor, const_false)
@@ -99,33 +105,42 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_xor)
 template<typename... Args>
 auto bool_nand(Args&&... args)
 {
+    WL_TRY_BEGIN()
     return !bool_and(std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename... Args>
 auto bool_nor(Args&&... args)
 {
+    WL_TRY_BEGIN()
     return !bool_or(std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename... Args>
 auto bool_xnor(Args&&... args)
 {
+    WL_TRY_BEGIN()
     return !bool_xor(std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto boole(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_boolean_type_v<remove_cvref_t<X>>, WL_ERROR_BOOLEAN_ARG);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
     auto pure = [](boolean x) { return Ret(x); };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto bit_not(X&& x)
 {
+    WL_TRY_BEGIN()
     auto pure = [](auto x)
     {
         using XV = decltype(x);
@@ -133,11 +148,13 @@ auto bit_not(X&& x)
         return XV(~x);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto bit_length(X&& x)
 {
+    WL_TRY_BEGIN()
     auto pure = [](auto x)
     {
         using XV = decltype(x);
@@ -149,11 +166,13 @@ auto bit_length(X&& x)
                 std::make_unsigned_t<XV>(x >= XV(0) ? x : ~x)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto bit_and(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_and)
     {
         using XV = remove_cvref_t<X>;
@@ -163,6 +182,7 @@ auto bit_and(X&& x, Y&& y)
         using C = common_type_t<XV, YV>;
         return C(C(x) & C(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_and)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_and, int64_t(-1))
@@ -172,6 +192,7 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_and)
 template<typename X, typename Y>
 auto bit_or(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_or)
     {
         using XV = remove_cvref_t<X>;
@@ -181,6 +202,7 @@ auto bit_or(X&& x, Y&& y)
         using C = common_type_t<XV, YV>;
         return C(C(x) | C(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_or)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_or, int64_t(0))
@@ -190,6 +212,7 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_or)
 template<typename X, typename Y>
 auto bit_xor(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_xor)
     {
         using XV = remove_cvref_t<X>;
@@ -199,6 +222,7 @@ auto bit_xor(X&& x, Y&& y)
         using C = common_type_t<XV, YV>;
         return C(C(x) ^ C(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_xor, int64_t(0))
@@ -208,6 +232,7 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_xor)
 template<bool ShiftLeft, typename X, typename Y>
 auto _bit_shift_impl(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     auto pure = [](auto x, auto y)
     {
         using XV = decltype(x);
@@ -229,20 +254,25 @@ auto _bit_shift_impl(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto bit_shift_left(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     return _bit_shift_impl<true>(
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto bit_shift_right(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     return _bit_shift_impl<false>(
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

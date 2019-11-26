@@ -33,18 +33,21 @@ namespace wl
 template<typename X>                                                        \
 WL_INLINE auto name(X&& x)                                                  \
 {                                                                           \
+    WL_TRY_BEGIN()                                                          \
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,                   \
         WL_ERROR_NUMERIC_ONLY);                                             \
     return utils::listable_function([](auto x) {                            \
             using PX = promote_integral_t<decltype(x)>;                     \
             return expr;                                                    \
         }, std::forward<decltype(x)>(x));                                   \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 
 #define WL_DEFINE_BINARY_MATH_FUNCTION(name, expr)                          \
 template<typename X, typename Y>                                            \
 WL_INLINE auto name(X&& x, Y&& y)                                           \
 {                                                                           \
+    WL_TRY_BEGIN()                                                          \
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&                 \
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);     \
     return utils::listable_function([](auto x, auto y)                      \
@@ -55,6 +58,7 @@ WL_INLINE auto name(X&& x, Y&& y)                                           \
                 common_type_t<decltype(x), decltype(y)>>;                   \
             return expr;                                                    \
         }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));     \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 
 template<typename X>
@@ -105,6 +109,7 @@ WL_INLINE auto _scalar_power(const X& x, const_int<y>)
 template<typename X, int64_t I>
 WL_INLINE auto power(X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](auto x)
@@ -112,11 +117,13 @@ WL_INLINE auto power(X&& x, const_int<I>)
             using PC = promote_integral_t<common_type_t<decltype(x), int64_t>>;
             return _scalar_power(PC(x), const_int<I>{});
         }, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 WL_INLINE auto power(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](auto x, auto y)
@@ -127,6 +134,7 @@ WL_INLINE auto power(X&& x, Y&& y)
                 common_type_t<decltype(x), decltype(y)>>;
             return _scalar_power(PC(x), y);
         }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))

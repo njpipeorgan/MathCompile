@@ -34,6 +34,7 @@ namespace wl
 template<typename Dst, typename Src>
 auto set(Dst&& dst, Src&& src) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     using DstType = remove_cvref_t<Dst>;
     using SrcType = remove_cvref_t<Src>;
     constexpr auto dst_rank = array_rank_v<DstType>;
@@ -79,7 +80,7 @@ auto set(Dst&& dst, Src&& src) -> decltype(auto)
         else // dst is an array view
         {
             if (!utils::check_dims(src.dims(), dst.dims()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             if (!has_aliasing(src, dst))
             {
                 if constexpr (SrcType::category != view_category::General)
@@ -97,6 +98,7 @@ auto set(Dst&& dst, Src&& src) -> decltype(auto)
             }
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Iter, size_t R>
@@ -121,7 +123,7 @@ void _copy_list_array_elements(Iter& ret_iter,
         {
             const auto& item = first.get(i);
             if (!utils::check_dims(item.dims(), dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(ret_iter.begin());
         }
     }
@@ -131,7 +133,7 @@ void _copy_list_array_elements(Iter& ret_iter,
         using ValueType = value_type_t<FirstType>;
         static_assert(is_convertible_v<ValueType, T>, WL_ERROR_LIST_ELEM_TYPE);
         if (!utils::check_dims(first.dims(), dims))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
         first.copy_to(ret_iter.begin());
         ++ret_iter;
     }
@@ -188,6 +190,7 @@ auto _list_length_by_args(const Elems&... elems)
 template<typename First, typename... Rest>
 auto list(First&& first, Rest&&... rest)
 {
+    WL_TRY_BEGIN()
     using FirstType = remove_cvref_t<First>;
     if constexpr (is_argument_pack_v<FirstType>)
     {
@@ -235,11 +238,13 @@ auto list(First&& first, Rest&&... rest)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     constexpr auto val_rank = array_rank_v<T>;
     constexpr auto rep_rank = sizeof...(dims);
     constexpr auto all_rank = val_rank + rep_rank;
@@ -274,6 +279,7 @@ auto constant_array(const T& val, varg_tag, const Dims&... dims)
             std::array<int64_t, all_rank>{int64_t(dims)...}, val);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<size_t>
@@ -331,6 +337,7 @@ auto _part_impl1(Array&& a, std::index_sequence<Is...>,
 template<typename Array, typename... Specs>
 auto part(Array&& a, Specs&&... specs) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     using ArrayType = remove_cvref_t<Array>;
     constexpr auto R = array_rank_v<ArrayType>;
     static_assert(sizeof...(Specs) <= R, WL_ERROR_PART_DEPTH);
@@ -346,49 +353,59 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
     }
     else
         return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
 auto first(Array&& a)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<remove_cvref_t<Array>> >= 1u,
         WL_ERROR_REQUIRE_ARRAY);
     return part(a, cidx(0));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
 auto last(Array&& a)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<remove_cvref_t<Array>> >= 1u,
         WL_ERROR_REQUIRE_ARRAY);
     return part(a, int64_t(-1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
 auto most(Array&& a)
 {
+    WL_TRY_BEGIN()
     using AT = remove_cvref_t<Array>;
     static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto size = a.dims()[0];
     if (size <= 1u)
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     return part(a, make_span(const_all, int64_t(-2)));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
 auto rest(Array&& a)
 {
+    WL_TRY_BEGIN()
     using AT = remove_cvref_t<Array>;
     static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto size = a.dims()[0];
     if (size <= 1u)
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     return part(a, make_span(int64_t(2), const_all));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Begin, typename End, typename Step>
 auto range(Begin begin, End end, Step step)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Begin> && is_real_v<End> && is_real_v<Step>,
         WL_ERROR_ITERATOR_TYPE);
     using T = common_type_t<Begin, Step>;
@@ -410,7 +427,7 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
     }
     else
     {
@@ -433,27 +450,33 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Begin, typename End>
 auto range(Begin begin, End end)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Begin> && is_real_v<End>, WL_ERROR_ITERATOR_TYPE);
     return range(begin, end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename End>
 auto range(End end)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<End>, WL_ERROR_ITERATOR_TYPE);
     return range(End(1), end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array, int64_t I1, int64_t I2>
 auto total(const Array& a, const_int<I1>, const_int<I2>)
 {
+    WL_TRY_BEGIN()
     constexpr auto rank = array_rank_v<Array>;
     static_assert(rank >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using ValueType = value_type_t<Array>;
@@ -532,29 +555,37 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
             }
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array, int64_t I>
 auto total(const Array& a, const_int<I>)
 {
+    WL_TRY_BEGIN()
     return total(a, const_int<1>{}, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
 auto total(const Array& a)
 {
+    WL_TRY_BEGIN()
     return total(a, const_int<1>{}, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
 auto mean(const Array& a)
 {
+    WL_TRY_BEGIN()
     return divide(total(a), a.template dimension<1>());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename Array>
 auto dimensions(const Array& a)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<Ret>, WL_ERROR_BAD_RETURN);
     constexpr auto rank = array_rank_v<Array>;
     if constexpr (rank == 0u)
@@ -562,6 +593,7 @@ auto dimensions(const Array& a)
     else
         return ndarray<Ret, 1u>(std::array<size_t, 1u>{rank},
             a.dims_ptr(), a.dims_ptr() + rank);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
@@ -615,6 +647,7 @@ void _reverse_inplace(ndarray<T, R>& a,
 template<typename X, int64_t I>
 auto reverse(X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto rank = array_rank_v<XT>;
     static_assert(rank >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -638,17 +671,21 @@ auto reverse(X&& x, const_int<I>)
         _reverse_inplace(x2, outer_size, inter_size, inner_size);
         return x2;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto reverse(X&& x)
 {
+    WL_TRY_BEGIN()
     return reverse(std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Pad, typename... Dims>
 auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     static_assert(array_rank_v<XT> >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -679,6 +716,7 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
             { *ret_iter++ = src; return (ret_iter == ret_end); });
     }
     return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename... Dims>
@@ -764,7 +802,7 @@ auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
     [[maybe_unused]] auto _2 = ((ret_dims[Is - 1] == 0u ?
         (ret_dims[Is - 1] = a_dims[Cs], ret_strides[Is - 1] += strides[Cs]) :
         ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
-        throw std::logic_error("baddims")), ...);
+        throw std::logic_error(WL_ERROR_TRANSPOSE_COLLAPSE)), ...);
 
     if constexpr (std::is_pointer_v<Output>)
     {
@@ -785,6 +823,7 @@ auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
 template<typename X, int64_t... Is>
 auto transpose(const X& x, const_int<Is>...)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     constexpr auto XR = array_rank_v<XT>;
@@ -795,17 +834,21 @@ auto transpose(const X& x, const_int<Is>...)
     return _transpose_impl(val(x), void_type{},
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto transpose(const X& x)
 {
+    WL_TRY_BEGIN()
     return transpose(x, const_int<2>{}, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto conjugate_transpose(const X& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
     using XV = value_type_t<X>;
@@ -858,6 +901,7 @@ auto conjugate_transpose(const X& x)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Level>
@@ -970,16 +1014,19 @@ auto _flatten_impl1(X&& x, std::index_sequence<Pads...>, Levels...)
 template<typename X, typename... Levels>
 auto flatten(X&& x, Levels...)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
     constexpr auto MaxLevel = _flatten_max_level<Levels...>::value;
     static_assert(1 <= MaxLevel && MaxLevel <= XR, WL_ERROR_BAD_LEVEL);
     return _flatten_impl1<MaxLevel>(std::forward<decltype(x)>(x),
         std::make_index_sequence<XR - MaxLevel>{}, Levels{}...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto flatten(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     constexpr auto XR = array_rank_v<XT>;
@@ -995,6 +1042,7 @@ auto flatten(X&& x)
         x.copy_to(ret.data());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 inline int64_t _order_scalar(const boolean& x, const boolean& y)
@@ -1075,6 +1123,7 @@ int64_t order(const X& x, const Y& y)
 template<typename Ret = int64_t, typename X, typename Pred>
 auto ordering(const X& x, const int64_t n, Pred pred)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     static_assert(is_integral_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -1105,7 +1154,7 @@ auto ordering(const X& x, const int64_t n, Pred pred)
             }
         };
         if (size_t(n) > x_size)
-            throw std::logic_error("badargv");
+            throw std::logic_error(WL_ERROR_ORDERING_OUT_OF_RANGE);
         else if (size_t(n) == x_size)
             std::sort(indices.begin(), indices.end(), order);
         else
@@ -1132,7 +1181,7 @@ auto ordering(const X& x, const int64_t n, Pred pred)
             }
         };
         if (size_t(-n) > x_size)
-            throw std::logic_error("badargv");
+            throw std::logic_error(WL_ERROR_ORDERING_OUT_OF_RANGE);
         else if (size_t(-n) == x_size)
             std::sort(indices.rbegin(), indices.rend(), order);
         else
@@ -1143,11 +1192,13 @@ auto ordering(const X& x, const int64_t n, Pred pred)
         }
     }
     return ndarray<Ret, 1u>(ret_dims, std::move(indices));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto ordering(const X& x, const int64_t n)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     if constexpr (XR == 1u)
@@ -1170,30 +1221,37 @@ auto ordering(const X& x, const int64_t n)
             [](const auto& a, const auto& b)
             { return _order_array(a, b, dim_checked{}) > 0; });
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X, typename Pred>
 auto ordering(const X& x, all_type, Pred pred)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     return ordering<Ret>(x, x.dims()[0], pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto ordering(const X& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     return ordering<Ret>(x, x.dims()[0]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto ordering(const X& x, all_type)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     return ordering<Ret>(x, x.dims()[0]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename T, typename Pred>
@@ -1214,6 +1272,7 @@ auto _sort_simple(const ndarray<T, 1u>& a, Pred pred)
 template<typename X, typename Pred>
 auto sort(X&& x, Pred pred)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -1246,11 +1305,13 @@ auto sort(X&& x, Pred pred)
             (*(x_base + order_data[i])).copy_to(ret_iter.begin());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto sort(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -1275,11 +1336,13 @@ auto sort(X&& x)
             [](const auto& a, const auto& b)
             { return _order_array(a, b, dim_checked{}) > 0; });
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Pred>
 auto ordered_q(const X& x, Pred pred)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto& copy = allows<view_category::Array>(x);
@@ -1298,11 +1361,13 @@ auto ordered_q(const X& x, Pred pred)
     for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
         ret = ret && in_order(*iter, *(iter + 1));
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto ordered_q(const X& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto& copy = allows<view_category::Array>(x);
@@ -1320,11 +1385,13 @@ auto ordered_q(const X& x)
     for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
         ret = ret && in_order(*iter, *(iter + 1));
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto append(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using YT = remove_cvref_t<Y>;
     constexpr auto XR = array_rank_v<XT>;
@@ -1351,7 +1418,7 @@ auto append(X&& x, Y&& y)
     {
         const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
         if (!utils::check_dims(x_elem_dims, y.dims()))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
         ndarray<XV, XR> ret(utils::dims_join(
             std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
         const auto ret_iter = ret.data();
@@ -1359,11 +1426,13 @@ auto append(X&& x, Y&& y)
         y.copy_to(ret_iter + x.size());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto prepend(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using YT = remove_cvref_t<Y>;
     constexpr auto XR = array_rank_v<XT>;
@@ -1384,7 +1453,7 @@ auto prepend(X&& x, Y&& y)
     {
         const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
         if (!utils::check_dims(x_elem_dims, y.dims()))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
         ndarray<XV, XR> ret(utils::dims_join(
             std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
         const auto ret_iter = ret.data();
@@ -1392,22 +1461,27 @@ auto prepend(X&& x, Y&& y)
         x.copy_to(ret_iter + y.size());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename XV, size_t XR, typename Y>
 auto append_to(ndarray<XV, XR>& x, Y&& y)
 {
+    WL_TRY_BEGIN()
+
     using YT = remove_cvref_t<Y>;
     constexpr auto YR = array_rank_v<YT>;
     using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
     static_assert(XR == YR + 1u, WL_ERROR_APPEND_RANK);
     static_assert(is_convertible_v<YV, XV>, WL_ERROR_JOIN_VALUE_TYPE);
     x.append(std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename XV, size_t XR, typename Y>
 auto prepend_to(ndarray<XV, XR>& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     using YT = remove_cvref_t<Y>;
     constexpr auto YR = array_rank_v<YT>;
     using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
@@ -1428,7 +1502,7 @@ auto prepend_to(ndarray<XV, XR>& x, Y&& y)
     {
         const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
         if (!utils::check_dims(x_elem_dims, y.dims()))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
         const auto x_size = x.size();
         const auto y_size = y.size();
         const auto new_size = x_size + y_size;
@@ -1439,6 +1513,7 @@ auto prepend_to(ndarray<XV, XR>& x, Y&& y)
         y.copy_to(x_iter);
     }
     return x;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<size_t Level, size_t Rank, typename Arg>
@@ -1460,7 +1535,7 @@ auto _join_dims_by_args_impl(
             const auto trailing_check = utils::check_dims<Rank - Level>(
                 dims.data() + Level, arg.dims().data() + Level);
             if (!leading_check || !trailing_check)
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
             return arg.dims()[Level - 1];
         }
         else
@@ -1553,6 +1628,7 @@ void _join_copy_level1(Iter& iter, const Arg& arg)
 template<int64_t I, typename First, typename... Rest>
 auto join(const_int<I>, First&& first, Rest&&... rest)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     using FirstType = remove_cvref_t<First>;
     if constexpr (is_argument_pack_v<FirstType>)
@@ -1598,18 +1674,22 @@ auto join(const_int<I>, First&& first, Rest&&... rest)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename First, typename... Rest>
 auto join(First&& first, Rest&&... rest)
 {
+    WL_TRY_BEGIN()
     return join(const_int<1>{}, std::forward<decltype(first)>(first),
         std::forward<decltype(rest)>(rest)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename First, typename... Rest>
 auto set_union(const First& first, const Rest&... rest)
 {
+    WL_TRY_BEGIN()
     constexpr auto R = array_rank_v<First>;
     static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
     static_assert(((R == array_rank_v<Rest>) && ...), WL_ERROR_OPERAND_RANK);
@@ -1666,6 +1746,7 @@ auto set_union(const First& first, const Rest&... rest)
             (*(copy_base + idx_begin[i])).copy_to(ret_iter.begin());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 
@@ -1724,27 +1805,35 @@ auto _rotate_impl(const X& x, int64_t n)
 template<typename X, typename N>
 auto rotate_left(const X& x, const N& n)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<N>, WL_ERROR_COUNTING_ARG);
     return _rotate_impl(x, -int64_t(n));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename N>
 auto rotate_right(const X& x, const N& n)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<N>, WL_ERROR_COUNTING_ARG);
     return _rotate_impl(x, int64_t(n));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto rotate_left(const X& x)
 {
+    WL_TRY_BEGIN()
     return _rotate_impl(x, -1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto rotate_right(const X& x)
 {
+    WL_TRY_BEGIN()
     return _rotate_impl(x, 1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<size_t I, size_t Level, typename Ret, typename Iter, typename IsEqual>
@@ -1778,6 +1867,7 @@ void _position_impl(const std::array<size_t, Level>& pos_dims,
 template<typename Ret = int64_t, typename X, typename Y, int64_t I>
 auto position(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -1787,11 +1877,13 @@ auto position(const X& x, const Y& y, const_int<I>)
     const auto& valy = allows<view_category::Simple>(y);
     return position(valx, varg_tag{},
         [&](const auto& a) { return equal(a, valy); }, const_int<Level>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X, typename Function, int64_t I>
 auto position(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -1822,20 +1914,24 @@ auto position(const X& x, varg_tag, Function f, const_int<I>)
             pos_dims, ret, pos_idx, idx_base, x_iter, f);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X, typename Y>
 auto position(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(XR > YR, WL_ERROR_POSITION_RANK);
     return position(x, y, const_int<XR - YR>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Function, int64_t I>
 auto cases(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -1865,11 +1961,13 @@ auto cases(const X& x, varg_tag, Function f, const_int<I>)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y, int64_t I>
 auto cases(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -1897,20 +1995,24 @@ auto cases(const X& x, const Y& y, const_int<I>)
                 const_int<Level>{});
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto cases(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(YR < XR, WL_ERROR_POSITION_RANK);
     return cases(x, y, const_int<XR - YR>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Function, int64_t I>
 auto member_q(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -1937,11 +2039,13 @@ auto member_q(const X& x, varg_tag, Function f, const_int<I>)
             ret = ret || f(*view_iter);
         return boolean(ret);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y, int64_t I>
 auto member_q(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -1968,6 +2072,7 @@ auto member_q(const X& x, const Y& y, const_int<I>)
                 const_int<Level>{});
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
@@ -1982,7 +2087,9 @@ auto member_q(const X& x, const Y& y)
 template<typename X, typename Function, int64_t I>
 auto free_q(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     return !member_q(x, varg_tag{}, f, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y, int64_t I>

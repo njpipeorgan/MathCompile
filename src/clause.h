@@ -21,6 +21,7 @@
 #include "iterator.h"
 #include "arithmetic.h"
 #include "utils.h"
+#include "const.h"
 
 namespace wl
 {
@@ -62,18 +63,10 @@ auto _clause_impl(Skip& skip_flag,
     }
 }
 
-//template<typename Fn, typename... Iters>
-//auto clause_do(Fn fn, const Iters&... iters)
-//{
-//    static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
-//    wl::void_type skip_flag;    // skip flag is not used
-//    _clause_impl(skip_flag, fn, iters...);
-//    return wl::void_type{};
-//}
-
 template<typename Fn, typename... Iters>
 auto clause_do(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
     wl::void_type skip_flag;    // skip flag is not used
     try
@@ -83,12 +76,14 @@ auto clause_do(Fn fn, const Iters&... iters)
     catch (const loop_break&)
     {
     }
-    return wl::void_type{};
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Fn, typename... Iters>
 auto clause_table(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
@@ -136,7 +131,7 @@ auto clause_table(Fn fn, const Iters&... iters)
                 {
                     auto item = fn(args...);
                     if (!utils::check_dims(ret_iter.dims(), item.dims()))
-                        throw std::logic_error("baddims");
+                        throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                     item.copy_to(ret_iter.begin());
                     ++ret_iter;
                 },
@@ -144,11 +139,13 @@ auto clause_table(Fn fn, const Iters&... iters)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Fn, typename... Iters>
 auto clause_sum(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
@@ -161,7 +158,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType{};
         else
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_SUM_ZERO_SIZE);
     }
     else
     {
@@ -172,10 +169,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
             _clause_impl(skip_flag,
                 [&](const auto&... args)
                 {
-                    auto item = fn(args...);
-                    if (!utils::check_dims(ret.dims(), item.dims()))
-                        throw std::logic_error("baddims");
-                    add_to(ret, item);
+                    add_to(ret, fn(args...));
                 },
                 iters...);
         }
@@ -187,11 +181,13 @@ auto clause_sum(Fn fn, const Iters&... iters)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Fn, typename... Iters>
 auto clause_product(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
@@ -204,7 +200,7 @@ auto clause_product(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType(int8_t(1));
         else
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_PRODUCT_ZERO_SIZE);
     }
     else
     {
@@ -214,17 +210,12 @@ auto clause_product(Fn fn, const Iters&... iters)
         _clause_impl(skip_flag,
             [&](const auto&... args)
             {
-                auto item = fn(args...);
-                if constexpr (array_rank_v<InnerType> > 0u)
-                {
-                    if (!utils::check_dims(ret.dims(), item.dims()))
-                        throw std::logic_error("baddims");
-                }
-                times_by(ret, item);
+                times_by(ret, fn(args...));
             },
             iters...);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

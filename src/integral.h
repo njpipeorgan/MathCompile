@@ -31,6 +31,7 @@ namespace wl
 template<typename X>
 auto even_q(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -44,11 +45,13 @@ auto even_q(X&& x)
             return const_false;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto odd_q(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -62,11 +65,13 @@ auto odd_q(X&& x)
             return const_false;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto divisible(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x, const auto& y)
@@ -90,6 +95,7 @@ auto divisible(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 inline uint64_t _fibonacci_impl(uint64_t n, uint64_t* prev)
@@ -156,6 +162,7 @@ inline uint64_t _lucas_l(uint64_t n)
 template<typename X>
 auto fibonacci(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -181,11 +188,13 @@ auto fibonacci(X&& x)
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto lucas_l(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -211,6 +220,7 @@ auto lucas_l(X&& x)
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

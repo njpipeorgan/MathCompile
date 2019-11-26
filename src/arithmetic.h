@@ -149,6 +149,7 @@ WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(divide_by, divide)
 template<typename X, typename Y>                                            \
 auto name(X&& x, Y&& y) -> decltype(auto)                                   \
 {                                                                           \
+    WL_TRY_BEGIN()                                                          \
     using XType = remove_cvref_t<X>;                                        \
     using YType = remove_cvref_t<Y>;                                        \
     constexpr auto x_rank = array_rank_v<XType>;                            \
@@ -165,7 +166,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         {                                                                   \
             static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);         \
             if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
-                throw std::logic_error("baddims");                          \
+                throw std::logic_error(WL_ERROR_ARITHMETIC_DIMS);           \
             if (has_aliasing(x, y))                                         \
             {                                                               \
                 std::vector<value_type_t<YType>> buffer(y.size());          \
@@ -194,6 +195,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         _scalar_##name(x, y);                                               \
     }                                                                       \
     return std::forward<decltype(x)>(x);                                    \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
@@ -204,39 +206,49 @@ WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
 template<typename X>
 auto pre_increment(X&& x) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return add_to(std::forward<decltype(x)>(x), int64_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto pre_decrement(X&& x) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return subtract_from(std::forward<decltype(x)>(x), int64_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto increment(X&& x)
 {
+    WL_TRY_BEGIN()
     auto valx = val(x);
     pre_increment(std::forward<decltype(x)>(x));
     return valx;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto decrement(X&& x)
 {
+    WL_TRY_BEGIN()
     auto valx = val(x);
     pre_decrement(std::forward<decltype(x)>(x));
     return valx;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 
 template<typename X>
 auto minus(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](const auto& x) { return -x; },
         std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Iter, bool HasStride>
@@ -251,6 +263,7 @@ auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(plus)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
@@ -258,6 +271,7 @@ auto plus(X&& x, Y&& y)
         return utils::listable_function(_scalar_plus,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(plus, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(plus)
@@ -266,10 +280,12 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(plus)
 template<typename X, typename Y>
 auto subtract(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_subtract,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Iter, bool HasStride>
@@ -284,6 +300,7 @@ auto _variadic_times(const argument_pack<Iter, HasStride>& args)
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(times)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
@@ -291,6 +308,7 @@ auto times(X&& x, Y&& y)
         return utils::listable_function(_scalar_times,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(times, int64_t(1))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(times)
@@ -299,10 +317,12 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(times)
 template<typename X, typename Y>
 auto divide(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_divide,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 

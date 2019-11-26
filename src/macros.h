@@ -37,6 +37,7 @@
 #  endif
 #  define _wl_popcnt64 __popcnt64
 #  define NOMINMAX // disable min, max macros
+#  define WL_FUNCSIG __FUNCSIG__
 #elif defined(__INTEL_COMPILER)
 #  if __INTEL_COMPILER < 1900
 #    pragma message ("error: cxx::compilerver")
@@ -44,6 +45,7 @@
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #  define WL_RESTRICT __restrict
+#  define WL_FUNCSIG __PRETTY_FUNCTION__
 #  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  if __clang_major__ < 5
@@ -52,6 +54,7 @@
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
+#  define WL_FUNCSIG __PRETTY_FUNCTION__
 #elif defined(__GNUC__)
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")
@@ -59,6 +62,7 @@
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
+#  define WL_FUNCSIG __PRETTY_FUNCTION__
 #endif
 
 // no random device for MinGW
@@ -209,5 +213,58 @@ namespace wl
 
 #define WL_ERROR_LOOP_TEST \
 "The test statement should evaluates to a logical value."
+
+// runtime error messages
+
+#define WL_ERROR_CALLBACK \
+"Callback failed."
+
+#define WL_ERROR_LIST_ELEM_DIMS \
+"All elements of a list should have the same dimensions."
+
+#define WL_ERROR_ARITHMETIC_DIMS \
+"Both arguments of the arithmetic operation should have the same dimensions."
+
+#define WL_ERROR_OPERAND_DIMS \
+"All of the arguments of the function should have the same dimensions."
+
+#define WL_ERROR_REQUIRE_NON_EMPTY \
+"The argument should be a non-empty list."
+
+#define WL_ERROR_ITERATOR_ZERO_STEP \
+"The size of the step should not be zero."
+
+#define WL_ERROR_OUT_OF_RANGE \
+"The index is out of range."
+
+#define WL_ERROR_SPAN_OUT_OF_RANGE \
+"Some of the indices are out of range."
+
+#define WL_ERROR_INTEGER_DIGITS_NEGATIVE \
+"The argument should be non-negative."
+
+#define WL_ERROR_CLIP_LIMIT_SIZE \
+"The upper and lower limits should be specified as a list of two elements."
+
+#define WL_ERROR_SUM_ZERO_SIZE \
+"The sum of zero elements is undefined for non-arithmetic scalars."
+
+#define WL_ERROR_PRODUCT_ZERO_SIZE \
+"The product of zero elements is undefined for non-arithmetic scalars."
+
+#define WL_ERROR_TRANSPOSE_COLLAPSE \
+"Collapsing dimensions should have equal lengths."
+
+#define WL_ERROR_ORDERING_OUT_OF_RANGE \
+"The requested number of indices is larger than the size of the list."
+
+#define WL_ERROR_INSERT_ELEM_DIMS \
+"The element to be inserted should have the same dimensions as the others."
+
+#define WL_ERROR_ARGPACK_OUT_OF_RANGE \
+"The slot index is larger than the number of arguments."
+
+#define WL_ERROR_ITERATION_NEGATIVE \
+"The number of iterations should be non-negative integer."
 
 }

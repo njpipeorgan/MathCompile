@@ -25,6 +25,7 @@ optim
 codegen
 link
 cxx
+runtime
 
 
 Begin["`Private`"];
@@ -66,6 +67,7 @@ link::genfail="Failed to generate the library.";
 link::noheader="The header file \"math_compile.h\" cannot be found.";
 cxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information."
 cxx::error="`1`";
+runtime::error="`1`";
 
 
 compile[code_]:=
@@ -939,12 +941,12 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
 
 $compileroptions=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
-    "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DWL_USE_MATHLINK",
+    "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DNDEBUG -DWL_USE_MATHLINK",
   CCompilerDriver`GenericCCompiler`GenericCCompiler->
     If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",(*clang*)""]<>
-      "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DWL_USE_MATHLINK",
+      "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DNDEBUG -DWL_USE_MATHLINK",
   CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O3 -restrict -fp-model fast=2 -march=native -DWL_USE_MATHLINK",
+    "-std=c++17 -Kc++ -O3 -restrict -fp-model fast=2 -march=native -DNDEBUG -DWL_USE_MATHLINK",
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
     "/std:c++17 /EHsc /Ox /Oi /Ob2 /Gy /fp:fast /DNDEBUG /DWL_USE_MATHLINK"
 |>;

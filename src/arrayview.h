@@ -98,19 +98,20 @@ struct cidx
 template<typename IndexType>
 size_t convert_index(const IndexType& idx, const size_t& dim)
 {
+    WL_TRY_BEGIN()
     if constexpr (std::is_same_v<IndexType, cidx>)
     {
         if (idx.value() < dim)
             return idx.value();
         else
-            throw std::logic_error("badindex");
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
     }
     else if constexpr (std::is_unsigned_v<IndexType>)
     {
         if (1u <= idx && idx <= dim)
             return size_t(idx - 1u);
         else
-            throw std::logic_error("badindex");
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
     }
     else
     {
@@ -120,9 +121,10 @@ size_t convert_index(const IndexType& idx, const size_t& dim)
         if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
             return size_t(pos_idx - 1u);
         else
-            throw std::logic_error("badindex");
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
     }
     return 0u;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 };
 
 struct scalar_indexer
@@ -321,9 +323,9 @@ struct span
                     begin = ptrdiff_t(this->begin_);
                 else // this->begin_ < 0
                     begin = ptrdiff_t(this->begin_) + ptrdiff_t(dim + 1u);
-                //check out-of-bound
+                //check out-of-range
                 if (begin < 1 || begin > ptrdiff_t(dim))
-                    throw std::logic_error("badindex");
+                    throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_end)
             {
@@ -333,15 +335,15 @@ struct span
                     end = ptrdiff_t(this->end_);
                 else // this->end_ < 0
                     end = ptrdiff_t(this->end_) + ptrdiff_t(dim + 1u);
-                //check out-of-bound
+                //check out-of-range
                 if (end < 1 || end > ptrdiff_t(dim))
-                    throw std::logic_error("badindex");
+                    throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_step)
             {
                 step = step_;
                 if (step == 0)
-                    throw std::logic_error("badvalue");
+                    throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
                 else if (step < 0)
                 {
                     if constexpr (default_begin)
@@ -399,20 +401,25 @@ auto make_span(const Begin& begin, const End& end)
 template<typename Begin, typename End, typename Step>
 auto make_indexer(const span<Begin, End, Step>& s, size_t dim)
 {
+    WL_TRY_BEGIN()
     return s.to_indexer(dim);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename IndexType, size_t Rank>
 auto make_indexer(const ndarray<IndexType, Rank>& list, size_t dim)
 {
+    WL_TRY_BEGIN()
     static_assert(Rank == 1u && is_integral_v<IndexType>,
         WL_ERROR_INDEXER_LIST);
     return list_indexer(list.begin(), list.end(), dim);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename IndexType>
 auto make_indexer(const IndexType& index, size_t dim)
 {
+    WL_TRY_BEGIN()
     if constexpr (std::is_same_v<IndexType, all_type>)
         return all_indexer(dim);
     else if constexpr (std::is_same_v<IndexType, cidx>)
@@ -422,6 +429,7 @@ auto make_indexer(const IndexType& index, size_t dim)
         static_assert(is_integral_v<IndexType>, WL_ERROR_INDEXER_SCALAR);
         return scalar_indexer(index, dim);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>

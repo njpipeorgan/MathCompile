@@ -69,6 +69,7 @@ auto _dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
 template<typename X, typename Y>
 auto dot(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X> && is_numerical_type_v<Y>,
         WL_ERROR_NUMERIC_ONLY);
     constexpr auto XR = array_rank_v<X>;
@@ -84,7 +85,7 @@ auto dot(const X& x, const Y& y)
 
     const auto K = valx.dims()[XR - 1u];
     if (K != valy.dims()[0])
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
 
     if constexpr (XR == 1u)
     {
@@ -128,6 +129,7 @@ auto dot(const X& x, const Y& y)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y, typename Z, typename... Rest>
@@ -213,6 +215,7 @@ void _inner_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
 template<typename F, typename X, typename Y, typename G>
 auto inner(F f, const X& x, const Y& y, G g)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(XR >= 1u && YR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -228,7 +231,7 @@ auto inner(F f, const X& x, const Y& y, G g)
 
     const auto K = valx.dims()[XR - 1u];
     if (K != valy.dims()[0])
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
 
     if constexpr (XR == 1u)
     {
@@ -269,6 +272,7 @@ auto inner(F f, const X& x, const Y& y, G g)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 

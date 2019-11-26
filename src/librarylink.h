@@ -17,14 +17,20 @@
 
 #pragma once
 
+#if defined(WL_USE_MATHLINK)
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <random>
 #include <string>
+#include <sstream>
 #include <type_traits>
 
 #include "math_compile.h"
+
+#include "mathlink.h"
+#include "WolframLibrary.h"
 #include "WolframLibrary.h"
 #include "WolframNumericArrayLibrary.h"
 
@@ -35,6 +41,95 @@ namespace librarylink
 {
 
 extern WolframLibraryData lib_data;
+
+struct mathlink_t
+{
+    MLINK link_;
+
+    mathlink_t()
+    {
+        link_ = librarylink::lib_data->getMathLink(librarylink::lib_data);
+    }
+
+    ~mathlink_t()
+    {
+        int pkt = MLNextPacket(link_);
+        if (pkt == RETURNPKT)
+            MLNewPacket(link_);
+    }
+
+    [[noreturn]] void failed()
+    {
+        throw std::logic_error(WL_ERROR_CALLBACK);
+    }
+
+    template<size_t Level, typename T, size_t R>
+    void _put_array_impl(const std::array<size_t, R>& dims, const T*& ptr)
+    {
+        if constexpr (Level + 1u == R)
+        {
+            this->put("List", dims[Level]);
+            for (size_t i = 0; i < dims[Level]; ++i, ++ptr)
+                this->put(*ptr);
+        }
+        else
+        {
+            this->put("List", dims[Level]);
+            for (size_t i = 0; i < dims[Level]; ++i)
+                this->_put_array_impl<Level + 1u>(dims, ptr);
+        }
+    }
+
+    template<typename T, size_t R>
+    mathlink_t& put_array(const std::array<size_t, R>& dims, const T* ptr)
+    {
+        _put_array_impl<0u>(dims, ptr);
+        return *this;
+    }
+
+    mathlink_t& put(const char* name, size_t argc)
+    {
+        if (!MLPutFunction(link_, name, int(argc)))
+            this->failed();
+        return *this;
+    }
+
+    mathlink_t& put(const char* name)
+    {
+        if (!MLPutSymbol(link_, name))
+            this->failed();
+        return *this;
+    }
+
+    template<typename T>
+    mathlink_t& put(const T& val)
+    {
+        int noerror = 0;
+        if constexpr (std::is_same_v<T, void_type>)
+            noerror = MLPutSymbol(link_, "Null");
+        else if constexpr (is_boolean_v<T>)
+            noerror = MLPutSymbol(link_, val ? "True" : "False");
+        else if constexpr (is_integral_v<T>)
+            noerror = MLPutInteger64(link_, mlint64(val));
+        else if constexpr (is_float_v<T>)
+            noerror = MLPutReal64(link_, double(val));
+        else if constexpr (is_complex_v<T>)
+            (*this).put("Complex", 2).put(val.real()).put(val.imag());
+        else if constexpr (is_string_v<T>)
+            noerror = MLPutString(link_, val.c_str());
+        else
+            static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
+        if (!noerror)
+            this->failed();
+        return *this;
+    }
+
+    void eof()
+    {
+        if (!librarylink::lib_data->processMathLink(link_))
+            this->failed();
+    }
+};
 
 template<typename ReturnType>
 mint get_return_type_id()
@@ -272,14 +367,17 @@ void set_array(MArgument& res, const ndarray<T, R>& val)
 template<typename Any>
 void set_expr(const Any& any)
 {
-    mathlink::link_t link;
-    link.put("EvaluatePacket", 1).put("CompoundExpression", 2).
-        put("Set", 2).put("MathCompile`Private`linkreturn");
+    mathlink_t link;
+    link.put("EvaluatePacket", 1).
+        put("CompoundExpression", 2).
+        put("Set", 2).
+        put("MathCompile`Private`linkreturn");
     if constexpr (is_array_v<Any>)
         link.put_array(any.dims(), any.data());
     else
         link.put(any);
-    link.put("Null").eof();
+    link.put("Null").
+        eof();
 }
 
 template<typename T>
@@ -324,6 +422,27 @@ void set(MArgument& res, const T& val)
     }
 }
 
+
+template<typename String>
+void send_error(const String& what) noexcept
+{
+    try
+    {
+        mathlink_t link;
+        link.put("EvaluatePacket", 1).
+            put("Message", 2).
+            put("MessageName", 2).
+            put("runtime").put(std::string("error")).
+            put(get_stack_message(what)).
+            eof();
+    }
+    catch (...)
+    {
+    }
 }
 
 }
+
+}
+
+#endif // defined (WL_USE_MATHLINK)

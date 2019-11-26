@@ -60,6 +60,7 @@ using _get_first_type_t = typename _get_first_type<Ts...>::type;
 template<typename A, typename B>
 auto branch_if(const boolean cond, A&& a, B&& b)
 {
+    WL_TRY_BEGIN()
     using AT = decltype(val(std::declval<A&&>()()));
     using BT = decltype(val(std::declval<B&&>()()));
     static_assert(_branch_type_check<AT, BT>::value, WL_ERROR_BRANCH_RETURN);
@@ -83,6 +84,7 @@ auto branch_if(const boolean cond, A&& a, B&& b)
             return branch_if(cond, std::move(ra), std::move(rb));
         };
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename... Conds>
@@ -111,7 +113,7 @@ auto _which_impl(const size_t n, _returns_value_tag,
     {
         Ret ret;
         if (n >= sizeof...(Cases))
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_INTERNAL);
         [[maybe_unused]] auto _1 = ((n == Is ?
             (ret = val(std::forward<decltype(cases)>(cases)()), true) : false
             ) || ...);
@@ -135,6 +137,7 @@ auto _which_impl(const size_t n, _returns_function_tag,
 template<typename... Cases>
 auto which(const size_t n, Cases&&... cases)
 {
+    WL_TRY_BEGIN()
     static_assert(_branch_type_check<
         decltype(val(std::declval<Cases&&>()()))...>::value,
         WL_ERROR_BRANCH_RETURN);
@@ -154,11 +157,13 @@ auto which(const size_t n, Cases&&... cases)
             std::make_index_sequence<sizeof...(Cases)>{},
             std::forward<decltype(cases)>(cases)...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Test, typename Incr, typename Body>
 auto loop_for(Test test, Incr incr, Body body)
 {
+    WL_TRY_BEGIN()
     static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
         WL_ERROR_LOOP_TEST);
     try
@@ -173,11 +178,13 @@ auto loop_for(Test test, Incr incr, Body body)
     {
     }
     return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Test, typename Body>
 auto loop_while(Test test, Body body)
 {
+    WL_TRY_BEGIN()
     static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
         WL_ERROR_LOOP_TEST);
     try
@@ -191,6 +198,7 @@ auto loop_while(Test test, Body body)
     {
     }
     return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

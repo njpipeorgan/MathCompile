@@ -88,7 +88,7 @@ auto make_step_iterator(Begin begin, End end, Step step)
         WL_ERROR_ITERATOR_TYPE);
     using T = common_type_t<Begin, Step>;
     if (step == Step(0))
-        throw std::logic_error("badvalue");
+        throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
     if constexpr (is_integral_v<T>)
     {
         auto diff = ptrdiff_t(wl::integer_part(end - begin));
@@ -117,24 +117,31 @@ auto make_step_iterator(Begin begin, End end, Step step)
 template<typename Begin, typename End, typename Step>
 auto var_iterator(Begin begin, End end, Step step)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<true>(begin, end, step);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Begin, typename End>
 auto var_iterator(Begin begin, End end)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<true>(begin, end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Begin, typename End>
 auto var_iterator(End end)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<true>(int8_t(1), end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Any>
 auto var_iterator(Any&& any)
 {
+    WL_TRY_BEGIN()
     using Type = remove_cvref_t<Any>;
 
     if constexpr (array_rank_v<Type> == 0u)
@@ -155,12 +162,15 @@ auto var_iterator(Any&& any)
             return list_iterator<decltype(copy)>(std::move(copy));
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Any>
 auto iterator(Any&& any)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<false>(int8_t(1), any, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

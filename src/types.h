@@ -101,9 +101,4 @@ struct const_ints
         std::tuple<std::integral_constant<int64_t, Is>...>>::value;
 };
 
-namespace literal
-{
-
-}
-
 }

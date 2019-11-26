@@ -497,7 +497,7 @@ struct ndarray
         {
             if (this->size() > 0u && !utils::check_dims<R - 1u>(
                 this->dims_ptr() + 1, x.dims().data()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_INTERNAL);
         }
         this->append(std::forward<decltype(x)>(x), dim_checked{});
     }

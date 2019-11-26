@@ -31,15 +31,18 @@ namespace wl
 template<typename Re, typename Im>
 auto make_complex(const Re& re, const Im& im)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Re> && is_real_v<Im>, WL_ERROR_REAL_TYPE_ARG);
     using C = common_type_t<Re, Im>;
     using T = std::conditional_t<std::is_same_v<C, float>, float, double>;
     return complex<T>(T(re), T(im));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto re(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_re = [](const auto& x)
@@ -51,11 +54,13 @@ auto re(X&& x)
             return x;
     };
     return utils::listable_function(scalar_re, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto im(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_im = [](const auto& x)
@@ -67,11 +72,13 @@ auto im(X&& x)
             return XV(0);
     };
     return utils::listable_function(scalar_im, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto arg(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_arg = [](const auto& x)
@@ -90,11 +97,13 @@ auto arg(X&& x)
             return x >= X(0) ? X(0) : X(const_pi);
     };
     return utils::listable_function(scalar_arg, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto conjugate(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_conjugate = [](const auto& x)
@@ -107,11 +116,13 @@ auto conjugate(X&& x)
     };
     return utils::listable_function(scalar_conjugate,
         std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto re_im(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>,
         WL_ERROR_NUMERIC_ONLY);
@@ -131,11 +142,13 @@ auto re_im(X&& x)
         x.for_each([&](const auto& a) { *iter++ = re(a), *iter++ = im(a); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto abs_arg(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>,
         WL_ERROR_NUMERIC_ONLY);
@@ -158,6 +171,7 @@ auto abs_arg(X&& x)
             { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

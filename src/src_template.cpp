@@ -53,16 +53,16 @@ mint argc, MArgument *argv, MArgument res) {
         );
         wl::librarylink::set(res, val);
     }
-    catch (int library_error) {
-        return library_error;
-    }
     catch (const std::logic_error& error) {
+        wl::librarylink::send_error(error.what());
         return LIBRARY_FUNCTION_ERROR;
     }
     catch (const std::bad_alloc& error) {
+        wl::librarylink::send_error(error.what());
         return LIBRARY_MEMORY_ERROR;
     }
     catch (...) {
+        wl::librarylink::send_error(std::string(WL_ERROR_INTERNAL));
         return LIBRARY_FUNCTION_ERROR;
     }
     return LIBRARY_NO_ERROR;

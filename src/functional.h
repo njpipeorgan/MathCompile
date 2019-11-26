@@ -90,7 +90,7 @@ struct argument_pack
     auto get(size_t i) const
     {
         if (i >= size_)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         if constexpr (HasStride)
             return *(this->iter_ + i * stride_);
         else
@@ -100,7 +100,7 @@ struct argument_pack
     auto get_pack(size_t i) const
     {
         if (i > size_)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         if constexpr (HasStride)
             return argument_pack(iter_ + i * stride_, size_ - i, stride_);
         else
@@ -178,6 +178,7 @@ auto _apply_fixed_impl(Function f, Iter iter, std::index_sequence<Is...>)
 template<typename Function, typename X, int64_t I>
 auto apply(Function f, const X& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -221,7 +222,7 @@ auto apply(Function f, const X& x, const_int<I>)
             {
                 auto item = f(PackType(x_iter, argc));
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
@@ -232,7 +233,7 @@ auto apply(Function f, const X& x, const_int<I>)
         constexpr auto function_nargs =
             _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
         if (function_nargs > argc)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
         using RT = remove_cvref_t<decltype(
             _apply_fixed_impl(f, x_iter, index_seq))>;
@@ -264,18 +265,21 @@ auto apply(Function f, const X& x, const_int<I>)
             {
                 auto item = _apply_fixed_impl(f, x_iter, index_seq);
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto apply(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return apply(f, std::forward<decltype(x)>(x), const_int<0>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename T, size_t R, typename Function>
@@ -299,6 +303,7 @@ auto _select_impl(const ndarray<T, R>& a, Function f)
 template<typename X, typename Function>
 auto select(X&& x, Function f)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(array_rank_v<XT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     if constexpr (array_rank_v<XT> == 1u)
@@ -315,11 +320,13 @@ auto select(X&& x, Function f)
     }
     else
         return _select_impl(std::forward<decltype(x)>(x).to_array(), f);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Function, int64_t I>
 auto count(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -345,6 +352,7 @@ auto count(const X& x, varg_tag, Function f, const_int<I>)
         }
     }
     return item_count;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Function>
@@ -356,6 +364,7 @@ auto count(const X& x, varg_tag, Function f)
 template<typename X, typename Y, int64_t I>
 auto count(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -379,12 +388,15 @@ auto count(const X& x, const Y& y, const_int<I>)
         }
     }
     return item_count;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto count(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return count(x, y, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<size_t Level, typename Function, typename T, size_t R>
@@ -415,7 +427,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
         {
             auto item = f(*a_iter);
             if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(ret_iter.begin());
         }
         return ret;
@@ -425,6 +437,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
 template<typename Function, typename X, int64_t I>
 auto map(Function f, X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -440,17 +453,21 @@ auto map(Function f, X&& x, const_int<I>)
     }
     else
         return _map_impl<Level>(f, x.to_array());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto map(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, int64_t I>
 auto scan(Function f, X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -463,12 +480,15 @@ auto scan(Function f, X&& x, const_int<I>)
     for (; x_iter != x_end; ++x_iter)
         f(*x_iter);
     return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto scan(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return scan(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, size_t R, typename... Iters>
@@ -500,7 +520,7 @@ auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
         {
             auto item = f(*iters...);
             if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(ret_iter.begin());
         }
         return ret;
@@ -512,7 +532,7 @@ auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
 {
     const auto dims = utils::dims_take<1u, I>(arg1.dims());
     if (!(utils::check_dims(dims, utils::dims_take<1, I>(args.dims())) && ...))
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
     return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(),
         args.template view_begin<size_t(I)>()...);
 }
@@ -520,6 +540,7 @@ auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
 template<typename Function, int64_t I, typename... Args>
 auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
 {
+    WL_TRY_BEGIN()
     static_assert(1 <= I, WL_ERROR_BAD_LEVEL);
     static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
         WL_ERROR_MAP_THREAD_LEVEL);
@@ -537,18 +558,22 @@ auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
         return _map_thread_impl1<size_t(I)>(f,
             val(std::forward<decltype(args)>(args))...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename... Args>
 auto map_thread(Function f, varg_tag, Args&&... args)
 {
+    WL_TRY_BEGIN()
     return map_thread(f, const_int<1>{}, varg_tag{},
         std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, int64_t I>
 auto map_thread(Function f, X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
@@ -588,7 +613,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
             {
                 auto item = f(PackType(x_iter, pack_size, pack_stride));
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
@@ -599,7 +624,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
         constexpr auto function_nargs =
             _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
         if (function_nargs > pack_size)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
         using RT = remove_cvref_t<decltype(
             _apply_fixed_impl(f, x_iter, pack_stride, index_seq))>;
@@ -629,30 +654,34 @@ auto map_thread(Function f, X&& x, const_int<I>)
                 auto item = _apply_fixed_impl(
                     f, x_iter, pack_stride, index_seq);
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto map_thread(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return map_thread(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto nest(Function f, X&& x, const int64_t n)
 {
+    WL_TRY_BEGIN()
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
         WL_ERROR_NEST_TYPE);
     constexpr auto rank = array_rank_v<XT0>;
-    if (n < 0) throw std::logic_error("badargv");
+    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
 
     if (n == 0)
         return cast<XT2>(std::forward<decltype(x)>(x));
@@ -671,18 +700,20 @@ auto nest(Function f, X&& x, const int64_t n)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto nest_list(Function f, X&& x, const int64_t n)
 {
+    WL_TRY_BEGIN()
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
         WL_ERROR_NEST_TYPE);
     constexpr auto rank = array_rank_v<XT0>;
-    if (n < 0) throw std::logic_error("badargv");
+    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
 
     if constexpr (rank == 0u)
     {
@@ -713,7 +744,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
             ++view_iter;
             auto item = val(f(std::forward<decltype(x)>(x)));
             if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(view_iter.begin());
             ++view_iter;
             for (size_t i = 2; i <= size_t(n); ++i, ++view_iter)
@@ -721,12 +752,13 @@ auto nest_list(Function f, X&& x, const int64_t n)
                 auto temp = val(f(std::move(item)));
                 item = std::move(temp);
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(view_iter.begin());
             }
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename T, size_t R>
@@ -814,6 +846,7 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
     const int64_t input_max = const_int_infinity,
     const int64_t offset = 0u)
 {
+    WL_TRY_BEGIN()
     static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
     const auto history_size = size_t(std::max(N, -offset + 1));
     const auto max_steps = std::max(input_max, int64_t(0));
@@ -871,18 +904,21 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             continue_flag = queue.template apply_test<num_args>(test);
         }
         if (offset <= -i)
-            throw std::logic_error("badargv");
+            throw std::logic_error(WL_ERROR_INTERNAL);
         else if (offset <= 0)
             return std::move(queue).get(size_t(-offset));
         else
             return nest(f, std::move(queue).last(), offset);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, typename Test>
 auto nest_while(Function f, X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return nest_while(f, std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Test, typename Iter, size_t... Is>
@@ -897,6 +933,7 @@ template<typename Function, typename X, typename Test, int64_t N>
 auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
     const int64_t input_max = const_int_infinity)
 {
+    WL_TRY_BEGIN()
     static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
     const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
@@ -960,7 +997,7 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             auto temp = val(f(std::move(last)));
             last = std::move(temp);
             if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             ret.append(last);
         }
         bool continue_flag = false;
@@ -977,7 +1014,7 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             auto temp = val(f(std::move(last)));
             last = std::move(temp);
             if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             ret.append(last);
             if constexpr (num_args == 0u)
                 continue_flag = test();
@@ -990,13 +1027,16 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, typename Test>
 auto nest_while_list(Function f, X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return nest_while_list(
         f, std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, typename YIter, typename YInc>
@@ -1031,7 +1071,7 @@ auto _fold_impl1(Function f, Y&& y)
     static_assert(array_rank_v<remove_cvref_t<Y>> >= 1u,
         WL_ERROR_REQUIRE_ARRAY);
     const size_t n = y.dims()[0];
-    if (n < 1u) throw std::logic_error("baddims");
+    if (n < 1u) throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     const auto& valy = val(std::forward<decltype(y)>(y));
     if constexpr (List)
     {
@@ -1091,30 +1131,39 @@ auto _fold_impl1(Function f, X&& x, Y&& y)
 template<typename Function, typename... Any>
 auto fold(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<false, true>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename... Any>
 auto foldr(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<false, false>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename... Any>
 auto fold_list(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<true, true>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename... Any>
 auto foldr_list(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, typename Pred>
 auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return nest_while(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b)
         {
@@ -1122,33 +1171,41 @@ auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
             static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
             return !same;
         }, const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, typename Pred>
 auto fixed_point(Function f, X&& x, varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return fixed_point(f, std::forward<decltype(x)>(x),
         const_int_infinity, varg_tag{}, pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto fixed_point(Function f, X&& x, const int64_t max)
 {
+    WL_TRY_BEGIN()
     return nest_while(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b) { return unequal(a, b); },
         const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto fixed_point(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return fixed_point(f, std::forward<decltype(x)>(x), const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, typename Pred>
 auto fixed_point_list(Function f, X&& x, const int64_t max,
     varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return nest_while_list(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b)
         {
@@ -1156,34 +1213,43 @@ auto fixed_point_list(Function f, X&& x, const int64_t max,
             static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
             return !same;
         }, const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X, typename Pred>
 auto fixed_point_list(Function f, X&& x, varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return fixed_point_list(f, std::forward<decltype(x)>(x),
         const_int_infinity, varg_tag{}, pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto fixed_point_list(Function f, X&& x, const int64_t max)
 {
+    WL_TRY_BEGIN()
     return nest_while_list(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b) { return unequal(a, b); },
         const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Function, typename X>
 auto fixed_point_list(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return fixed_point_list(f, std::forward<decltype(x)>(x),
         const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Arg>
 auto identity(Arg&& arg) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return std::forward<decltype(arg)>(arg);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<bool Reverse, typename... Fs>
@@ -1242,18 +1308,23 @@ auto _composition_impl()
 template<typename... Fn>
 auto composition(Fn&&... fn) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return _composition_impl<false>(std::forward<decltype(fn)>(fn)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename... Fn>
 auto right_composition(Fn&&... fn) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return _composition_impl<true>(std::forward<decltype(fn)>(fn)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test, int64_t I>
 auto all_true(X&& x, Test test, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -1267,17 +1338,21 @@ auto all_true(X&& x, Test test, const_int<I>)
     for (; ret && x_iter != x_end; ++x_iter)
         ret = ret && test(*x_iter);
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test>
 auto all_true(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test, int64_t I>
 auto any_true(X&& x, Test test, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -1291,54 +1366,69 @@ auto any_true(X&& x, Test test, const_int<I>)
     for (; !ret && x_iter != x_end; ++x_iter)
         ret = ret || test(*x_iter);
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test>
 auto any_true(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return any_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test, int64_t I>
 auto none_true(X&& x, Test test, const_int<I>)
 {
+    WL_TRY_BEGIN()
     return !any_true(std::forward<decltype(x)>(x), test, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test>
 auto none_true(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return none_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test>
 auto vector_q(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     if constexpr (array_rank_v<remove_cvref_t<X>> == 0u)
         return const_false;
     else
         return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto vector_q(X&& x)
 {
+    WL_TRY_BEGIN()
     return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Test>
 auto matrix_q(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     if constexpr (array_rank_v<remove_cvref_t<X>> <= 1u)
         return const_false;
     else
         return all_true(std::forward<decltype(x)>(x), test, const_int<2>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto matrix_q(X&& x)
 {
+    WL_TRY_BEGIN()
     return boolean(array_rank_v<remove_cvref_t<X>> == 2u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

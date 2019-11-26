@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <cstring>
 #include <chrono>
 #include <type_traits>
+#include <vector>
 
 #include "macros.h"
 #include "types.h"
@@ -179,8 +181,10 @@ auto _size_of_dims_impl(const Dims* dims, std::index_sequence<Is...>)
         return (size_t(dims[Is]) * ...);
     else
     {
+#if !defined(NDEBUG)
         if (!((dims[Is] >= 0) && ...))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INTERNAL);
+#endif
         return (size_t(dims[Is]) * ...);
     }
 }
@@ -287,5 +291,55 @@ WL_INLINE void copy_n(XIter x_iter, size_t n, YIter y_iter)
 }
 
 }
+
+#if defined(WL_USE_MATHLINK)
+
+namespace librarylink
+{
+
+template<typename String>
+void send_error(const String& what) noexcept;
+
+inline std::string get_stack_message(const std::string& err)
+{
+    std::string message = "error: " + err;
+    return message;
+}
+
+inline std::string extract_filename(const char* file)
+{
+#if defined (_MSC_VER)
+    const char separator = '\\';
+#else
+    const char separator = '/';
+#endif
+    const char* output = std::strrchr(file, separator);
+    return output ? std::string(output + 1) : std::string(file);
+}
+
+}
+
+#endif
+
+#if defined(WL_USE_MATHLINK) && !defined(NDEBUG)
+
+#  define WL_TRY_BEGIN()                                        \
+    try                                                         \
+    {
+#  define WL_TRY_END(func, file, line)                          \
+    } catch (std::logic_error& err)                             \
+    {                                                           \
+        throw std::logic_error(err.what() +                     \
+            (std::string("\n>> from function \"") + func +      \
+            "\" in \"" + librarylink::extract_filename(file) +  \
+            "\" line " + std::to_string(line)));                \
+    }
+
+#else
+
+#  define WL_TRY_BEGIN() (void)(0);
+#  define WL_TRY_END(...) (void)(0);
+
+#endif
 
 }

@@ -7,11 +7,12 @@
 #include <string>
 #include <tuple>
 #include <limits>
+#include <cstring>
 #include <chrono>
+#include <vector>
 #include <exception>
 #include <iterator>
 #include <optional>
-#include <vector>
 #include <cassert>
 #include <array>
 #include <initializer_list>
@@ -38,6 +39,7 @@
 #  endif
 #  define _wl_popcnt64 __popcnt64
 #  define NOMINMAX // disable min, max macros
+#  define WL_FUNCSIG __FUNCSIG__
 #elif defined(__INTEL_COMPILER)
 #  if __INTEL_COMPILER < 1900
 #    pragma message ("error: cxx::compilerver")
@@ -45,6 +47,7 @@
 #  define WL_INLINE __forceinline
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #  define WL_RESTRICT __restrict
+#  define WL_FUNCSIG __PRETTY_FUNCTION__
 #  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  if __clang_major__ < 5
@@ -53,6 +56,7 @@
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
+#  define WL_FUNCSIG __PRETTY_FUNCTION__
 #elif defined(__GNUC__)
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")
@@ -60,6 +64,7 @@
 #  define WL_INLINE __attribute__((always_inline))
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
+#  define WL_FUNCSIG __PRETTY_FUNCTION__
 #endif
 #if defined(__MINGW64__)
 #  define WL_NO_RANDOM_DEVICE 1
@@ -158,6 +163,40 @@ namespace wl
 "The requested type conversion is not valid."
 #define WL_ERROR_LOOP_TEST \
 "The test statement should evaluates to a logical value."
+#define WL_ERROR_CALLBACK \
+"Callback failed."
+#define WL_ERROR_LIST_ELEM_DIMS \
+"All elements of a list should have the same dimensions."
+#define WL_ERROR_ARITHMETIC_DIMS \
+"Both arguments of the arithmetic operation should have the same dimensions."
+#define WL_ERROR_OPERAND_DIMS \
+"All of the arguments of the function should have the same dimensions."
+#define WL_ERROR_REQUIRE_NON_EMPTY \
+"The argument should be a non-empty list."
+#define WL_ERROR_ITERATOR_ZERO_STEP \
+"The size of the step should not be zero."
+#define WL_ERROR_OUT_OF_RANGE \
+"The index is out of range."
+#define WL_ERROR_SPAN_OUT_OF_RANGE \
+"Some of the indices are out of range."
+#define WL_ERROR_INTEGER_DIGITS_NEGATIVE \
+"The argument should be non-negative."
+#define WL_ERROR_CLIP_LIMIT_SIZE \
+"The upper and lower limits should be specified as a list of two elements."
+#define WL_ERROR_SUM_ZERO_SIZE \
+"The sum of zero elements is undefined for non-arithmetic scalars."
+#define WL_ERROR_PRODUCT_ZERO_SIZE \
+"The product of zero elements is undefined for non-arithmetic scalars."
+#define WL_ERROR_TRANSPOSE_COLLAPSE \
+"Collapsing dimensions should have equal lengths."
+#define WL_ERROR_ORDERING_OUT_OF_RANGE \
+"The requested number of indices is larger than the size of the list."
+#define WL_ERROR_INSERT_ELEM_DIMS \
+"The element to be inserted should have the same dimensions as the others."
+#define WL_ERROR_ARGPACK_OUT_OF_RANGE \
+"The slot index is larger than the number of arguments."
+#define WL_ERROR_ITERATION_NEGATIVE \
+"The number of iterations should be non-negative integer."
 }
 namespace wl
 {
@@ -437,9 +476,6 @@ struct const_ints
         std::tuple_element_t<N, 
         std::tuple<std::integral_constant<int64_t, Is>...>>::value;
 };
-namespace literal
-{
-}
 }
 namespace wl
 {
@@ -774,8 +810,10 @@ auto _size_of_dims_impl(const Dims* dims, std::index_sequence<Is...>)
         return (size_t(dims[Is]) * ...);
     else
     {
+#if !defined(NDEBUG)
         if (!((dims[Is] >= 0) && ...))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INTERNAL);
+#endif
         return (size_t(dims[Is]) * ...);
     }
 }
@@ -838,194 +876,6 @@ size_t linear_position(const std::array<size_t, R>& dims, const Is&... is)
     _linear_position_impl<0u>(dims, pos, is...);
     return pos;
 }
-template<typename Fn, typename X>
-auto listable_function(Fn fn, X&& x)
-{
-    using XT = remove_cvref_t<X>;
-    constexpr auto x_rank = array_rank_v<XT>;
-    if constexpr (x_rank == 0)
-    {
-        return fn(x);
-    }
-    else
-    {
-        using XV = typename XT::value_type;
-        using RV = decltype(fn(XV{}));
-        if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
-        {
-            x.for_each([=](auto& a) { a = fn(a); });
-            return std::move(x);
-        }
-        else
-        {
-            ndarray<RV, x_rank> ret(x.dims());
-            x.for_each([=](const auto& a, auto& r) { r = fn(a); },
-                ret.begin());
-            return ret;
-        }
-    }
-}
-template<typename Fn, typename X, typename Y>
-auto listable_function(Fn fn, X&& x, Y&& y)
-{
-    using XT = remove_cvref_t<X>;
-    using YT = remove_cvref_t<Y>;
-    constexpr auto x_rank = array_rank_v<XT>;
-    constexpr auto y_rank = array_rank_v<YT>;
-    if constexpr (x_rank == 0 && y_rank == 0)
-    {
-        return fn(x, y);
-    }
-    else if constexpr (x_rank == 0 && y_rank >= 1)
-    {
-        using YV = typename YT::value_type;
-        using RV = decltype(fn(x, YV{}));
-        if constexpr (is_movable_v<Y&&> && std::is_same_v<RV, YV>)
-        {
-            y.for_each([=](auto& b) { b = fn(x, b); });
-            return std::move(y);
-        }
-        else
-        {
-            ndarray<RV, y_rank> ret(y.dims());
-            y.for_each([=](const auto& b, auto& r) { r = fn(x, b); },
-                ret.begin());
-            return ret;
-        }
-    }
-    else if constexpr (x_rank >= 1 && y_rank == 0)
-    {
-        using XV = typename XT::value_type;
-        using RV = decltype(fn(XV{}, y));
-        if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
-        {
-            x.for_each([=](auto& a) { a = fn(a, y); });
-            return std::move(x);
-        }
-        else
-        {
-            ndarray<RV, x_rank> ret(x.dims());
-            x.for_each([=](const auto& a, auto& r) { r = fn(a, y); },
-                ret.begin());
-            return ret;
-        }
-    }
-    else
-    {
-        static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);
-        if (!utils::check_dims(x.dims(), y.dims()))
-            throw std::logic_error("baddims");
-        using XV = typename XT::value_type;
-        using YV = typename YT::value_type;
-        using RV = decltype(fn(XV{}, YV{}));
-        if constexpr (is_movable_v<X&&> && std::is_same_v<XV, RV>)
-        {
-            y.for_each([=](const auto& b, auto& a) { a = fn(a, b); },
-                x.begin());
-            return std::move(x);
-        }
-        else if constexpr (XT::category == view_category::General)
-        {
-            if constexpr (is_movable_v<Y&&> && std::is_same_v<YV, RV>)
-            {
-                x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
-                    y.begin());
-                return std::move(y);
-            }
-            else if constexpr (YT::category == view_category::General)
-            {
-                if constexpr (std::is_same_v<XV, RV>)
-                    return _listable_numerical_function(fn,
-                        x.to_array(), std::forward<decltype(y)>(y));
-                else
-                    return _listable_numerical_function(fn,
-                        std::forward<decltype(x)>(x), y.to_array());
-            }
-            else
-            {
-                ndarray<RV, x_rank> ret(x.dims());
-                x.for_each([=](const auto& a, const auto& b, auto& r)
-                    { r = fn(a, b); },
-                    y.begin(), ret.begin());
-                return ret;
-            }
-        }
-        else
-        {
-            if constexpr (is_movable_v<Y&&>&& std::is_same_v<YV, RV>)
-            {
-                x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
-                    y.begin());
-                return std::move(y);
-            }
-            else
-            {
-                ndarray<RV, x_rank> ret(x.dims());
-                y.for_each([=](const auto& b, const auto& a, auto& r)
-                    { r = fn(a, b); },
-                    x.begin(), ret.begin());
-                return ret;
-            }
-        }
-    }
-}
-#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(name)          \
-template<typename Iter, bool HasStride>                             \
-auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
-{                                                                   \
-    auto ret = val(args.get(0));                                    \
-    const auto size = args.size();                                  \
-    for (size_t i = 1u; i < size; ++i)                              \
-        ret = name(std::move(ret), args.get(i));                    \
-    return ret;                                                     \
-}
-#define WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(name)        \
-if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)                \
-{                                                                   \
-    if (y.size() == 0u)                                             \
-        return std::forward<decltype(x)>(x);                        \
-    else                                                            \
-        return name(std::forward<decltype(x)>(x),                   \
-            _variadic_##name(y));                                   \
-}                                                                   \
-else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)           \
-{                                                                   \
-    if (x.size() == 0u)                                             \
-        return std::forward<decltype(y)>(y);                        \
-    else                                                            \
-        return name(_variadic_##name(x),                            \
-            std::forward<decltype(y)>(y));                          \
-}                                                                   \
-else
-#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(name, expr)     \
-constexpr auto name()                                               \
-{                                                                   \
-    return expr;                                                    \
-}
-#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(name)             \
-template<typename X>                                                \
-auto name(X&& x)                                                    \
-{                                                                   \
-    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)            \
-    {                                                               \
-        if (x.size() == 0u)                                         \
-            return cast<remove_cvref_t<                             \
-                decltype(_variadic_##name(x))>>(name());            \
-        else                                                        \
-            return _variadic_##name(x);                             \
-    }                                                               \
-    else                                                            \
-        return std::forward<decltype(x)>(x);                        \
-}
-#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(name)              \
-template<typename X1, typename X2, typename X3, typename... Xs>     \
-auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
-{                                                                   \
-    return name(name(std::forward<decltype(x1)>(x1),                \
-        std::forward<decltype(x2)>(x2)),                            \
-        std::forward<decltype(x3)>(x3),                             \
-        std::forward<decltype(xs)>(xs)...);                         \
-}
 template<typename X>
 auto _lzcnt(X x)
 {
@@ -1060,6 +910,44 @@ WL_INLINE void copy_n(XIter x_iter, size_t n, YIter y_iter)
         *y_iter = *x_iter;
 }
 }
+#if defined(WL_USE_MATHLINK)
+namespace librarylink
+{
+template<typename String>
+void send_error(const String& what) noexcept;
+inline std::string get_stack_message(const std::string& err)
+{
+    std::string message = "error: " + err;
+    return message;
+}
+inline std::string extract_filename(const char* file)
+{
+#if defined (_MSC_VER)
+    const char separator = '\\';
+#else
+    const char separator = '/';
+#endif
+    const char* output = std::strrchr(file, separator);
+    return output ? std::string(output + 1) : std::string(file);
+}
+}
+#endif
+#if defined(WL_USE_MATHLINK) && !defined(NDEBUG)
+#  define WL_TRY_BEGIN()                                        \
+    try                                                         \
+    {
+#  define WL_TRY_END(func, file, line)                          \
+    } catch (std::logic_error& err)                             \
+    {                                                           \
+        throw std::logic_error(err.what() +                     \
+            (std::string("\n>> from function \"") + func +      \
+            "\" in \"" + librarylink::extract_filename(file) +  \
+            "\" line " + std::to_string(line)));                \
+    }
+#else
+#  define WL_TRY_BEGIN() (void)(0);
+#  define WL_TRY_END(...) (void)(0);
+#endif
 }
 namespace wl
 {
@@ -1116,19 +1004,20 @@ struct cidx
 template<typename IndexType>
 size_t convert_index(const IndexType& idx, const size_t& dim)
 {
+    WL_TRY_BEGIN()
     if constexpr (std::is_same_v<IndexType, cidx>)
     {
         if (idx.value() < dim)
             return idx.value();
         else
-            throw std::logic_error("badindex");
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
     }
     else if constexpr (std::is_unsigned_v<IndexType>)
     {
         if (1u <= idx && idx <= dim)
             return size_t(idx - 1u);
         else
-            throw std::logic_error("badindex");
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
     }
     else
     {
@@ -1138,9 +1027,10 @@ size_t convert_index(const IndexType& idx, const size_t& dim)
         if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))
             return size_t(pos_idx - 1u);
         else
-            throw std::logic_error("badindex");
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
     }
     return 0u;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 };
 struct scalar_indexer
 {
@@ -1299,9 +1189,9 @@ struct span
                     begin = ptrdiff_t(this->begin_);
                 else // this->begin_ < 0
                     begin = ptrdiff_t(this->begin_) + ptrdiff_t(dim + 1u);
-                //check out-of-bound
+                //check out-of-range
                 if (begin < 1 || begin > ptrdiff_t(dim))
-                    throw std::logic_error("badindex");
+                    throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_end)
             {
@@ -1311,15 +1201,15 @@ struct span
                     end = ptrdiff_t(this->end_);
                 else // this->end_ < 0
                     end = ptrdiff_t(this->end_) + ptrdiff_t(dim + 1u);
-                //check out-of-bound
+                //check out-of-range
                 if (end < 1 || end > ptrdiff_t(dim))
-                    throw std::logic_error("badindex");
+                    throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_step)
             {
                 step = step_;
                 if (step == 0)
-                    throw std::logic_error("badvalue");
+                    throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
                 else if (step < 0)
                 {
                     if constexpr (default_begin)
@@ -1373,18 +1263,23 @@ auto make_span(const Begin& begin, const End& end)
 template<typename Begin, typename End, typename Step>
 auto make_indexer(const span<Begin, End, Step>& s, size_t dim)
 {
+    WL_TRY_BEGIN()
     return s.to_indexer(dim);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename IndexType, size_t Rank>
 auto make_indexer(const ndarray<IndexType, Rank>& list, size_t dim)
 {
+    WL_TRY_BEGIN()
     static_assert(Rank == 1u && is_integral_v<IndexType>,
         WL_ERROR_INDEXER_LIST);
     return list_indexer(list.begin(), list.end(), dim);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename IndexType>
 auto make_indexer(const IndexType& index, size_t dim)
 {
+    WL_TRY_BEGIN()
     if constexpr (std::is_same_v<IndexType, all_type>)
         return all_indexer(dim);
     else if constexpr (std::is_same_v<IndexType, cidx>)
@@ -1394,6 +1289,7 @@ auto make_indexer(const IndexType& index, size_t dim)
         static_assert(is_integral_v<IndexType>, WL_ERROR_INDEXER_SCALAR);
         return scalar_indexer(index, dim);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
 struct simple_view
@@ -2416,7 +2312,7 @@ struct ndarray
         {
             if (this->size() > 0u && !utils::check_dims<R - 1u>(
                 this->dims_ptr() + 1, x.dims().data()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_INTERNAL);
         }
         this->append(std::forward<decltype(x)>(x), dim_checked{});
     }
@@ -2489,9 +2385,204 @@ struct ndarray
 }
 namespace wl
 {
+namespace utils
+{
+template<typename Fn, typename X>
+auto listable_function(Fn fn, X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    constexpr auto x_rank = array_rank_v<XT>;
+    if constexpr (x_rank == 0)
+    {
+        return fn(x);
+    }
+    else
+    {
+        using XV = typename XT::value_type;
+        using RV = decltype(fn(XV{}));
+        if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
+        {
+            x.for_each([=](auto& a) { a = fn(a); });
+            return std::move(x);
+        }
+        else
+        {
+            ndarray<RV, x_rank> ret(x.dims());
+            x.for_each([=](const auto& a, auto& r) { r = fn(a); },
+                ret.begin());
+            return ret;
+        }
+    }
+}
+template<typename Fn, typename X, typename Y>
+auto listable_function(Fn fn, X&& x, Y&& y)
+{
+    using XT = remove_cvref_t<X>;
+    using YT = remove_cvref_t<Y>;
+    constexpr auto x_rank = array_rank_v<XT>;
+    constexpr auto y_rank = array_rank_v<YT>;
+    if constexpr (x_rank == 0 && y_rank == 0)
+    {
+        return fn(x, y);
+    }
+    else if constexpr (x_rank == 0 && y_rank >= 1)
+    {
+        using YV = typename YT::value_type;
+        using RV = decltype(fn(x, YV{}));
+        if constexpr (is_movable_v<Y&&> && std::is_same_v<RV, YV>)
+        {
+            y.for_each([=](auto& b) { b = fn(x, b); });
+            return std::move(y);
+        }
+        else
+        {
+            ndarray<RV, y_rank> ret(y.dims());
+            y.for_each([=](const auto& b, auto& r) { r = fn(x, b); },
+                ret.begin());
+            return ret;
+        }
+    }
+    else if constexpr (x_rank >= 1 && y_rank == 0)
+    {
+        using XV = typename XT::value_type;
+        using RV = decltype(fn(XV{}, y));
+        if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
+        {
+            x.for_each([=](auto& a) { a = fn(a, y); });
+            return std::move(x);
+        }
+        else
+        {
+            ndarray<RV, x_rank> ret(x.dims());
+            x.for_each([=](const auto& a, auto& r) { r = fn(a, y); },
+                ret.begin());
+            return ret;
+        }
+    }
+    else
+    {
+        static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);
+        if (!utils::check_dims(x.dims(), y.dims()))
+            throw std::logic_error(WL_ERROR_OPERAND_DIMS);
+        using XV = typename XT::value_type;
+        using YV = typename YT::value_type;
+        using RV = decltype(fn(XV{}, YV{}));
+        if constexpr (is_movable_v<X&&> && std::is_same_v<XV, RV>)
+        {
+            y.for_each([=](const auto& b, auto& a) { a = fn(a, b); },
+                x.begin());
+            return std::move(x);
+        }
+        else if constexpr (XT::category == view_category::General)
+        {
+            if constexpr (is_movable_v<Y&&> && std::is_same_v<YV, RV>)
+            {
+                x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
+                    y.begin());
+                return std::move(y);
+            }
+            else if constexpr (YT::category == view_category::General)
+            {
+                if constexpr (std::is_same_v<XV, RV>)
+                    return _listable_numerical_function(fn,
+                        x.to_array(), std::forward<decltype(y)>(y));
+                else
+                    return _listable_numerical_function(fn,
+                        std::forward<decltype(x)>(x), y.to_array());
+            }
+            else
+            {
+                ndarray<RV, x_rank> ret(x.dims());
+                x.for_each([=](const auto& a, const auto& b, auto& r)
+                    { r = fn(a, b); },
+                    y.begin(), ret.begin());
+                return ret;
+            }
+        }
+        else
+        {
+            if constexpr (is_movable_v<Y&&>&& std::is_same_v<YV, RV>)
+            {
+                x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
+                    y.begin());
+                return std::move(y);
+            }
+            else
+            {
+                ndarray<RV, x_rank> ret(x.dims());
+                y.for_each([=](const auto& b, const auto& a, auto& r)
+                    { r = fn(a, b); },
+                    x.begin(), ret.begin());
+                return ret;
+            }
+        }
+    }
+}
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(name)          \
+template<typename Iter, bool HasStride>                             \
+auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
+{                                                                   \
+    auto ret = val(args.get(0));                                    \
+    const auto size = args.size();                                  \
+    for (size_t i = 1u; i < size; ++i)                              \
+        ret = name(std::move(ret), args.get(i));                    \
+    return ret;                                                     \
+}
+#define WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(name)        \
+if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)                \
+{                                                                   \
+    if (y.size() == 0u)                                             \
+        return std::forward<decltype(x)>(x);                        \
+    else                                                            \
+        return name(std::forward<decltype(x)>(x),                   \
+            _variadic_##name(y));                                   \
+}                                                                   \
+else if constexpr (is_argument_pack_v<remove_cvref_t<X>>)           \
+{                                                                   \
+    if (x.size() == 0u)                                             \
+        return std::forward<decltype(y)>(y);                        \
+    else                                                            \
+        return name(_variadic_##name(x),                            \
+            std::forward<decltype(y)>(y));                          \
+}                                                                   \
+else
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(name, expr)     \
+constexpr auto name()                                               \
+{                                                                   \
+    return expr;                                                    \
+}
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(name)             \
+template<typename X>                                                \
+auto name(X&& x)                                                    \
+{                                                                   \
+    if constexpr (is_argument_pack_v<remove_cvref_t<X>>)            \
+    {                                                               \
+        if (x.size() == 0u)                                         \
+            return cast<remove_cvref_t<                             \
+                decltype(_variadic_##name(x))>>(name());            \
+        else                                                        \
+            return _variadic_##name(x);                             \
+    }                                                               \
+    else                                                            \
+        return std::forward<decltype(x)>(x);                        \
+}
+#define WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(name)              \
+template<typename X1, typename X2, typename X3, typename... Xs>     \
+auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
+{                                                                   \
+    return name(name(std::forward<decltype(x1)>(x1),                \
+        std::forward<decltype(x2)>(x2)),                            \
+        std::forward<decltype(x3)>(x3),                             \
+        std::forward<decltype(xs)>(xs)...);                         \
+}
+}
+}
+namespace wl
+{
 template<typename X>
 auto n(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto x_rank = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
@@ -2516,11 +2607,13 @@ auto n(X&& x)
         else
             return std::forward<decltype(x)>(x);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 #define WL_DEFINE_ROUNDING_FUNCTION(name, stdname)                      \
 template<typename X>                                                    \
 auto name(X&& x)                                                        \
 {                                                                       \
+    WL_TRY_BEGIN()                                                      \
     using XT = remove_cvref_t<X>;                                       \
     constexpr auto x_rank = array_rank_v<XT>;                           \
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);      \
@@ -2547,6 +2640,7 @@ auto name(X&& x)                                                        \
             return ret;                                                 \
         }                                                               \
     }                                                                   \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                            \
 }
 WL_DEFINE_ROUNDING_FUNCTION(round, round)
 WL_DEFINE_ROUNDING_FUNCTION(ceiling, ceil)
@@ -2555,6 +2649,7 @@ WL_DEFINE_ROUNDING_FUNCTION(integer_part, trunc)
 template<typename X>
 auto fractional_part(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto x_rank = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
@@ -2589,10 +2684,12 @@ auto fractional_part(X&& x)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto abs(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
@@ -2602,10 +2699,12 @@ auto abs(X&& x)
     else
         return utils::listable_function([](auto x) { return std::abs(x); },
             std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto ramp(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
@@ -2621,6 +2720,7 @@ auto ramp(X&& x)
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 boolean greater(const X& x, const Y& y)
@@ -2695,26 +2795,35 @@ boolean _equal_impl(const X& x, const Y& y)
 template<typename X, typename Y>
 boolean equal(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return _equal_impl<false>(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 boolean equal(const X& x, const Y& y, dim_checked)
 {
+    WL_TRY_BEGIN()
     return _equal_impl<true>(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 boolean unequal(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return !equal(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 boolean unequal(const X& x, const Y& y, dim_checked)
 {
+    WL_TRY_BEGIN()
     return !equal(x, y, dim_checked{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y, typename... DimChecked>
 boolean same_q(const X& x, const Y& y, DimChecked...)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     constexpr auto same_type = (XR == 0u) ? std::is_same_v<X, Y> :
@@ -2723,15 +2832,19 @@ boolean same_q(const X& x, const Y& y, DimChecked...)
         return equal(x, y, DimChecked{}...);
     else
         return const_false;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y, typename... DimChecked>
 boolean unsame_q(const X& x, const Y& y, DimChecked...)
 {
+    WL_TRY_BEGIN()
     return !same_q(x, y, DimChecked{}...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto mod(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x, const auto& y)
@@ -2770,10 +2883,12 @@ auto mod(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto quotient(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x, const auto& y)
@@ -2813,10 +2928,12 @@ auto quotient(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto sign(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -2838,22 +2955,24 @@ auto sign(X&& x)
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X, typename Y, typename N>
 auto integer_digits(const X& x, const Y& y, const N& n)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<X> && is_integral_v<Y>,
         WL_ERROR_INTEGRAL_TYPE_ARG);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
     constexpr auto fixed_length = !std::is_same_v<N, void_type>;
-    if (y < Y(0)) throw std::logic_error("badargv");
+    if (y < Y(0)) throw std::logic_error(WL_ERROR_INTEGER_DIGITS_NEGATIVE);
     auto ux = (x >= X(0)) ? uint64_t(x) : uint64_t(-x);
     auto uy = uint64_t(y);
     ndarray<Ret, 1u> ret;
     if constexpr (fixed_length)
     {
         static_assert(is_integral_v<N>, WL_ERROR_COUNTING_ARG);
-        if (n < N(0)) throw std::logic_error("badargv");
+        if (n < N(0)) throw std::logic_error(WL_ERROR_INTEGER_DIGITS_NEGATIVE);
         ret.uninitialized_resize(std::array<size_t, 1u>{size_t(n)}, size_t(n));
         auto ret_begin = ret.data();
         auto ret_end = ret_begin + size_t(n);
@@ -2890,20 +3009,26 @@ auto integer_digits(const X& x, const Y& y, const N& n)
         std::reverse(ret_begin, ret_end);
     }
     return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X, typename Y>
 auto integer_digits(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return integer_digits<Ret>(x, y, const_null);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto integer_digits(const X& x)
 {
+    WL_TRY_BEGIN()
     return integer_digits<Ret>(x, uint64_t(10), const_null);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto positive(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -2912,10 +3037,12 @@ auto positive(const X& x)
         return boolean(x > XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto negative(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -2924,10 +3051,12 @@ auto negative(const X& x)
         return boolean(x < XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto non_positive(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -2936,10 +3065,12 @@ auto non_positive(const X& x)
         return boolean(x <= XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto non_negative(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -2948,34 +3079,40 @@ auto non_negative(const X& x)
         return boolean(x >= XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename L>
 auto clip(X&& x, const L& limit)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error("baddims");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
     std::array<value_type_t<L>, 2u> limit_pair;
     limit.copy_to(limit_pair.data());
     return clip(std::forward<decltype(x)>(x), varg_tag{},
         limit_pair[0], limit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename L, typename VL>
 auto clip(X&& x, const L& limit, const VL& vlimit)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
     static_assert(array_rank_v<VL> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error("baddims");
-    if (vlimit.size() != 2u) throw std::logic_error("baddims");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    if (vlimit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
     std::array<value_type_t<L>, 2u> limit_pair;
     std::array<value_type_t<VL>, 2u> vlimit_pair;
     limit.copy_to(limit_pair.data());
     vlimit.copy_to(vlimit_pair.data());
     return clip(std::forward<decltype(x)>(x), varg_tag{},
         limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto clip(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -2990,10 +3127,12 @@ auto clip(X&& x)
             return x;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Min, typename Max>
 auto clip(X&& x, varg_tag, Min min, Max max)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
@@ -3013,10 +3152,12 @@ auto clip(X&& x, varg_tag, Min min, Max max)
             return cx;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Min, typename Max, typename VMin, typename VMax>
 auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
@@ -3039,10 +3180,12 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
             return cx;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto unitize(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -3052,10 +3195,12 @@ auto unitize(X&& x)
         return Ret(int8_t(x != XV(0)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto unit_step(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -3069,6 +3214,7 @@ auto unit_step(X&& x)
             return Ret(0);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 constexpr auto min()
 {
@@ -3077,6 +3223,7 @@ constexpr auto min()
 template<typename X>
 auto min(const X& x)
 {
+    WL_TRY_BEGIN()
     if constexpr (is_argument_pack_v<X>)
     {
         using XV = value_type_t<value_type_t<X>>;
@@ -3099,10 +3246,12 @@ auto min(const X& x)
         x.for_each([&](const auto& a) { ret = std::min(ret, a); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X1, typename X2, typename... Xs>
 auto min(const X1& x1, const X2& x2, const Xs&... xs)
 {
+    WL_TRY_BEGIN()
     using MinType1 = decltype(min(x1));
     using MinType2 = decltype(min(x2));
     using LimitType = common_type_t<MinType1, MinType2, uint64_t>;
@@ -3138,6 +3287,7 @@ auto min(const X1& x1, const X2& x2, const Xs&... xs)
         auto min2 = min(x2);
         return min((RT(min1) < RT(min2)) ? RT(min1) : RT(min2), xs...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 constexpr auto max()
 {
@@ -3146,6 +3296,7 @@ constexpr auto max()
 template<typename X>
 auto max(const X& x)
 {
+    WL_TRY_BEGIN()
     if constexpr (is_argument_pack_v<X>)
     {
         using XV = value_type_t<value_type_t<X>>;
@@ -3168,10 +3319,12 @@ auto max(const X& x)
         x.for_each([&](const auto& a) { ret = std::max(ret, a); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X1, typename X2, typename... Xs>
 auto max(const X1& x1, const X2& x2, const Xs&... xs)
 {
+    WL_TRY_BEGIN()
     using MaxType1 = decltype(max(x1));
     using MaxType2 = decltype(max(x2));
     using LimitType = common_type_t<MaxType1, MaxType2, uint64_t>;
@@ -3200,10 +3353,12 @@ auto max(const X1& x1, const X2& x2, const Xs&... xs)
         auto max2 = max(x2);
         return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto chop(X&& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Y>, WL_ERROR_REAL_TYPE_ARG);
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
@@ -3229,6 +3384,7 @@ auto chop(X&& x, const Y& y)
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -3285,7 +3441,7 @@ auto make_step_iterator(Begin begin, End end, Step step)
         WL_ERROR_ITERATOR_TYPE);
     using T = common_type_t<Begin, Step>;
     if (step == Step(0))
-        throw std::logic_error("badvalue");
+        throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
     if constexpr (is_integral_v<T>)
     {
         auto diff = ptrdiff_t(wl::integer_part(end - begin));
@@ -3313,21 +3469,28 @@ auto make_step_iterator(Begin begin, End end, Step step)
 template<typename Begin, typename End, typename Step>
 auto var_iterator(Begin begin, End end, Step step)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<true>(begin, end, step);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Begin, typename End>
 auto var_iterator(Begin begin, End end)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<true>(begin, end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Begin, typename End>
 auto var_iterator(End end)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<true>(int8_t(1), end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Any>
 auto var_iterator(Any&& any)
 {
+    WL_TRY_BEGIN()
     using Type = remove_cvref_t<Any>;
     if constexpr (array_rank_v<Type> == 0u)
     {
@@ -3347,11 +3510,14 @@ auto var_iterator(Any&& any)
             return list_iterator<decltype(copy)>(std::move(copy));
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Any>
 auto iterator(Any&& any)
 {
+    WL_TRY_BEGIN()
     return make_step_iterator<false>(int8_t(1), any, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -3467,6 +3633,7 @@ WL_DEFINE_MUTABLE_SCALAR_OPERATIONS(divide_by, divide)
 template<typename X, typename Y>                                            \
 auto name(X&& x, Y&& y) -> decltype(auto)                                   \
 {                                                                           \
+    WL_TRY_BEGIN()                                                          \
     using XType = remove_cvref_t<X>;                                        \
     using YType = remove_cvref_t<Y>;                                        \
     constexpr auto x_rank = array_rank_v<XType>;                            \
@@ -3483,7 +3650,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         {                                                                   \
             static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);         \
             if (!utils::check_dims<x_rank>(x.dims_ptr(), y.dims_ptr()))     \
-                throw std::logic_error("baddims");                          \
+                throw std::logic_error(WL_ERROR_ARITHMETIC_DIMS);           \
             if (has_aliasing(x, y))                                         \
             {                                                               \
                 std::vector<value_type_t<YType>> buffer(y.size());          \
@@ -3512,6 +3679,7 @@ auto name(X&& x, Y&& y) -> decltype(auto)                                   \
         _scalar_##name(x, y);                                               \
     }                                                                       \
     return std::forward<decltype(x)>(x);                                    \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(add_to)
 WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(subtract_from)
@@ -3520,34 +3688,44 @@ WL_DEFINE_MUTABLE_ARITHMETIC_FUNCTION(divide_by)
 template<typename X>
 auto pre_increment(X&& x) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return add_to(std::forward<decltype(x)>(x), int64_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto pre_decrement(X&& x) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return subtract_from(std::forward<decltype(x)>(x), int64_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto increment(X&& x)
 {
+    WL_TRY_BEGIN()
     auto valx = val(x);
     pre_increment(std::forward<decltype(x)>(x));
     return valx;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto decrement(X&& x)
 {
+    WL_TRY_BEGIN()
     auto valx = val(x);
     pre_decrement(std::forward<decltype(x)>(x));
     return valx;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto minus(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](const auto& x) { return -x; },
         std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Iter, bool HasStride>
 auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
@@ -3561,6 +3739,7 @@ auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(plus)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
@@ -3568,6 +3747,7 @@ auto plus(X&& x, Y&& y)
         return utils::listable_function(_scalar_plus,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(plus, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(plus)
@@ -3575,10 +3755,12 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(plus)
 template<typename X, typename Y>
 auto subtract(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_subtract,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Iter, bool HasStride>
 auto _variadic_times(const argument_pack<Iter, HasStride>& args)
@@ -3592,6 +3774,7 @@ auto _variadic_times(const argument_pack<Iter, HasStride>& args)
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(times)
     {
         static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
@@ -3599,6 +3782,7 @@ auto times(X&& x, Y&& y)
         return utils::listable_function(_scalar_times,
             std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(times, int64_t(1))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(times)
@@ -3606,10 +3790,12 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(times)
 template<typename X, typename Y>
 auto divide(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_divide,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -3665,7 +3851,7 @@ struct argument_pack
     auto get(size_t i) const
     {
         if (i >= size_)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         if constexpr (HasStride)
             return *(this->iter_ + i * stride_);
         else
@@ -3674,7 +3860,7 @@ struct argument_pack
     auto get_pack(size_t i) const
     {
         if (i > size_)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         if constexpr (HasStride)
             return argument_pack(iter_ + i * stride_, size_ - i, stride_);
         else
@@ -3739,6 +3925,7 @@ auto _apply_fixed_impl(Function f, Iter iter, std::index_sequence<Is...>)
 template<typename Function, typename X, int64_t I>
 auto apply(Function f, const X& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -3780,7 +3967,7 @@ auto apply(Function f, const X& x, const_int<I>)
             {
                 auto item = f(PackType(x_iter, argc));
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
@@ -3791,7 +3978,7 @@ auto apply(Function f, const X& x, const_int<I>)
         constexpr auto function_nargs =
             _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
         if (function_nargs > argc)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
         using RT = remove_cvref_t<decltype(
             _apply_fixed_impl(f, x_iter, index_seq))>;
@@ -3823,17 +4010,20 @@ auto apply(Function f, const X& x, const_int<I>)
             {
                 auto item = _apply_fixed_impl(f, x_iter, index_seq);
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto apply(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return apply(f, std::forward<decltype(x)>(x), const_int<0>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename T, size_t R, typename Function>
 auto _select_impl(const ndarray<T, R>& a, Function f)
@@ -3855,6 +4045,7 @@ auto _select_impl(const ndarray<T, R>& a, Function f)
 template<typename X, typename Function>
 auto select(X&& x, Function f)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(array_rank_v<XT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     if constexpr (array_rank_v<XT> == 1u)
@@ -3871,10 +4062,12 @@ auto select(X&& x, Function f)
     }
     else
         return _select_impl(std::forward<decltype(x)>(x).to_array(), f);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Function, int64_t I>
 auto count(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -3899,6 +4092,7 @@ auto count(const X& x, varg_tag, Function f, const_int<I>)
         }
     }
     return item_count;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Function>
 auto count(const X& x, varg_tag, Function f)
@@ -3908,6 +4102,7 @@ auto count(const X& x, varg_tag, Function f)
 template<typename X, typename Y, int64_t I>
 auto count(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -3930,11 +4125,14 @@ auto count(const X& x, const Y& y, const_int<I>)
         }
     }
     return item_count;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto count(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return count(x, y, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<size_t Level, typename Function, typename T, size_t R>
 auto _map_impl(Function f, const ndarray<T, R>& a)
@@ -3964,7 +4162,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
         {
             auto item = f(*a_iter);
             if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(ret_iter.begin());
         }
         return ret;
@@ -3973,6 +4171,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
 template<typename Function, typename X, int64_t I>
 auto map(Function f, X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -3988,15 +4187,19 @@ auto map(Function f, X&& x, const_int<I>)
     }
     else
         return _map_impl<Level>(f, x.to_array());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto map(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return map(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, int64_t I>
 auto scan(Function f, X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -4008,11 +4211,14 @@ auto scan(Function f, X&& x, const_int<I>)
     for (; x_iter != x_end; ++x_iter)
         f(*x_iter);
     return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto scan(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return scan(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, size_t R, typename... Iters>
 auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
@@ -4043,7 +4249,7 @@ auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
         {
             auto item = f(*iters...);
             if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(ret_iter.begin());
         }
         return ret;
@@ -4054,13 +4260,14 @@ auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
 {
     const auto dims = utils::dims_take<1u, I>(arg1.dims());
     if (!(utils::check_dims(dims, utils::dims_take<1, I>(args.dims())) && ...))
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
     return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(),
         args.template view_begin<size_t(I)>()...);
 }
 template<typename Function, int64_t I, typename... Args>
 auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
 {
+    WL_TRY_BEGIN()
     static_assert(1 <= I, WL_ERROR_BAD_LEVEL);
     static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
         WL_ERROR_MAP_THREAD_LEVEL);
@@ -4078,16 +4285,20 @@ auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
         return _map_thread_impl1<size_t(I)>(f,
             val(std::forward<decltype(args)>(args))...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename... Args>
 auto map_thread(Function f, varg_tag, Args&&... args)
 {
+    WL_TRY_BEGIN()
     return map_thread(f, const_int<1>{}, varg_tag{},
         std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, int64_t I>
 auto map_thread(Function f, X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto R = array_rank_v<XT>;
     static_assert(R >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
@@ -4125,7 +4336,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
             {
                 auto item = f(PackType(x_iter, pack_size, pack_stride));
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
@@ -4136,7 +4347,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
         constexpr auto function_nargs =
             _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
         if (function_nargs > pack_size)
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
         constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
         using RT = remove_cvref_t<decltype(
             _apply_fixed_impl(f, x_iter, pack_stride, index_seq))>;
@@ -4166,28 +4377,32 @@ auto map_thread(Function f, X&& x, const_int<I>)
                 auto item = _apply_fixed_impl(
                     f, x_iter, pack_stride, index_seq);
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(ret_iter.begin());
             }
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto map_thread(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return map_thread(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto nest(Function f, X&& x, const int64_t n)
 {
+    WL_TRY_BEGIN()
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
         WL_ERROR_NEST_TYPE);
     constexpr auto rank = array_rank_v<XT0>;
-    if (n < 0) throw std::logic_error("badargv");
+    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
     if (n == 0)
         return cast<XT2>(std::forward<decltype(x)>(x));
     else // n >= 1
@@ -4205,17 +4420,19 @@ auto nest(Function f, X&& x, const int64_t n)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto nest_list(Function f, X&& x, const int64_t n)
 {
+    WL_TRY_BEGIN()
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
         WL_ERROR_NEST_TYPE);
     constexpr auto rank = array_rank_v<XT0>;
-    if (n < 0) throw std::logic_error("badargv");
+    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
     if constexpr (rank == 0u)
     {
         ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
@@ -4245,7 +4462,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
             ++view_iter;
             auto item = val(f(std::forward<decltype(x)>(x)));
             if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(view_iter.begin());
             ++view_iter;
             for (size_t i = 2; i <= size_t(n); ++i, ++view_iter)
@@ -4253,12 +4470,13 @@ auto nest_list(Function f, X&& x, const int64_t n)
                 auto temp = val(f(std::move(item)));
                 item = std::move(temp);
                 if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error("baddims");
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                 item.copy_to(view_iter.begin());
             }
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename T, size_t R>
 struct _nest_while_queue
@@ -4336,6 +4554,7 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
     const int64_t input_max = const_int_infinity,
     const int64_t offset = 0u)
 {
+    WL_TRY_BEGIN()
     static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
     const auto history_size = size_t(std::max(N, -offset + 1));
     const auto max_steps = std::max(input_max, int64_t(0));
@@ -4391,17 +4610,20 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             continue_flag = queue.template apply_test<num_args>(test);
         }
         if (offset <= -i)
-            throw std::logic_error("badargv");
+            throw std::logic_error(WL_ERROR_INTERNAL);
         else if (offset <= 0)
             return std::move(queue).get(size_t(-offset));
         else
             return nest(f, std::move(queue).last(), offset);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, typename Test>
 auto nest_while(Function f, X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return nest_while(f, std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Test, typename Iter, size_t... Is>
 auto _nest_while_list_apply_test(Test test, Iter iter,
@@ -4414,6 +4636,7 @@ template<typename Function, typename X, typename Test, int64_t N>
 auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
     const int64_t input_max = const_int_infinity)
 {
+    WL_TRY_BEGIN()
     static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
     const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
@@ -4475,7 +4698,7 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             auto temp = val(f(std::move(last)));
             last = std::move(temp);
             if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             ret.append(last);
         }
         bool continue_flag = false;
@@ -4492,7 +4715,7 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             auto temp = val(f(std::move(last)));
             last = std::move(temp);
             if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             ret.append(last);
             if constexpr (num_args == 0u)
                 continue_flag = test();
@@ -4505,12 +4728,15 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, typename Test>
 auto nest_while_list(Function f, X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return nest_while_list(
         f, std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, typename YIter, typename YInc>
 auto _fold_single_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
@@ -4542,7 +4768,7 @@ auto _fold_impl1(Function f, Y&& y)
     static_assert(array_rank_v<remove_cvref_t<Y>> >= 1u,
         WL_ERROR_REQUIRE_ARRAY);
     const size_t n = y.dims()[0];
-    if (n < 1u) throw std::logic_error("baddims");
+    if (n < 1u) throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     const auto& valy = val(std::forward<decltype(y)>(y));
     if constexpr (List)
     {
@@ -4600,26 +4826,35 @@ auto _fold_impl1(Function f, X&& x, Y&& y)
 template<typename Function, typename... Any>
 auto fold(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<false, true>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename... Any>
 auto foldr(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<false, false>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename... Any>
 auto fold_list(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<true, true>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename... Any>
 auto foldr_list(Function f, Any&&... any)
 {
+    WL_TRY_BEGIN()
     return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, typename Pred>
 auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return nest_while(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b)
         {
@@ -4627,29 +4862,37 @@ auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
             static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
             return !same;
         }, const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, typename Pred>
 auto fixed_point(Function f, X&& x, varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return fixed_point(f, std::forward<decltype(x)>(x),
         const_int_infinity, varg_tag{}, pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto fixed_point(Function f, X&& x, const int64_t max)
 {
+    WL_TRY_BEGIN()
     return nest_while(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b) { return unequal(a, b); },
         const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto fixed_point(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return fixed_point(f, std::forward<decltype(x)>(x), const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, typename Pred>
 auto fixed_point_list(Function f, X&& x, const int64_t max,
     varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return nest_while_list(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b)
         {
@@ -4657,30 +4900,39 @@ auto fixed_point_list(Function f, X&& x, const int64_t max,
             static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
             return !same;
         }, const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X, typename Pred>
 auto fixed_point_list(Function f, X&& x, varg_tag, Pred pred)
 {
+    WL_TRY_BEGIN()
     return fixed_point_list(f, std::forward<decltype(x)>(x),
         const_int_infinity, varg_tag{}, pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto fixed_point_list(Function f, X&& x, const int64_t max)
 {
+    WL_TRY_BEGIN()
     return nest_while_list(f, std::forward<decltype(x)>(x),
         [=](const auto& a, const auto& b) { return unequal(a, b); },
         const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Function, typename X>
 auto fixed_point_list(Function f, X&& x)
 {
+    WL_TRY_BEGIN()
     return fixed_point_list(f, std::forward<decltype(x)>(x),
         const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Arg>
 auto identity(Arg&& arg) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return std::forward<decltype(arg)>(arg);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<bool Reverse, typename... Fs>
 struct composite_function
@@ -4731,16 +4983,21 @@ auto _composition_impl()
 template<typename... Fn>
 auto composition(Fn&&... fn) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return _composition_impl<false>(std::forward<decltype(fn)>(fn)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename... Fn>
 auto right_composition(Fn&&... fn) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     return _composition_impl<true>(std::forward<decltype(fn)>(fn)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test, int64_t I>
 auto all_true(X&& x, Test test, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -4754,15 +5011,19 @@ auto all_true(X&& x, Test test, const_int<I>)
     for (; ret && x_iter != x_end; ++x_iter)
         ret = ret && test(*x_iter);
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test>
 auto all_true(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test, int64_t I>
 auto any_true(X&& x, Test test, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -4776,47 +5037,62 @@ auto any_true(X&& x, Test test, const_int<I>)
     for (; !ret && x_iter != x_end; ++x_iter)
         ret = ret || test(*x_iter);
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test>
 auto any_true(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return any_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test, int64_t I>
 auto none_true(X&& x, Test test, const_int<I>)
 {
+    WL_TRY_BEGIN()
     return !any_true(std::forward<decltype(x)>(x), test, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test>
 auto none_true(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     return none_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test>
 auto vector_q(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     if constexpr (array_rank_v<remove_cvref_t<X>> == 0u)
         return const_false;
     else
         return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto vector_q(X&& x)
 {
+    WL_TRY_BEGIN()
     return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Test>
 auto matrix_q(X&& x, Test test)
 {
+    WL_TRY_BEGIN()
     if constexpr (array_rank_v<remove_cvref_t<X>> <= 1u)
         return const_false;
     else
         return all_true(std::forward<decltype(x)>(x), test, const_int<2>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto matrix_q(X&& x)
 {
+    WL_TRY_BEGIN()
     return boolean(array_rank_v<remove_cvref_t<X>> == 2u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -4847,6 +5123,7 @@ using _get_first_type_t = typename _get_first_type<Ts...>::type;
 template<typename A, typename B>
 auto branch_if(const boolean cond, A&& a, B&& b)
 {
+    WL_TRY_BEGIN()
     using AT = decltype(val(std::declval<A&&>()()));
     using BT = decltype(val(std::declval<B&&>()()));
     static_assert(_branch_type_check<AT, BT>::value, WL_ERROR_BRANCH_RETURN);
@@ -4870,6 +5147,7 @@ auto branch_if(const boolean cond, A&& a, B&& b)
             return branch_if(cond, std::move(ra), std::move(rb));
         };
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename... Conds>
 auto _which_conditions(Conds&&... conds)
@@ -4896,7 +5174,7 @@ auto _which_impl(const size_t n, _returns_value_tag,
     {
         Ret ret;
         if (n >= sizeof...(Cases))
-            throw std::logic_error("badargc");
+            throw std::logic_error(WL_ERROR_INTERNAL);
         [[maybe_unused]] auto _1 = ((n == Is ?
             (ret = val(std::forward<decltype(cases)>(cases)()), true) : false
             ) || ...);
@@ -4918,6 +5196,7 @@ auto _which_impl(const size_t n, _returns_function_tag,
 template<typename... Cases>
 auto which(const size_t n, Cases&&... cases)
 {
+    WL_TRY_BEGIN()
     static_assert(_branch_type_check<
         decltype(val(std::declval<Cases&&>()()))...>::value,
         WL_ERROR_BRANCH_RETURN);
@@ -4937,10 +5216,12 @@ auto which(const size_t n, Cases&&... cases)
             std::make_index_sequence<sizeof...(Cases)>{},
             std::forward<decltype(cases)>(cases)...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Test, typename Incr, typename Body>
 auto loop_for(Test test, Incr incr, Body body)
 {
+    WL_TRY_BEGIN()
     static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
         WL_ERROR_LOOP_TEST);
     try
@@ -4955,10 +5236,12 @@ auto loop_for(Test test, Incr incr, Body body)
     {
     }
     return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Test, typename Body>
 auto loop_while(Test test, Body body)
 {
+    WL_TRY_BEGIN()
     static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
         WL_ERROR_LOOP_TEST);
     try
@@ -4972,6 +5255,7 @@ auto loop_while(Test test, Body body)
     {
     }
     return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -5015,6 +5299,7 @@ auto _clause_impl(Skip& skip_flag,
 template<typename Fn, typename... Iters>
 auto clause_do(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     static_assert(sizeof...(Iters) >= 1u, WL_ERROR_INTERNAL);
     wl::void_type skip_flag;    // skip flag is not used
     try
@@ -5024,11 +5309,13 @@ auto clause_do(Fn fn, const Iters&... iters)
     catch (const loop_break&)
     {
     }
-    return wl::void_type{};
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Fn, typename... Iters>
 auto clause_table(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
@@ -5073,7 +5360,7 @@ auto clause_table(Fn fn, const Iters&... iters)
                 {
                     auto item = fn(args...);
                     if (!utils::check_dims(ret_iter.dims(), item.dims()))
-                        throw std::logic_error("baddims");
+                        throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
                     item.copy_to(ret_iter.begin());
                     ++ret_iter;
                 },
@@ -5081,10 +5368,12 @@ auto clause_table(Fn fn, const Iters&... iters)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Fn, typename... Iters>
 auto clause_sum(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
@@ -5096,7 +5385,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType{};
         else
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_SUM_ZERO_SIZE);
     }
     else
     {
@@ -5107,10 +5396,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
             _clause_impl(skip_flag,
                 [&](const auto&... args)
                 {
-                    auto item = fn(args...);
-                    if (!utils::check_dims(ret.dims(), item.dims()))
-                        throw std::logic_error("baddims");
-                    add_to(ret, item);
+                    add_to(ret, fn(args...));
                 },
                 iters...);
         }
@@ -5122,10 +5408,12 @@ auto clause_sum(Fn fn, const Iters&... iters)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Fn, typename... Iters>
 auto clause_product(Fn fn, const Iters&... iters)
 {
+    WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
     using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
@@ -5137,7 +5425,7 @@ auto clause_product(Fn fn, const Iters&... iters)
         if constexpr (is_arithmetic_v<InnerType>)
             return InnerType(int8_t(1));
         else
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_PRODUCT_ZERO_SIZE);
     }
     else
     {
@@ -5146,17 +5434,12 @@ auto clause_product(Fn fn, const Iters&... iters)
         _clause_impl(skip_flag,
             [&](const auto&... args)
             {
-                auto item = fn(args...);
-                if constexpr (array_rank_v<InnerType> > 0u)
-                {
-                    if (!utils::check_dims(ret.dims(), item.dims()))
-                        throw std::logic_error("baddims");
-                }
-                times_by(ret, item);
+                times_by(ret, fn(args...));
             },
             iters...);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -5164,14 +5447,17 @@ namespace wl
 template<typename Re, typename Im>
 auto make_complex(const Re& re, const Im& im)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Re> && is_real_v<Im>, WL_ERROR_REAL_TYPE_ARG);
     using C = common_type_t<Re, Im>;
     using T = std::conditional_t<std::is_same_v<C, float>, float, double>;
     return complex<T>(T(re), T(im));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto re(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_re = [](const auto& x)
@@ -5183,10 +5469,12 @@ auto re(X&& x)
             return x;
     };
     return utils::listable_function(scalar_re, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto im(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_im = [](const auto& x)
@@ -5198,10 +5486,12 @@ auto im(X&& x)
             return XV(0);
     };
     return utils::listable_function(scalar_im, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto arg(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_arg = [](const auto& x)
@@ -5220,10 +5510,12 @@ auto arg(X&& x)
             return x >= X(0) ? X(0) : X(const_pi);
     };
     return utils::listable_function(scalar_arg, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto conjugate(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto scalar_conjugate = [](const auto& x)
@@ -5236,10 +5528,12 @@ auto conjugate(X&& x)
     };
     return utils::listable_function(scalar_conjugate,
         std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto re_im(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>,
         WL_ERROR_NUMERIC_ONLY);
@@ -5259,10 +5553,12 @@ auto re_im(X&& x)
         x.for_each([&](const auto& a) { *iter++ = re(a), *iter++ = im(a); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto abs_arg(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>,
         WL_ERROR_NUMERIC_ONLY);
@@ -5285,6 +5581,7 @@ auto abs_arg(X&& x)
             { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -5293,17 +5590,20 @@ namespace wl
 template<typename X>                                                        \
 WL_INLINE auto name(X&& x)                                                  \
 {                                                                           \
+    WL_TRY_BEGIN()                                                          \
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,                   \
         WL_ERROR_NUMERIC_ONLY);                                             \
     return utils::listable_function([](auto x) {                            \
             using PX = promote_integral_t<decltype(x)>;                     \
             return expr;                                                    \
         }, std::forward<decltype(x)>(x));                                   \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 #define WL_DEFINE_BINARY_MATH_FUNCTION(name, expr)                          \
 template<typename X, typename Y>                                            \
 WL_INLINE auto name(X&& x, Y&& y)                                           \
 {                                                                           \
+    WL_TRY_BEGIN()                                                          \
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&                 \
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);     \
     return utils::listable_function([](auto x, auto y)                      \
@@ -5314,6 +5614,7 @@ WL_INLINE auto name(X&& x, Y&& y)                                           \
                 common_type_t<decltype(x), decltype(y)>>;                   \
             return expr;                                                    \
         }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));     \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 template<typename X>
 WL_INLINE auto _scalar_square(const X x)
@@ -5359,6 +5660,7 @@ WL_INLINE auto _scalar_power(const X& x, const_int<y>)
 template<typename X, int64_t I>
 WL_INLINE auto power(X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](auto x)
@@ -5366,10 +5668,12 @@ WL_INLINE auto power(X&& x, const_int<I>)
             using PC = promote_integral_t<common_type_t<decltype(x), int64_t>>;
             return _scalar_power(PC(x), const_int<I>{});
         }, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 WL_INLINE auto power(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function([](auto x, auto y)
@@ -5380,6 +5684,7 @@ WL_INLINE auto power(X&& x, Y&& y)
                 common_type_t<decltype(x), decltype(y)>>;
             return _scalar_power(PC(x), y);
         }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
 WL_DEFINE_BINARY_MATH_FUNCTION(log, std::log(PC(y)) / std::log(PC(x)))
@@ -5435,6 +5740,7 @@ namespace wl
 template<typename X>
 auto even_q(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -5448,10 +5754,12 @@ auto even_q(X&& x)
             return const_false;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto odd_q(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -5465,10 +5773,12 @@ auto odd_q(X&& x)
             return const_false;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto divisible(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x, const auto& y)
@@ -5492,6 +5802,7 @@ auto divisible(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 inline uint64_t _fibonacci_impl(uint64_t n, uint64_t* prev)
 {
@@ -5553,6 +5864,7 @@ inline uint64_t _lucas_l(uint64_t n)
 template<typename X>
 auto fibonacci(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -5578,10 +5890,12 @@ auto fibonacci(X&& x)
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto lucas_l(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -5607,6 +5921,7 @@ auto lucas_l(X&& x)
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -5622,12 +5937,14 @@ constexpr auto implies(boolean x, boolean y)
 template<typename X, typename Y>
 auto bool_and(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_and)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
             is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x && y;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Iter, bool HasStride>
 auto _variadic_bool_and(const argument_pack<Iter, HasStride>& args)
@@ -5644,12 +5961,14 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_and)
 template<typename X, typename Y>
 auto bool_or(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_or)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
             is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x || y;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Iter, bool HasStride>
 auto _variadic_bool_or(const argument_pack<Iter, HasStride>& args)
@@ -5666,12 +5985,14 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_or)
 template<typename X, typename Y>
 auto bool_xor(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bool_xor)
     {
         static_assert(is_boolean_v<remove_cvref_t<X>> &&
             is_boolean_v<remove_cvref_t<Y>>, WL_ERROR_BOOLEAN_ARG);
         return x ^ y;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bool_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_xor, const_false)
@@ -5680,29 +6001,38 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bool_xor)
 template<typename... Args>
 auto bool_nand(Args&&... args)
 {
+    WL_TRY_BEGIN()
     return !bool_and(std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename... Args>
 auto bool_nor(Args&&... args)
 {
+    WL_TRY_BEGIN()
     return !bool_or(std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename... Args>
 auto bool_xnor(Args&&... args)
 {
+    WL_TRY_BEGIN()
     return !bool_xor(std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto boole(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_boolean_type_v<remove_cvref_t<X>>, WL_ERROR_BOOLEAN_ARG);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
     auto pure = [](boolean x) { return Ret(x); };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto bit_not(X&& x)
 {
+    WL_TRY_BEGIN()
     auto pure = [](auto x)
     {
         using XV = decltype(x);
@@ -5710,10 +6040,12 @@ auto bit_not(X&& x)
         return XV(~x);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto bit_length(X&& x)
 {
+    WL_TRY_BEGIN()
     auto pure = [](auto x)
     {
         using XV = decltype(x);
@@ -5725,10 +6057,12 @@ auto bit_length(X&& x)
                 std::make_unsigned_t<XV>(x >= XV(0) ? x : ~x)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto bit_and(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_and)
     {
         using XV = remove_cvref_t<X>;
@@ -5738,6 +6072,7 @@ auto bit_and(X&& x, Y&& y)
         using C = common_type_t<XV, YV>;
         return C(C(x) & C(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_and)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_and, int64_t(-1))
@@ -5746,6 +6081,7 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_and)
 template<typename X, typename Y>
 auto bit_or(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_or)
     {
         using XV = remove_cvref_t<X>;
@@ -5755,6 +6091,7 @@ auto bit_or(X&& x, Y&& y)
         using C = common_type_t<XV, YV>;
         return C(C(x) | C(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_or)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_or, int64_t(0))
@@ -5763,6 +6100,7 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_or)
 template<typename X, typename Y>
 auto bit_xor(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_xor)
     {
         using XV = remove_cvref_t<X>;
@@ -5772,6 +6110,7 @@ auto bit_xor(X&& x, Y&& y)
         using C = common_type_t<XV, YV>;
         return C(C(x) ^ C(y));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_xor, int64_t(0))
@@ -5780,6 +6119,7 @@ WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_xor)
 template<bool ShiftLeft, typename X, typename Y>
 auto _bit_shift_impl(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     auto pure = [](auto x, auto y)
     {
         using XV = decltype(x);
@@ -5801,18 +6141,23 @@ auto _bit_shift_impl(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto bit_shift_left(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     return _bit_shift_impl<true>(
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto bit_shift_right(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     return _bit_shift_impl<false>(
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -5917,35 +6262,44 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
 template<typename Min, typename Max, typename... Dims>
 auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(all_is_integral_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
     using T = common_type_t<Min, Max>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Max, typename... Dims>
 auto random_integer(const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_integer(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Min, typename Max, typename... Dims>
 auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     using C = common_type_t<Min, Max>;
     using T = std::conditional_t<is_integral_v<C>, double, C>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Max, typename... Dims>
 auto random_real(const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_real(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Min, typename Max, typename... Dims>
 auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>,
         WL_ERROR_RANDOM_BOUNDS);
     using C = common_type_t<value_type_t<Min>, value_type_t<Max>>;
@@ -5953,16 +6307,20 @@ auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dim
         complex<float>, complex<double>>;
     auto dist = distribution::uniform<T>(cast<T>(min), cast<T>(max));
     return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Max, typename... Dims>
 auto random_complex(const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_arithmetic_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_complex(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto random_choice(const Array& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<Array>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using XV = value_type_t<Array>;
@@ -5982,6 +6340,7 @@ auto random_choice(const Array& x)
             item_size, ret.data());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array, size_t OuterRank>
 auto _random_choice_impl(const Array& x,
@@ -6018,11 +6377,13 @@ auto _random_choice_impl(const Array& x,
 template<typename Array, typename... Dims>
 auto random_choice(const Array& x, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
     if (!((dims > 0) && ...))
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     return _random_choice_impl(x,
         std::array<size_t, sizeof...(Dims)>{size_t(dims)...});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -6030,6 +6391,7 @@ namespace wl
 template<typename Dst, typename Src>
 auto set(Dst&& dst, Src&& src) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     using DstType = remove_cvref_t<Dst>;
     using SrcType = remove_cvref_t<Src>;
     constexpr auto dst_rank = array_rank_v<DstType>;
@@ -6074,7 +6436,7 @@ auto set(Dst&& dst, Src&& src) -> decltype(auto)
         else // dst is an array view
         {
             if (!utils::check_dims(src.dims(), dst.dims()))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             if (!has_aliasing(src, dst))
             {
                 if constexpr (SrcType::category != view_category::General)
@@ -6092,6 +6454,7 @@ auto set(Dst&& dst, Src&& src) -> decltype(auto)
             }
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Iter, size_t R>
 void _copy_list_array_elements(Iter&, const std::array<size_t, R>&)
@@ -6114,7 +6477,7 @@ void _copy_list_array_elements(Iter& ret_iter,
         {
             const auto& item = first.get(i);
             if (!utils::check_dims(item.dims(), dims))
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             item.copy_to(ret_iter.begin());
         }
     }
@@ -6124,7 +6487,7 @@ void _copy_list_array_elements(Iter& ret_iter,
         using ValueType = value_type_t<FirstType>;
         static_assert(is_convertible_v<ValueType, T>, WL_ERROR_LIST_ELEM_TYPE);
         if (!utils::check_dims(first.dims(), dims))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
         first.copy_to(ret_iter.begin());
         ++ret_iter;
     }
@@ -6174,6 +6537,7 @@ auto _list_length_by_args(const Elems&... elems)
 template<typename First, typename... Rest>
 auto list(First&& first, Rest&&... rest)
 {
+    WL_TRY_BEGIN()
     using FirstType = remove_cvref_t<First>;
     if constexpr (is_argument_pack_v<FirstType>)
     {
@@ -6221,10 +6585,12 @@ auto list(First&& first, Rest&&... rest)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     constexpr auto val_rank = array_rank_v<T>;
     constexpr auto rep_rank = sizeof...(dims);
     constexpr auto all_rank = val_rank + rep_rank;
@@ -6259,6 +6625,7 @@ auto constant_array(const T& val, varg_tag, const Dims&... dims)
             std::array<int64_t, all_rank>{int64_t(dims)...}, val);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<size_t>
 using make_all_type = all_type;
@@ -6310,6 +6677,7 @@ auto _part_impl1(Array&& a, std::index_sequence<Is...>,
 template<typename Array, typename... Specs>
 auto part(Array&& a, Specs&&... specs) -> decltype(auto)
 {
+    WL_TRY_BEGIN()
     using ArrayType = remove_cvref_t<Array>;
     constexpr auto R = array_rank_v<ArrayType>;
     static_assert(sizeof...(Specs) <= R, WL_ERROR_PART_DEPTH);
@@ -6325,44 +6693,54 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
     }
     else
         return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto first(Array&& a)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<remove_cvref_t<Array>> >= 1u,
         WL_ERROR_REQUIRE_ARRAY);
     return part(a, cidx(0));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto last(Array&& a)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<remove_cvref_t<Array>> >= 1u,
         WL_ERROR_REQUIRE_ARRAY);
     return part(a, int64_t(-1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto most(Array&& a)
 {
+    WL_TRY_BEGIN()
     using AT = remove_cvref_t<Array>;
     static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto size = a.dims()[0];
     if (size <= 1u)
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     return part(a, make_span(const_all, int64_t(-2)));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto rest(Array&& a)
 {
+    WL_TRY_BEGIN()
     using AT = remove_cvref_t<Array>;
     static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto size = a.dims()[0];
     if (size <= 1u)
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     return part(a, make_span(int64_t(2), const_all));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Begin, typename End, typename Step>
 auto range(Begin begin, End end, Step step)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Begin> && is_real_v<End> && is_real_v<Step>,
         WL_ERROR_ITERATOR_TYPE);
     using T = common_type_t<Begin, Step>;
@@ -6384,7 +6762,7 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
     }
     else
     {
@@ -6407,24 +6785,30 @@ auto range(Begin begin, End end, Step step)
             }
         }
         else // step = 0
-            throw std::logic_error("badvalue");
+            throw std::logic_error(WL_ERROR_ITERATOR_ZERO_STEP);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Begin, typename End>
 auto range(Begin begin, End end)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Begin> && is_real_v<End>, WL_ERROR_ITERATOR_TYPE);
     return range(begin, end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename End>
 auto range(End end)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<End>, WL_ERROR_ITERATOR_TYPE);
     return range(End(1), end, int8_t(1));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array, int64_t I1, int64_t I2>
 auto total(const Array& a, const_int<I1>, const_int<I2>)
 {
+    WL_TRY_BEGIN()
     constexpr auto rank = array_rank_v<Array>;
     static_assert(rank >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using ValueType = value_type_t<Array>;
@@ -6502,25 +6886,33 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
             }
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array, int64_t I>
 auto total(const Array& a, const_int<I>)
 {
+    WL_TRY_BEGIN()
     return total(a, const_int<1>{}, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto total(const Array& a)
 {
+    WL_TRY_BEGIN()
     return total(a, const_int<1>{}, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto mean(const Array& a)
 {
+    WL_TRY_BEGIN()
     return divide(total(a), a.template dimension<1>());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename Array>
 auto dimensions(const Array& a)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<Ret>, WL_ERROR_BAD_RETURN);
     constexpr auto rank = array_rank_v<Array>;
     if constexpr (rank == 0u)
@@ -6528,6 +6920,7 @@ auto dimensions(const Array& a)
     else
         return ndarray<Ret, 1u>(std::array<size_t, 1u>{rank},
             a.dims_ptr(), a.dims_ptr() + rank);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto length(const Array& a)
@@ -6577,6 +6970,7 @@ void _reverse_inplace(ndarray<T, R>& a,
 template<typename X, int64_t I>
 auto reverse(X&& x, const_int<I>)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto rank = array_rank_v<XT>;
     static_assert(rank >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -6599,15 +6993,19 @@ auto reverse(X&& x, const_int<I>)
         _reverse_inplace(x2, outer_size, inter_size, inner_size);
         return x2;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto reverse(X&& x)
 {
+    WL_TRY_BEGIN()
     return reverse(std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Pad, typename... Dims>
 auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     static_assert(array_rank_v<XT> >= 1, WL_ERROR_REQUIRE_ARRAY);
@@ -6637,6 +7035,7 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
             { *ret_iter++ = src; return (ret_iter == ret_end); });
     }
     return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename... Dims>
 auto array_reshape(X&& x, varg_tag, const Dims&... dims)
@@ -6712,7 +7111,7 @@ auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
     [[maybe_unused]] auto _2 = ((ret_dims[Is - 1] == 0u ?
         (ret_dims[Is - 1] = a_dims[Cs], ret_strides[Is - 1] += strides[Cs]) :
         ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
-        throw std::logic_error("baddims")), ...);
+        throw std::logic_error(WL_ERROR_TRANSPOSE_COLLAPSE)), ...);
     if constexpr (std::is_pointer_v<Output>)
     {
         auto dst_ptr = ptr;
@@ -6731,6 +7130,7 @@ auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
 template<typename X, int64_t... Is>
 auto transpose(const X& x, const_int<Is>...)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     constexpr auto XR = array_rank_v<XT>;
@@ -6741,15 +7141,19 @@ auto transpose(const X& x, const_int<Is>...)
     return _transpose_impl(val(x), void_type{},
         typename _padded_transpose_levels<XR, Is...>::type{},
         std::make_index_sequence<XR>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto transpose(const X& x)
 {
+    WL_TRY_BEGIN()
     return transpose(x, const_int<2>{}, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto conjugate_transpose(const X& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
     using XV = value_type_t<X>;
@@ -6801,6 +7205,7 @@ auto conjugate_transpose(const X& x)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Level>
 struct _flatten_max_level_impl;
@@ -6899,15 +7304,18 @@ auto _flatten_impl1(X&& x, std::index_sequence<Pads...>, Levels...)
 template<typename X, typename... Levels>
 auto flatten(X&& x, Levels...)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
     constexpr auto MaxLevel = _flatten_max_level<Levels...>::value;
     static_assert(1 <= MaxLevel && MaxLevel <= XR, WL_ERROR_BAD_LEVEL);
     return _flatten_impl1<MaxLevel>(std::forward<decltype(x)>(x),
         std::make_index_sequence<XR - MaxLevel>{}, Levels{}...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto flatten(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     constexpr auto XR = array_rank_v<XT>;
@@ -6923,6 +7331,7 @@ auto flatten(X&& x)
         x.copy_to(ret.data());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 inline int64_t _order_scalar(const boolean& x, const boolean& y)
 {
@@ -6996,6 +7405,7 @@ int64_t order(const X& x, const Y& y)
 template<typename Ret = int64_t, typename X, typename Pred>
 auto ordering(const X& x, const int64_t n, Pred pred)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     static_assert(is_integral_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -7025,7 +7435,7 @@ auto ordering(const X& x, const int64_t n, Pred pred)
             }
         };
         if (size_t(n) > x_size)
-            throw std::logic_error("badargv");
+            throw std::logic_error(WL_ERROR_ORDERING_OUT_OF_RANGE);
         else if (size_t(n) == x_size)
             std::sort(indices.begin(), indices.end(), order);
         else
@@ -7052,7 +7462,7 @@ auto ordering(const X& x, const int64_t n, Pred pred)
             }
         };
         if (size_t(-n) > x_size)
-            throw std::logic_error("badargv");
+            throw std::logic_error(WL_ERROR_ORDERING_OUT_OF_RANGE);
         else if (size_t(-n) == x_size)
             std::sort(indices.rbegin(), indices.rend(), order);
         else
@@ -7063,10 +7473,12 @@ auto ordering(const X& x, const int64_t n, Pred pred)
         }
     }
     return ndarray<Ret, 1u>(ret_dims, std::move(indices));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto ordering(const X& x, const int64_t n)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     if constexpr (XR == 1u)
@@ -7089,27 +7501,34 @@ auto ordering(const X& x, const int64_t n)
             [](const auto& a, const auto& b)
             { return _order_array(a, b, dim_checked{}) > 0; });
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X, typename Pred>
 auto ordering(const X& x, all_type, Pred pred)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     return ordering<Ret>(x, x.dims()[0], pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto ordering(const X& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     return ordering<Ret>(x, x.dims()[0]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X>
 auto ordering(const X& x, all_type)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     return ordering<Ret>(x, x.dims()[0]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename T, typename Pred>
 auto _sort_simple(ndarray<T, 1u>&& a, Pred pred)
@@ -7127,6 +7546,7 @@ auto _sort_simple(const ndarray<T, 1u>& a, Pred pred)
 template<typename X, typename Pred>
 auto sort(X&& x, Pred pred)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -7159,10 +7579,12 @@ auto sort(X&& x, Pred pred)
             (*(x_base + order_data[i])).copy_to(ret_iter.begin());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto sort(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -7187,10 +7609,12 @@ auto sort(X&& x)
             [](const auto& a, const auto& b)
             { return _order_array(a, b, dim_checked{}) > 0; });
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Pred>
 auto ordered_q(const X& x, Pred pred)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto& copy = allows<view_category::Array>(x);
@@ -7209,10 +7633,12 @@ auto ordered_q(const X& x, Pred pred)
     for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
         ret = ret && in_order(*iter, *(iter + 1));
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto ordered_q(const X& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     const auto& copy = allows<view_category::Array>(x);
@@ -7230,10 +7656,12 @@ auto ordered_q(const X& x)
     for (size_t i = 1u; ret && i < copy_length; ++i, ++iter)
         ret = ret && in_order(*iter, *(iter + 1));
     return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto append(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using YT = remove_cvref_t<Y>;
     constexpr auto XR = array_rank_v<XT>;
@@ -7259,7 +7687,7 @@ auto append(X&& x, Y&& y)
     {
         const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
         if (!utils::check_dims(x_elem_dims, y.dims()))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
         ndarray<XV, XR> ret(utils::dims_join(
             std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
         const auto ret_iter = ret.data();
@@ -7267,10 +7695,12 @@ auto append(X&& x, Y&& y)
         y.copy_to(ret_iter + x.size());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto prepend(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     using YT = remove_cvref_t<Y>;
     constexpr auto XR = array_rank_v<XT>;
@@ -7291,7 +7721,7 @@ auto prepend(X&& x, Y&& y)
     {
         const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
         if (!utils::check_dims(x_elem_dims, y.dims()))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
         ndarray<XV, XR> ret(utils::dims_join(
             std::array<size_t, 1u>{x.dims()[0] + 1u}, x_elem_dims));
         const auto ret_iter = ret.data();
@@ -7299,20 +7729,24 @@ auto prepend(X&& x, Y&& y)
         x.copy_to(ret_iter + y.size());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename XV, size_t XR, typename Y>
 auto append_to(ndarray<XV, XR>& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     using YT = remove_cvref_t<Y>;
     constexpr auto YR = array_rank_v<YT>;
     using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
     static_assert(XR == YR + 1u, WL_ERROR_APPEND_RANK);
     static_assert(is_convertible_v<YV, XV>, WL_ERROR_JOIN_VALUE_TYPE);
     x.append(std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename XV, size_t XR, typename Y>
 auto prepend_to(ndarray<XV, XR>& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     using YT = remove_cvref_t<Y>;
     constexpr auto YR = array_rank_v<YT>;
     using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;
@@ -7332,7 +7766,7 @@ auto prepend_to(ndarray<XV, XR>& x, Y&& y)
     {
         const auto x_elem_dims = utils::dims_take<2u, XR>(x.dims());
         if (!utils::check_dims(x_elem_dims, y.dims()))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
         const auto x_size = x.size();
         const auto y_size = y.size();
         const auto new_size = x_size + y_size;
@@ -7343,6 +7777,7 @@ auto prepend_to(ndarray<XV, XR>& x, Y&& y)
         y.copy_to(x_iter);
     }
     return x;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<size_t Level, size_t Rank, typename Arg>
 auto _join_dims_by_args_impl(
@@ -7363,7 +7798,7 @@ auto _join_dims_by_args_impl(
             const auto trailing_check = utils::check_dims<Rank - Level>(
                 dims.data() + Level, arg.dims().data() + Level);
             if (!leading_check || !trailing_check)
-                throw std::logic_error("baddims");
+                throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
             return arg.dims()[Level - 1];
         }
         else
@@ -7452,6 +7887,7 @@ void _join_copy_level1(Iter& iter, const Arg& arg)
 template<int64_t I, typename First, typename... Rest>
 auto join(const_int<I>, First&& first, Rest&&... rest)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     using FirstType = remove_cvref_t<First>;
     if constexpr (is_argument_pack_v<FirstType>)
@@ -7497,16 +7933,20 @@ auto join(const_int<I>, First&& first, Rest&&... rest)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename First, typename... Rest>
 auto join(First&& first, Rest&&... rest)
 {
+    WL_TRY_BEGIN()
     return join(const_int<1>{}, std::forward<decltype(first)>(first),
         std::forward<decltype(rest)>(rest)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename First, typename... Rest>
 auto set_union(const First& first, const Rest&... rest)
 {
+    WL_TRY_BEGIN()
     constexpr auto R = array_rank_v<First>;
     static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
     static_assert(((R == array_rank_v<Rest>) && ...), WL_ERROR_OPERAND_RANK);
@@ -7562,6 +8002,7 @@ auto set_union(const First& first, const Rest&... rest)
             (*(copy_base + idx_begin[i])).copy_to(ret_iter.begin());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto _rotate_impl(const X& x, int64_t n)
@@ -7616,24 +8057,32 @@ auto _rotate_impl(const X& x, int64_t n)
 template<typename X, typename N>
 auto rotate_left(const X& x, const N& n)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<N>, WL_ERROR_COUNTING_ARG);
     return _rotate_impl(x, -int64_t(n));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename N>
 auto rotate_right(const X& x, const N& n)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<N>, WL_ERROR_COUNTING_ARG);
     return _rotate_impl(x, int64_t(n));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto rotate_left(const X& x)
 {
+    WL_TRY_BEGIN()
     return _rotate_impl(x, -1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
 auto rotate_right(const X& x)
 {
+    WL_TRY_BEGIN()
     return _rotate_impl(x, 1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<size_t I, size_t Level, typename Ret, typename Iter, typename IsEqual>
 void _position_impl(const std::array<size_t, Level>& pos_dims,
@@ -7665,6 +8114,7 @@ void _position_impl(const std::array<size_t, Level>& pos_dims,
 template<typename Ret = int64_t, typename X, typename Y, int64_t I>
 auto position(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -7673,10 +8123,12 @@ auto position(const X& x, const Y& y, const_int<I>)
     const auto& valy = allows<view_category::Simple>(y);
     return position(valx, varg_tag{},
         [&](const auto& a) { return equal(a, valy); }, const_int<Level>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X, typename Function, int64_t I>
 auto position(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -7707,18 +8159,22 @@ auto position(const X& x, varg_tag, Function f, const_int<I>)
             pos_dims, ret, pos_idx, idx_base, x_iter, f);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename X, typename Y>
 auto position(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(XR > YR, WL_ERROR_POSITION_RANK);
     return position(x, y, const_int<XR - YR>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Function, int64_t I>
 auto cases(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -7747,10 +8203,12 @@ auto cases(const X& x, varg_tag, Function f, const_int<I>)
         }
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y, int64_t I>
 auto cases(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -7777,18 +8235,22 @@ auto cases(const X& x, const Y& y, const_int<I>)
                 const_int<Level>{});
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto cases(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(YR < XR, WL_ERROR_POSITION_RANK);
     return cases(x, y, const_int<XR - YR>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Function, int64_t I>
 auto member_q(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
@@ -7814,10 +8276,12 @@ auto member_q(const X& x, varg_tag, Function f, const_int<I>)
             ret = ret || f(*view_iter);
         return boolean(ret);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y, int64_t I>
 auto member_q(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
@@ -7844,6 +8308,7 @@ auto member_q(const X& x, const Y& y, const_int<I>)
                 const_int<Level>{});
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
 auto member_q(const X& x, const Y& y)
@@ -7856,7 +8321,9 @@ auto member_q(const X& x, const Y& y)
 template<typename X, typename Function, int64_t I>
 auto free_q(const X& x, varg_tag, Function f, const_int<I>)
 {
+    WL_TRY_BEGIN()
     return !member_q(x, varg_tag{}, f, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y, int64_t I>
 auto free_q(const X& x, const Y& y, const_int<I>)
@@ -7909,6 +8376,7 @@ auto _dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
 template<typename X, typename Y>
 auto dot(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X> && is_numerical_type_v<Y>,
         WL_ERROR_NUMERIC_ONLY);
     constexpr auto XR = array_rank_v<X>;
@@ -7923,7 +8391,7 @@ auto dot(const X& x, const Y& y)
     const auto* py = valy.data();
     const auto K = valx.dims()[XR - 1u];
     if (K != valy.dims()[0])
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     if constexpr (XR == 1u)
     {
         if constexpr (YR == 1u)
@@ -7966,6 +8434,7 @@ auto dot(const X& x, const Y& y)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y, typename Z, typename... Rest>
 auto dot(const X& x, const Y& y, const Z& z, const Rest&... rest)
@@ -8043,6 +8512,7 @@ void _inner_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
 template<typename F, typename X, typename Y, typename G>
 auto inner(F f, const X& x, const Y& y, G g)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(XR >= 1u && YR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -8057,7 +8527,7 @@ auto inner(F f, const X& x, const Y& y, G g)
     const auto* py = valy.data();
     const auto K = valx.dims()[XR - 1u];
     if (K != valy.dims()[0])
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     if constexpr (XR == 1u)
     {
         if constexpr (YR == 1u)
@@ -8097,6 +8567,7 @@ auto inner(F f, const X& x, const Y& y, G g)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl

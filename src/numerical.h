@@ -32,6 +32,7 @@ namespace wl
 template<typename X>
 auto n(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto x_rank = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
@@ -56,12 +57,14 @@ auto n(X&& x)
         else
             return std::forward<decltype(x)>(x);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 #define WL_DEFINE_ROUNDING_FUNCTION(name, stdname)                      \
 template<typename X>                                                    \
 auto name(X&& x)                                                        \
 {                                                                       \
+    WL_TRY_BEGIN()                                                      \
     using XT = remove_cvref_t<X>;                                       \
     constexpr auto x_rank = array_rank_v<XT>;                           \
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);      \
@@ -88,6 +91,7 @@ auto name(X&& x)                                                        \
             return ret;                                                 \
         }                                                               \
     }                                                                   \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                            \
 }
 
 WL_DEFINE_ROUNDING_FUNCTION(round, round)
@@ -98,6 +102,7 @@ WL_DEFINE_ROUNDING_FUNCTION(integer_part, trunc)
 template<typename X>
 auto fractional_part(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto x_rank = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
@@ -132,11 +137,13 @@ auto fractional_part(X&& x)
             return ret;
         }
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto abs(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
@@ -146,11 +153,13 @@ auto abs(X&& x)
     else
         return utils::listable_function([](auto x) { return std::abs(x); },
             std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto ramp(X&& x)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
     using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
@@ -166,6 +175,7 @@ auto ramp(X&& x)
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
@@ -247,30 +257,39 @@ boolean _equal_impl(const X& x, const Y& y)
 template<typename X, typename Y>
 boolean equal(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return _equal_impl<false>(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 boolean equal(const X& x, const Y& y, dim_checked)
 {
+    WL_TRY_BEGIN()
     return _equal_impl<true>(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 boolean unequal(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return !equal(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 boolean unequal(const X& x, const Y& y, dim_checked)
 {
+    WL_TRY_BEGIN()
     return !equal(x, y, dim_checked{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y, typename... DimChecked>
 boolean same_q(const X& x, const Y& y, DimChecked...)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     constexpr auto same_type = (XR == 0u) ? std::is_same_v<X, Y> :
@@ -280,17 +299,21 @@ boolean same_q(const X& x, const Y& y, DimChecked...)
         return equal(x, y, DimChecked{}...);
     else
         return const_false;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y, typename... DimChecked>
 boolean unsame_q(const X& x, const Y& y, DimChecked...)
 {
+    WL_TRY_BEGIN()
     return !same_q(x, y, DimChecked{}...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto mod(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x, const auto& y)
@@ -329,11 +352,13 @@ auto mod(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto quotient(X&& x, Y&& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x, const auto& y)
@@ -373,11 +398,13 @@ auto quotient(X&& x, Y&& y)
     };
     return utils::listable_function(pure,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto sign(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -399,23 +426,25 @@ auto sign(X&& x)
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X, typename Y, typename N>
 auto integer_digits(const X& x, const Y& y, const N& n)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<X> && is_integral_v<Y>,
         WL_ERROR_INTEGRAL_TYPE_ARG);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
     constexpr auto fixed_length = !std::is_same_v<N, void_type>;
-    if (y < Y(0)) throw std::logic_error("badargv");
+    if (y < Y(0)) throw std::logic_error(WL_ERROR_INTEGER_DIGITS_NEGATIVE);
     auto ux = (x >= X(0)) ? uint64_t(x) : uint64_t(-x);
     auto uy = uint64_t(y);
     ndarray<Ret, 1u> ret;
     if constexpr (fixed_length)
     {
         static_assert(is_integral_v<N>, WL_ERROR_COUNTING_ARG);
-        if (n < N(0)) throw std::logic_error("badargv");
+        if (n < N(0)) throw std::logic_error(WL_ERROR_INTEGER_DIGITS_NEGATIVE);
         ret.uninitialized_resize(std::array<size_t, 1u>{size_t(n)}, size_t(n));
         auto ret_begin = ret.data();
         auto ret_end = ret_begin + size_t(n);
@@ -452,23 +481,29 @@ auto integer_digits(const X& x, const Y& y, const N& n)
         std::reverse(ret_begin, ret_end);
     }
     return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X, typename Y>
 auto integer_digits(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return integer_digits<Ret>(x, y, const_null);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto integer_digits(const X& x)
 {
+    WL_TRY_BEGIN()
     return integer_digits<Ret>(x, uint64_t(10), const_null);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto positive(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -477,11 +512,13 @@ auto positive(const X& x)
         return boolean(x > XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto negative(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -490,11 +527,13 @@ auto negative(const X& x)
         return boolean(x < XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto non_positive(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -503,11 +542,13 @@ auto non_positive(const X& x)
         return boolean(x <= XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto non_negative(const X& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
     {
@@ -516,37 +557,43 @@ auto non_negative(const X& x)
         return boolean(x >= XV(0));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename L>
 auto clip(X&& x, const L& limit)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error("baddims");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
     std::array<value_type_t<L>, 2u> limit_pair;
     limit.copy_to(limit_pair.data());
     return clip(std::forward<decltype(x)>(x), varg_tag{},
         limit_pair[0], limit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename L, typename VL>
 auto clip(X&& x, const L& limit, const VL& vlimit)
 {
+    WL_TRY_BEGIN()
     static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
     static_assert(array_rank_v<VL> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error("baddims");
-    if (vlimit.size() != 2u) throw std::logic_error("baddims");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    if (vlimit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
     std::array<value_type_t<L>, 2u> limit_pair;
     std::array<value_type_t<VL>, 2u> vlimit_pair;
     limit.copy_to(limit_pair.data());
     vlimit.copy_to(vlimit_pair.data());
     return clip(std::forward<decltype(x)>(x), varg_tag{},
         limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
 auto clip(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     auto pure = [](const auto& x)
@@ -561,11 +608,13 @@ auto clip(X&& x)
             return x;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Min, typename Max>
 auto clip(X&& x, varg_tag, Min min, Max max)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
@@ -586,11 +635,13 @@ auto clip(X&& x, varg_tag, Min min, Max max)
             return cx;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Min, typename Max, typename VMin, typename VMax>
 auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
@@ -614,11 +665,13 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
             return cx;
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto unitize(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -628,11 +681,13 @@ auto unitize(X&& x)
         return Ret(int8_t(x != XV(0)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Ret = int64_t, typename X>
 auto unit_step(X&& x)
 {
+    WL_TRY_BEGIN()
     static_assert(is_numerical_type_v<remove_cvref_t<X>>,
         WL_ERROR_NUMERIC_ONLY);
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
@@ -646,6 +701,7 @@ auto unit_step(X&& x)
             return Ret(0);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 constexpr auto min()
@@ -656,6 +712,7 @@ constexpr auto min()
 template<typename X>
 auto min(const X& x)
 {
+    WL_TRY_BEGIN()
     if constexpr (is_argument_pack_v<X>)
     {
         using XV = value_type_t<value_type_t<X>>;
@@ -678,11 +735,13 @@ auto min(const X& x)
         x.for_each([&](const auto& a) { ret = std::min(ret, a); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X1, typename X2, typename... Xs>
 auto min(const X1& x1, const X2& x2, const Xs&... xs)
 {
+    WL_TRY_BEGIN()
     using MinType1 = decltype(min(x1));
     using MinType2 = decltype(min(x2));
     using LimitType = common_type_t<MinType1, MinType2, uint64_t>;
@@ -719,6 +778,7 @@ auto min(const X1& x1, const X2& x2, const Xs&... xs)
         auto min2 = min(x2);
         return min((RT(min1) < RT(min2)) ? RT(min1) : RT(min2), xs...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 constexpr auto max()
@@ -729,6 +789,7 @@ constexpr auto max()
 template<typename X>
 auto max(const X& x)
 {
+    WL_TRY_BEGIN()
     if constexpr (is_argument_pack_v<X>)
     {
         using XV = value_type_t<value_type_t<X>>;
@@ -751,11 +812,13 @@ auto max(const X& x)
         x.for_each([&](const auto& a) { ret = std::max(ret, a); });
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X1, typename X2, typename... Xs>
 auto max(const X1& x1, const X2& x2, const Xs&... xs)
 {
+    WL_TRY_BEGIN()
     using MaxType1 = decltype(max(x1));
     using MaxType2 = decltype(max(x2));
     using LimitType = common_type_t<MaxType1, MaxType2, uint64_t>;
@@ -785,11 +848,13 @@ auto max(const X1& x1, const X2& x2, const Xs&... xs)
         auto max2 = max(x2);
         return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X, typename Y>
 auto chop(X&& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Y>, WL_ERROR_REAL_TYPE_ARG);
     using XT = remove_cvref_t<X>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
@@ -816,6 +881,7 @@ auto chop(X&& x, const Y& y)
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

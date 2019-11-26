@@ -18,8 +18,6 @@
 #pragma once
 
 #include "macros.h"
-#include "callback.h"
-
 #include "types.h"
 #include "ndarray.h"
 #include "const.h"

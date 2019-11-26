@@ -106,7 +106,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
     {
         static_assert(x_rank == y_rank, WL_ERROR_OPERAND_RANK);
         if (!utils::check_dims(x.dims(), y.dims()))
-            throw std::logic_error("baddims");
+            throw std::logic_error(WL_ERROR_OPERAND_DIMS);
         using XV = typename XT::value_type;
         using YV = typename YT::value_type;
         using RV = decltype(fn(XV{}, YV{}));

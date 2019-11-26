@@ -148,39 +148,48 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
 template<typename Min, typename Max, typename... Dims>
 auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(all_is_integral_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
     using T = common_type_t<Min, Max>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Max, typename... Dims>
 auto random_integer(const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_integral_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_integer(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Min, typename Max, typename... Dims>
 auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     using C = common_type_t<Min, Max>;
     using T = std::conditional_t<is_integral_v<C>, double, C>;
     auto dist = distribution::uniform<T>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Max, typename... Dims>
 auto random_real(const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_real(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Min, typename Max, typename... Dims>
 auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>,
         WL_ERROR_RANDOM_BOUNDS);
     using C = common_type_t<value_type_t<Min>, value_type_t<Max>>;
@@ -188,18 +197,22 @@ auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dim
         complex<float>, complex<double>>;
     auto dist = distribution::uniform<T>(cast<T>(min), cast<T>(max));
     return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Max, typename... Dims>
 auto random_complex(const Max& max, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(is_arithmetic_v<Max>, WL_ERROR_RANDOM_BOUNDS);
     return random_complex(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array>
 auto random_choice(const Array& x)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<Array>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using XV = value_type_t<Array>;
@@ -220,6 +233,7 @@ auto random_choice(const Array& x)
             item_size, ret.data());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Array, size_t OuterRank>
@@ -259,11 +273,13 @@ auto _random_choice_impl(const Array& x,
 template<typename Array, typename... Dims>
 auto random_choice(const Array& x, varg_tag, const Dims&... dims)
 {
+    WL_TRY_BEGIN()
     static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
     if (!((dims > 0) && ...))
-        throw std::logic_error("baddims");
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
     return _random_choice_impl(x,
         std::array<size_t, sizeof...(Dims)>{size_t(dims)...});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

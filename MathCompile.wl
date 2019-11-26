@@ -122,7 +122,7 @@ $typenames={
   (*informal names*)
   {"int64_t","MachineInteger"},
   (*formal names*)
-  {"void", "Void"},
+  {"wl::void_type", "Void"},
   {"wl::boolean", "Boolean"},
   {"wl::string", "String"},
   {"int64_t", "Integer"},    {"uint64_t", "UnsignedInteger"},
@@ -868,57 +868,7 @@ loadfunction[libpath_String,funcid_String,args_]:=
   ]
 
 
-$boilerplatelength=21;
-$template="#include \"librarylink.h\"
-
-std::default_random_engine wl::global_random_engine;
-WolframLibraryData wl::librarylink::lib_data;
-
-EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {
-    return WolframLibraryVersion;
-}
-
-EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
-#if defined(WL_NO_RANDOM_DEVICE)
-    wl::global_random_engine.seed(wl::utils::_get_time());
-#else
-    std::random_device rd;
-    wl::global_random_engine.seed(rd());
-#endif
-    wl::librarylink::lib_data = lib_data;
-    return LIBRARY_NO_ERROR;
-}
-`funcbody`
-
-EXTERN_C DLLEXPORT int `funcid`_type(WolframLibraryData lib_data,
-    mint argc, MArgument *argv, MArgument res) {
-    using ReturnType = wl::remove_cvref_t<
-        decltype(main_function(`argsv`))>;
-    mint type_id = wl::librarylink::get_return_type_id<ReturnType>();
-    MArgument_setInteger(res, type_id);
-    return LIBRARY_NO_ERROR;
-}
-
-EXTERN_C DLLEXPORT int `funcid`_func(WolframLibraryData lib_data,
-    mint argc, MArgument *argv, MArgument res) {
-    try {
-        auto val = main_function(
-`args`
-        );
-        wl::librarylink::set(res, val);
-    } catch (int library_error) {
-        return library_error;
-    } catch (const std::logic_error& error) {
-        return LIBRARY_FUNCTION_ERROR;
-    } catch (const std::bad_alloc& error) {
-        return LIBRARY_MEMORY_ERROR;
-    } catch (...) {
-        return LIBRARY_FUNCTION_ERROR;
-    }
-    return LIBRARY_NO_ERROR;
-}
-";
-
+$template=Import[$packagepath<>"/src/src_template.cpp","Text"];
 
 Options[compilelink]={
   "LibraryDirectory"->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],

@@ -19,10 +19,10 @@
 
 #include <functional>
 
-#include "traits.h"
 #include "types.h"
 #include "ndarray.h"
 #include "utils.h"
+#include "listable.h"
 #include "const.h"
 
 namespace wl

@@ -20,9 +20,9 @@
 #include <cmath>
 
 #include "types.h"
-#include "traits.h"
 #include "ndarray.h"
 #include "utils.h"
+#include "listable.h"
 #include "const.h"
 
 namespace wl

@@ -25,6 +25,7 @@
 #include "ndarray.h"
 #include "numerical.h"
 #include "utils.h"
+#include "listable.h"
 
 namespace wl
 {

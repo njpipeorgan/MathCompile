@@ -8572,4 +8572,37 @@ auto inner(F f, const X& x, const Y& y, G g)
 }
 namespace wl
 {
+namespace io
+{
+#if defined(WL_USE_MATHLINK)
+template<typename X>
+auto print(const X& x);
+template<typename X>
+auto echo(X&& x);
+#else
+template<typename X>
+auto print(const X& x)
+{
+    return const_null;
+}
+template<typename X>
+auto echo(X&& x)
+{
+    return std::forward<decltype(x)>(x);
+}
+#endif
+template<typename Function>
+auto echo_function(Function f)
+{
+    return [=](auto&& x)
+    {
+        const auto& xref = x;
+        echo(f(x));
+        return std::forward<decltype(x)>(x);
+    };
+}
+}
+}
+namespace wl
+{
 }

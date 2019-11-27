@@ -107,6 +107,8 @@ struct mathlink_t
         int noerror = 0;
         if constexpr (std::is_same_v<T, void_type>)
             noerror = MLPutSymbol(link_, "Null");
+        else if constexpr (std::is_same_v<T, all_type>)
+            noerror = MLPutSymbol(link_, "All");
         else if constexpr (is_boolean_v<T>)
             noerror = MLPutSymbol(link_, val ? "True" : "False");
         else if constexpr (is_integral_v<T>)
@@ -422,7 +424,6 @@ void set(MArgument& res, const T& val)
     }
 }
 
-
 template<typename String>
 void send_error(const String& what) noexcept
 {
@@ -439,6 +440,34 @@ void send_error(const String& what) noexcept
     catch (...)
     {
     }
+}
+
+}
+
+namespace io
+{
+
+template<typename X>
+auto print(const X& x)
+{
+    WL_TRY_BEGIN()
+    librarylink::mathlink_t link;
+    link.put("EvaluatePacket", 1).
+        put("Print", 1).put(x).eof();
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto echo(X&& x)
+{
+    WL_TRY_BEGIN()
+    librarylink::mathlink_t link;
+    link.put("EvaluatePacket", 1).
+        put("CompoundExpression", 2).
+        put("Echo", 1).put(x).
+        put("Null").eof();
+    return std::forward<decltype(x)>(x);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

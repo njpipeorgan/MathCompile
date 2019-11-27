@@ -534,7 +534,10 @@ $builtinfunctions=
   "AnyTrue"         ->"any_true",
   "NoneTrue"        ->"none_true",
   "Count"           ->"count",
-  "Print"           ->"io::print"
+(* io *)
+  "Print"           ->"io::print",
+  "Echo"            ->"io::echo",
+  "EchoFunction"    ->"io::echo_function"
 |>;
 
 

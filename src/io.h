@@ -17,24 +17,51 @@
 
 #pragma once
 
-#include "macros.h"
 #include "types.h"
 #include "ndarray.h"
-#include "const.h"
-#include "control.h"
-#include "clause.h"
-#include "arithmetic.h"
-#include "complex.h"
-#include "mathfunction.h"
-#include "integral.h"
-#include "numerical.h"
-#include "boolean.h"
-#include "random.h"
-#include "arrayfn.h"
-#include "linalgebra.h"
-#include "functional.h"
-#include "io.h"
+#include "utils.h"
 
 namespace wl
 {
+
+namespace io
+{
+
+#if defined(WL_USE_MATHLINK)
+
+template<typename X>
+auto print(const X& x);
+
+template<typename X>
+auto echo(X&& x);
+
+#else
+
+template<typename X>
+auto print(const X& x)
+{
+    return const_null;
+}
+
+template<typename X>
+auto echo(X&& x)
+{
+    return std::forward<decltype(x)>(x);
+}
+
+#endif
+
+template<typename Function>
+auto echo_function(Function f)
+{
+    return [=](auto&& x)
+    {
+        const auto& xref = x;
+        echo(f(x));
+        return std::forward<decltype(x)>(x);
+    };
+}
+
+}
+
 }

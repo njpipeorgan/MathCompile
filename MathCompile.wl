@@ -508,6 +508,7 @@ $builtinfunctions=
   "Union"           ->"set_union",
   "Dot"             ->"dot",
   "Inner"           ->"inner",
+  "Tr"              ->"tr",
   "Position"        ->"position",
   "Cases"           ->"cases",
   "MemberQ"         ->"member_q",
@@ -652,7 +653,8 @@ functionmacro[code_]:=code//.{
     id["MemberQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["member_q",p][any,patt,const[i]],
     id["FreeQ",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
       native["free_q",p][any,vargtag,func,const[i]],
-    id["FreeQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["free_q",p][any,patt,const[i]]
+    id["FreeQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["free_q",p][any,patt,const[i]],
+    id["Tr",p_][array_,f_,literal[i_Integer,_]]:>native["tr",p][array,f,const[i]]
   }
 
 arithmeticmacro[code_]:=code//.{

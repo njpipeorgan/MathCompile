@@ -205,11 +205,24 @@ auto name(X&& x)                                                    \
 {                                                                   \
     if constexpr (is_argument_pack_v<remove_cvref_t<X>>)            \
     {                                                               \
-        if (x.size() == 0u)                                         \
-            return cast<remove_cvref_t<                             \
-                decltype(_variadic_##name(x))>>(name());            \
+        using ArgType = remove_cvref_t<decltype(x.get(0))>;         \
+        if constexpr (is_convertible_v<                             \
+            remove_cvref_t<decltype(name())>,                       \
+            remove_cvref_t<decltype(_variadic_##name(x))>>)         \
+        {                                                           \
+            if (x.size() == 0u)                                     \
+                return cast<remove_cvref_t<                         \
+                    decltype(_variadic_##name(x))>>(name());        \
+            else                                                    \
+                return _variadic_##name(x);                         \
+        }                                                           \
         else                                                        \
-            return _variadic_##name(x);                             \
+        {                                                           \
+            if (x.size() == 0u)                                     \
+                throw std::logic_error(WL_ERROR_EMPTY_PACK);        \
+            else                                                    \
+                return _variadic_##name(x);                         \
+        }                                                           \
     }                                                               \
     else                                                            \
         return std::forward<decltype(x)>(x);                        \

@@ -133,6 +133,9 @@ namespace wl
 #define WL_ERROR_REQUIRE_ARRAY_RANK \
 "The function requires its argument to be an array with rank "
 
+#define WL_ERROR_REQUIRE_VARIADIC \
+"The function requires the argument to be a variadic function."
+
 #define WL_ERROR_BAD_LEVEL \
 "The function is not called with appropriate level specifications."
 
@@ -263,6 +266,9 @@ namespace wl
 
 #define WL_ERROR_ARGPACK_OUT_OF_RANGE \
 "The slot index is larger than the number of arguments."
+
+#define WL_ERROR_EMPTY_PACK \
+"The function cannot be called with zero arguments."
 
 #define WL_ERROR_ITERATION_NEGATIVE \
 "The number of iterations should be non-negative integer."

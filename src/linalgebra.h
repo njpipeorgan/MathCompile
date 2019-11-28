@@ -211,7 +211,6 @@ void _inner_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     }
 }
 
-
 template<typename F, typename X, typename Y, typename G>
 auto inner(F f, const X& x, const Y& y, G g)
 {
@@ -219,6 +218,7 @@ auto inner(F f, const X& x, const Y& y, G g)
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(XR >= 1u && YR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_variadic_function_v<G>, WL_ERROR_REQUIRE_VARIADIC);
     using XV = value_type_t<X>;
     using YV = value_type_t<Y>;
     using C = remove_cvref_t<decltype(f(XV{}, YV{}))>;
@@ -275,5 +275,86 @@ auto inner(F f, const X& x, const Y& y, G g)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<size_t Level, size_t R>
+void _tr_dims(size_t& ret_stride, size_t& ret_tr_size,
+    const std::array<size_t, R>& x_dims)
+{
+    static_assert(1 <= Level && Level <= R, WL_ERROR_INTERNAL);
+    size_t stride = 0u;
+    size_t inner_size = 1u;
+    size_t tr_size = size_t(-1);
+    for (auto i = ptrdiff_t(Level - 1u); i >= 0; --i)
+    {
+        const size_t dim = x_dims[i];
+        stride += inner_size;
+        inner_size *= dim;
+        if (dim < tr_size)
+            tr_size = dim;
+    }
+    ret_stride = stride;
+    ret_tr_size = tr_size;
+}
+
+template<typename X, typename F, int64_t I>
+auto tr(const X& x, F f, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(0 < I && I <= int64_t(XR), WL_ERROR_BAD_LEVEL);
+    static_assert(is_variadic_function_v<F>, WL_ERROR_REQUIRE_VARIADIC);
+    using XV = value_type_t<X>;
+    constexpr auto Level = size_t(I);
+
+    if constexpr (Level == XR)
+    {
+        using RV = remove_cvref_t<decltype(
+            f(std::declval<argument_pack<XV*, true>>()))>;
+        if (x.size() == 0u)
+        {
+            return RV();
+        }
+        else
+        {
+            const auto& valx = allows<view_category::Simple>(x);
+            size_t stride = 0u;
+            size_t tr_size = 0u;
+            _tr_dims<XR>(stride, tr_size, valx.dims());
+            const auto pack = argument_pack<const XV*, true>(
+                valx.data(), tr_size, stride);
+            return f(pack);
+        }
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto x_iter = valx.template view_begin<Level>();
+        using PackType = argument_pack<decltype(x_iter), true>;
+        using RT = remove_cvref_t<decltype(f(std::declval<PackType>()))>;
+        size_t stride = 0u;
+        size_t tr_size = 0u;
+        _tr_dims<Level>(stride, tr_size, valx.dims());
+        const auto pack = PackType(x_iter, tr_size, stride);
+        return f(pack);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename F>
+auto tr(const X& x, F f)
+{
+    WL_TRY_BEGIN()
+    return tr(x, f, const_int<array_rank_v<X>>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto tr(const X& x)
+{
+    WL_TRY_BEGIN()
+    return tr(x, WL_FUNCTION(plus), const_int<array_rank_v<X>>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
 
 }

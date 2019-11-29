@@ -505,6 +505,8 @@ $builtinfunctions=
   "Sort"            ->"sort",
   "Append"          ->"append",
   "Prepend"         ->"prepend",
+  "Insert"          ->"insert",
+  "Delete"          ->"delete_",
   "Union"           ->"set_union",
   "Dot"             ->"dot",
   "Inner"           ->"inner",

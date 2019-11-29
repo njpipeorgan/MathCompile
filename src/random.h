@@ -229,7 +229,8 @@ auto random_choice(const Array& x)
         auto item_dims = utils::dims_take<2u, XR>(x.dims());
         auto item_size = utils::size_of_dims(item_dims);
         ndarray<XV, XR - 1u> ret(item_dims);
-        utils::copy_n(valx.begin() + item_size * dist(global_random_engine),
+        utils::restrict_copy_n(
+            valx.begin() + item_size * dist(global_random_engine),
             item_size, ret.data());
         return ret;
     }
@@ -264,7 +265,8 @@ auto _random_choice_impl(const Array& x,
             utils::dims_join(outer_dims, item_dims));
         auto base_iter = ret.data();
         for (size_t i = 0u; i < outer_size; ++i, base_iter += item_size)
-            utils::copy_n(x_iter + item_size * dist(global_random_engine),
+            utils::restrict_copy_n(
+                x_iter + item_size * dist(global_random_engine),
                 item_size, base_iter);
         return ret;
     }

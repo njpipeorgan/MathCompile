@@ -440,6 +440,7 @@ struct ndarray
 
     void uninitialized_resize(const _dims_t& new_dims, size_t new_size)
     {
+        assert(utils::size_of_dims(new_dims) == new_size);
         this->dims_ = new_dims;
         this->data_.resize(new_size);
     }

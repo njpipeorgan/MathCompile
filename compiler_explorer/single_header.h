@@ -165,6 +165,10 @@ namespace wl
 "The requested type conversion is not valid."
 #define WL_ERROR_LOOP_TEST \
 "The test statement should evaluates to a logical value."
+#define WL_ERROR_INSERT_RANK \
+"The element to be inserted should have a rank less than the array by one."
+#define WL_ERROR_INSERT_POS_FORM \
+"The position should be an integer or a rank-2 array of integers."
 #define WL_ERROR_CALLBACK \
 "Callback failed."
 #define WL_ERROR_LIST_ELEM_DIMS \
@@ -201,6 +205,8 @@ namespace wl
 "The function cannot be called with zero arguments."
 #define WL_ERROR_ITERATION_NEGATIVE \
 "The number of iterations should be non-negative integer."
+#define WL_ERROR_INSERT_POS_DIMS \
+"The each position specification should be a list of one integer."
 }
 namespace wl
 {
@@ -907,7 +913,7 @@ auto _lzcnt(X x)
 #endif
 }
 template<typename XIter, typename YIter>
-WL_INLINE void copy_n(XIter x_iter, size_t n, YIter y_iter)
+WL_INLINE void restrict_copy_n(XIter x_iter, size_t n, YIter y_iter)
 {
     WL_IGNORE_DEPENDENCIES
     for (size_t i = 0u; i < n; ++i, ++x_iter, ++y_iter)
@@ -2264,6 +2270,7 @@ struct ndarray
     }
     void uninitialized_resize(const _dims_t& new_dims, size_t new_size)
     {
+        assert(utils::size_of_dims(new_dims) == new_size);
         this->dims_ = new_dims;
         this->data_.resize(new_size);
     }
@@ -6353,7 +6360,8 @@ auto random_choice(const Array& x)
         auto item_dims = utils::dims_take<2u, XR>(x.dims());
         auto item_size = utils::size_of_dims(item_dims);
         ndarray<XV, XR - 1u> ret(item_dims);
-        utils::copy_n(valx.begin() + item_size * dist(global_random_engine),
+        utils::restrict_copy_n(
+            valx.begin() + item_size * dist(global_random_engine),
             item_size, ret.data());
         return ret;
     }
@@ -6386,7 +6394,8 @@ auto _random_choice_impl(const Array& x,
             utils::dims_join(outer_dims, item_dims));
         auto base_iter = ret.data();
         for (size_t i = 0u; i < outer_size; ++i, base_iter += item_size)
-            utils::copy_n(x_iter + item_size * dist(global_random_engine),
+            utils::restrict_copy_n(
+                x_iter + item_size * dist(global_random_engine),
                 item_size, base_iter);
         return ret;
     }
@@ -8330,10 +8339,12 @@ auto member_q(const X& x, const Y& y, const_int<I>)
 template<typename X, typename Y>
 auto member_q(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(YR < XR, WL_ERROR_POSITION_RANK);
     return member_q(x, y, const_int<XR - YR>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Function, int64_t I>
 auto free_q(const X& x, varg_tag, Function f, const_int<I>)
@@ -8345,12 +8356,256 @@ auto free_q(const X& x, varg_tag, Function f, const_int<I>)
 template<typename X, typename Y, int64_t I>
 auto free_q(const X& x, const Y& y, const_int<I>)
 {
+    WL_TRY_BEGIN()
     return !member_q(x, y, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y, int64_t I>
 auto free_q(const X& x, const Y& y)
 {
+    WL_TRY_BEGIN()
     return !member_q(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<bool ScalarY, typename X, typename Y>
+void _insert_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
+    const Y* WL_RESTRICT y_ptr, const int64_t* WL_RESTRICT pos_ptr,
+    const size_t x_size, const size_t y_size, const size_t pos_size)
+{
+    size_t last_offset = 0u;
+    size_t this_offset = 0u;
+    for (size_t p = 0; p < pos_size; ++p, ++pos_ptr)
+    {
+        this_offset = size_t(ScalarY ? (*pos_ptr) : (*pos_ptr) * y_size);
+        const auto copy_size = this_offset - last_offset;
+        last_offset = this_offset;
+        for (size_t i = 0; i < copy_size; ++i, ++src_ptr, ++dst_ptr)
+            *dst_ptr = *src_ptr;
+        if constexpr (ScalarY)
+        {
+            *dst_ptr = *y_ptr;
+            ++dst_ptr;
+        }
+        else
+        {
+            for (size_t i = 0; i < y_size; ++i, ++dst_ptr)
+                *dst_ptr = y_ptr[i];
+        }
+    }
+    const auto copy_size = x_size - last_offset;
+    for (size_t i = 0; i < copy_size; ++i, ++src_ptr, ++dst_ptr)
+        *dst_ptr = *src_ptr;
+}
+template<typename X, typename Y>
+auto _insert_impl1(X&& x, const Y& y, ndarray<int64_t, 1u> pos)
+{
+    const auto pos_size = pos.size();
+    if (pos_size == 1u)
+    {
+        return _insert_impl1(std::forward<decltype(x)>(x), y, *(pos.data()));
+    }
+    else
+    {
+        using XT = remove_cvref_t<X>;
+        using XV = value_type_t<XT>;
+        constexpr auto XR = array_rank_v<XT>;
+        constexpr auto YR = array_rank_v<Y>;
+        pos.for_each([d0 = x.dims()[0] + 1u](auto& a){
+            a = int64_t(convert_index(a, d0)); });
+        std::sort(pos.begin(), pos.end());
+        const auto& valx = allows<view_category::Simple>(x);
+        auto ret_dims = valx.dims();
+        ret_dims[0] += pos_size;
+        auto ret = ndarray<XV, XR>(ret_dims);
+        if constexpr (YR == 0u)
+        {
+            _insert_impl2<true>(
+                valx.data(), ret.data(), &y, pos.data(),
+                valx.size(), 1u, pos.size());
+        }
+        else
+        {
+            const auto& valy = cast<ndarray<XV, YR>>(y);
+            _insert_impl2<false>(
+                valx.data(), ret.data(), valy.data(), pos.data(),
+                valx.size(), valy.size(), pos.size());
+        }
+        return ret;
+    }
+}
+template<typename X, typename Y>
+auto _insert_impl1(X&& x, const Y& y, int64_t pos)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<Y>;
+    pos = int64_t(convert_index(pos, x.dims()[0] + 1u));
+    const auto& valx = allows<view_category::Simple>(x);
+    auto ret_dims = valx.dims();
+    ret_dims[0] += 1u;
+    auto ret = ndarray<XV, XR>(ret_dims);
+    if constexpr (YR == 0u)
+    {
+        _insert_impl2<true>(
+            valx.data(), ret.data(), &y, &pos,
+            valx.size(), 1u, 1u);
+    }
+    else
+    {
+        const auto& valy = cast<ndarray<XV, YR>>(y);
+        _insert_impl2<false>(
+            valx.data(), ret.data(), valy.data(), &pos,
+            valx.size(), valy.size(), 1u);
+    }
+    return ret;
+}
+template<typename X, typename Y, typename Pos>
+auto insert(X&& x, const Y& y, Pos&& pos)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR == YR + 1u, WL_ERROR_INSERT_RANK);
+    using PosT = remove_cvref_t<Pos>;
+    using PosV = value_type_t<PosT>;
+    
+    if constexpr (YR >= 1u)
+    {
+        if (!utils::check_dims<YR>(x.dims().data() + 1, y.dims().data()))
+            throw std::logic_error(WL_ERROR_INSERT_ELEM_DIMS);
+    }
+    if constexpr (array_rank_v<PosT> == 2u && is_integral_v<PosV>)
+    {
+        const auto& pos_dims = pos.dims();
+        if (pos_dims[1] != 1u)
+            throw std::logic_error(WL_ERROR_INSERT_POS_DIMS);
+        if (pos_dims[0] == 0u)
+            return val(x);
+        else
+        {
+            auto ins_pos = ndarray<int64_t, 1u>(
+                std::array<size_t, 1>{pos.size()});
+            pos.copy_to(ins_pos.data());
+            return _insert_impl1(
+                std::forward<decltype(x)>(x), y, std::move(ins_pos));
+        }
+    }
+    else if constexpr (is_integral_v<PosT>)
+    {
+        return _insert_impl1(std::forward<decltype(x)>(x), y, pos);
+    }
+    else
+    {
+        static_assert(always_false_v<Pos>, WL_ERROR_INSERT_POS_FORM);
+        return val(x);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<bool ScalarY, typename X>
+void _delete_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
+    const int64_t* WL_RESTRICT pos_ptr,
+    const size_t x_size, const size_t y_size, const size_t pos_size)
+{
+    size_t last_offset = 0u;
+    size_t this_offset = 0u;
+    for (size_t p = 0; p < pos_size; ++p, ++pos_ptr)
+    {
+        this_offset = size_t(ScalarY ? (*pos_ptr) : (*pos_ptr) * y_size);
+        const auto copy_size = this_offset - last_offset;
+        last_offset = this_offset;
+        for (size_t i = 0; i < copy_size; ++i, ++src_ptr, ++dst_ptr)
+            *dst_ptr = *src_ptr;
+        src_ptr += ScalarY ? size_t(1u) : y_size;
+    }
+    const auto copy_size = x_size - last_offset;
+    for (size_t i = 0; i < copy_size; ++i, ++src_ptr, ++dst_ptr)
+        *dst_ptr = *src_ptr;
+}
+template<typename X>
+auto _delete_impl1(X&& x, ndarray<int64_t, 1u> pos)
+{
+    const auto pos_size = pos.size();
+    if (pos_size == 1u)
+    {
+        return _delete_impl1(std::forward<decltype(x)>(x), *(pos.data()));
+    }
+    else
+    {
+        using XT = remove_cvref_t<X>;
+        using XV = value_type_t<XT>;
+        constexpr auto XR = array_rank_v<XT>;
+        pos.for_each([d0 = x.dims()[0]](auto& a){
+            a = int64_t(convert_index(a, d0)); });
+        std::sort(pos.begin(), pos.end());
+        const auto& valx = allows<view_category::Simple>(x);
+        auto ret_dims = valx.dims();
+        ret_dims[0] -= pos_size;
+        auto ret = ndarray<XV, XR>(ret_dims);
+        if constexpr (XR == 1u)
+            _delete_impl2<true>(valx.data(), ret.data(), pos.data(),
+                valx.size(), 1u, pos.size());
+        else
+            _delete_impl2<false>(
+                valx.data(), ret.data(), pos.data(), valx.size(),
+                utils::size_of_dims<XR - 1u>(x.dims().data() + 1u),
+                pos.size());
+        return ret;
+    }
+}
+template<typename X>
+auto _delete_impl1(X&& x, int64_t pos)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    pos = int64_t(convert_index(pos, x.dims()[0]));
+    const auto& valx = allows<view_category::Simple>(x);
+    auto ret_dims = valx.dims();
+    ret_dims[0] -= 1u;
+    auto ret = ndarray<XV, XR>(ret_dims);
+    if constexpr (XR == 1u)
+        _delete_impl2<true>(valx.data(), ret.data(), &pos,
+            valx.size(), 1u, 1u);
+    else
+        _delete_impl2<false>(valx.data(), ret.data(), &pos, valx.size(),
+            utils::size_of_dims<XR - 1u>(x.dims().data() + 1u), 1u);
+    return ret;
+}
+template<typename X, typename Pos>
+auto delete_(X&& x, Pos&& pos)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<remove_cvref_t<X>>;
+    using PosT = remove_cvref_t<Pos>;
+    using PosV = value_type_t<PosT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    if constexpr (array_rank_v<PosT> == 2u && is_integral_v<PosV>)
+    {
+        const auto& pos_dims = pos.dims();
+        if (pos_dims[1] != 1u)
+            throw std::logic_error(WL_ERROR_INSERT_POS_DIMS);
+        if (pos_dims[0] == 0u)
+            return val(x);
+        else
+        {
+            auto ins_pos = ndarray<int64_t, 1u>(
+                std::array<size_t, 1>{pos.size()});
+            pos.copy_to(ins_pos.data());
+            return _delete_impl1(
+                std::forward<decltype(x)>(x), std::move(ins_pos));
+        }
+    }
+    else if constexpr (is_integral_v<PosT>)
+    {
+        return _delete_impl1(std::forward<decltype(x)>(x), pos);
+    }
+    else
+    {
+        static_assert(always_false_v<Pos>, WL_ERROR_INSERT_POS_FORM);
+        return val(x);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl

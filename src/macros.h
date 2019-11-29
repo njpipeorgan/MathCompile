@@ -217,6 +217,12 @@ namespace wl
 #define WL_ERROR_LOOP_TEST \
 "The test statement should evaluates to a logical value."
 
+#define WL_ERROR_INSERT_RANK \
+"The element to be inserted should have a rank less than the array by one."
+
+#define WL_ERROR_INSERT_POS_FORM \
+"The position should be an integer or a rank-2 array of integers."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -272,5 +278,8 @@ namespace wl
 
 #define WL_ERROR_ITERATION_NEGATIVE \
 "The number of iterations should be non-negative integer."
+
+#define WL_ERROR_INSERT_POS_DIMS \
+"The each position specification should be a list of one integer."
 
 }

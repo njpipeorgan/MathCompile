@@ -513,6 +513,7 @@ $builtinfunctions=
   "Tr"              ->"tr",
   "Position"        ->"position",
   "Cases"           ->"cases",
+  "DeleteCases"     ->"delete_cases",
   "MemberQ"         ->"member_q",
   "FreeQ"           ->"free_q",
 (*functional*)
@@ -650,6 +651,11 @@ functionmacro[code_]:=code//.{
     id["Cases",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
       native["cases",p][any,vargtag,func,const[i]],
     id["Cases",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["cases",p][any,patt,const[i]],
+    id["DeleteCases",p_][any_,id["PatternTest",_][id["Blank",_][],func_]]:>
+      native["delete_cases",p][any,vargtag,func],
+    id["DeleteCases",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
+      native["delete_cases",p][any,vargtag,func,const[i]],
+    id["DeleteCases",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["delete_cases",p][any,patt,const[i]],
     id["MemberQ",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
       native["member_q",p][any,vargtag,func,const[i]],
     id["MemberQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["member_q",p][any,patt,const[i]],

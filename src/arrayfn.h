@@ -2009,6 +2009,62 @@ auto cases(const X& x, const Y& y)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename X, typename Function>
+auto delete_cases(const X& x, varg_tag, Function f)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return cases(x, varg_tag{},
+        [=](auto&& a) {return !f(std::forward<decltype(a)>(a)); },
+        const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Function, int64_t I>
+auto delete_cases(const X& x, varg_tag, Function f, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    static_assert(I == 1, WL_ERROR_DELETE_CASES_LEVEL);
+    return delete_cases(x, varg_tag, f);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Y>
+auto delete_cases(const X& x, const Y& y)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(XR == YR + 1u, WL_ERROR_DELETE_CASES_LEVEL);
+
+    auto same_dims = true;
+    if constexpr (YR > 0u)
+        same_dims = utils::check_dims<YR>(
+            x.dims().data() + 1, y.dims().data());
+    if (!same_dims)
+    {
+        return val(x);
+    }
+    else
+    {
+        const auto& valy = allows<view_category::Simple>(y);
+        return cases(x, varg_tag{},
+            [&](const auto& a) { return unsame_q(a, valy, dim_checked{}); },
+            const_int<1>{});
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Y, int64_t I>
+auto delete_cases(const X& x, const Y& y, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    static_assert(I == 1, WL_ERROR_DELETE_CASES_LEVEL);
+    return delete_cases(x, y);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 template<typename X, typename Function, int64_t I>
 auto member_q(const X& x, varg_tag, Function f, const_int<I>)
 {

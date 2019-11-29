@@ -223,6 +223,9 @@ namespace wl
 #define WL_ERROR_INSERT_POS_FORM \
 "The position should be an integer or a rank-2 array of integers."
 
+#define WL_ERROR_DELETE_CASES_LEVEL \
+"DeleteCases can only operate on the first level."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \

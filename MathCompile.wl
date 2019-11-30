@@ -896,7 +896,8 @@ Options[CompileToBinary]=Options[compilelink];
 compilelink[$Failed,___]:=$Failed;
 
 compilelink[f_,uncompiled_,OptionsPattern[]]:=
-  Module[{output,types,funcid,src,lib,workdir,libdir,mldir,compiler,errorparser,errors},
+  Module[{output,types,funcid,src,lib,workdir,
+      libdir,mldir,compiler,opt,errorparser,errors},
     $CppSource="";
     $CompilerOutput="";
     output=f["output"];
@@ -923,13 +924,18 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     mldir=$InstallationDirectory<>
       "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
     compiler=CCompilerDriver`DefaultCCompiler[];
+    opt=$compileroptions[compiler];
     lib=Quiet@CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
       "Language"->"C++",
-      "CompileOptions"->
-        If[OptionValue["Debug"],$debugcompileroptions,$compileroptions][
-          compiler]<>OptionValue["CompileOptions"],
-      "CleanIntermediate"->!OptionValue["Debug"],
+      "CompileOptions"->$joinoptions@{
+          opt["Base"],
+          opt["Optimize"][If[TrueQ@OptionValue["Debug"],0,3]],
+          opt["Define"][{"WL_USE_MATHLINK",
+            If[!TrueQ@OptionValue["Debug"],"NDEBUG",Nothing]}],
+          OptionValue["CompileOptions"]
+        },
+      "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
       "IncludeDirectories"->{mldir,$packagepath<>"/src"},
       "LibraryDirectories"->{mldir};
       "Libraries"->{"ML64i4"},
@@ -952,28 +958,31 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
   ]
 
 
+$joinoptions=StringRiffle[Flatten[#]," "]&;
 $compileroptions=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler->
-    "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DNDEBUG -DWL_USE_MATHLINK",
+  CCompilerDriver`GCCCompiler`GCCCompiler-><|
+    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
+    "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
+    "Define"->("-D"<>#&/@#&)|>,
   CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",(*clang*)""]<>
-      "-x c++ -std=c++1z -fPIC -O3 -ffast-math -march=native -DNDEBUG -DWL_USE_MATHLINK",
-  CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O3 -restrict -fp-model fast=2 -march=native -DNDEBUG -DWL_USE_MATHLINK",
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
-    "/std:c++17 /EHsc /Ox /Oi /Ob2 /Gy /fp:fast /DNDEBUG /DWL_USE_MATHLINK"
+    If[$SystemID=="Windows-x86-64",
+    <|(*MinGW*)
+    "Base"->"-static -x c++ -std=c++1z -fPIC -march=native",
+    "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
+    "Define"->("-D"<>#&/@#&)|>,
+    <|(*Clang*)
+    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
+    "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
+    "Define"->("-D"<>#&/@#&)|>],
+  CCompilerDriver`IntelCompiler`IntelCompiler-><|
+    "Base"->"-std=c++17 -Kc++ -restrict -march=native",
+    "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -fp-model fast=2"|>,
+    "Define"->("-D"<>#&/@#&)|>,
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler-><|
+    "Base"->"/std:c++17 /EHsc",
+    "Optimize"-><|0->"/O0",1->"/O1",2->"/O2",3->"/Ox /Gy /fp:fast"|>,
+    "Define"->("/D"<>#&/@#&)|>
 |>;
-$debugcompileroptions=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler->
-    "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native -DWL_USE_MATHLINK",
-  CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    If[$SystemID=="Windows-x86-64",(*MinGW*)"-static ",(*clang*)""]<>
-      "-x c++ -std=c++1z -fPIC -O0 -g3 -march=native -DWL_USE_MATHLINK",
-  CCompilerDriver`IntelCompiler`IntelCompiler->
-    "-std=c++17 -Kc++ -O0 -g -restrict -march=native -debug all -traceback -check-uninit -DWL_USE_MATHLINK",
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
-    "/std:c++17 /EHsc /Od /DWL_USE_MATHLINK"
-|>
 $compilererrorparser=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->Function[{id},{
       Split[#,Head[#2]=!=Integer&]&,Flatten[{

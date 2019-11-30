@@ -8290,7 +8290,7 @@ auto delete_cases(const X& x, varg_tag, Function f, const_int<I>)
 {
     WL_TRY_BEGIN()
     static_assert(I == 1, WL_ERROR_DELETE_CASES_LEVEL);
-    return delete_cases(x, varg_tag, f);
+    return delete_cases(x, varg_tag{}, f);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>

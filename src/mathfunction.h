@@ -98,7 +98,7 @@ WL_INLINE auto _scalar_power(const X& x, const_int<y>)
     {
         X ret = _scalar_power<y / 2>(x);
         ret *= ret;
-        if constexpr (y & int64_t(1) != 0)
+        if constexpr ((y & int64_t(1)) != 0)
             ret *= x;
         return ret;
     }

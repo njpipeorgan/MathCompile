@@ -588,6 +588,7 @@ functionmacro[code_]:=code//.{
     id["RandomComplex",p_][]:>native["random_complex",p][id["Complex"][literal[1,0],literal[1,0]],vargtag],
     id["RandomVariate",p_][dist_,dims_]:>native["random_variate",p][dist,vargtag,listtoseq[dims]],
     id["RandomVariate",p_][dist_]:>native["random_variate",p][dist,vargtag],
+    id["RandomChoice",p_][id["Rule",_][weights_,array_],dims_]:>native["random_choice",p][weights,array,vargtag,listtoseq[dims]],
     id["RandomChoice",p_][array_,dims_]:>native["random_choice",p][array,vargtag,listtoseq[dims]],
     id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_]]:>native["count",p][array,vargtag,func],
     id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_],list[literal[i_Integer]]]:>native["count",p][array,vargtag,func,const[i]],

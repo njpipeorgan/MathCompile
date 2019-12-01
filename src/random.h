@@ -18,6 +18,7 @@
 #pragma once
 
 #include <random>
+#include <tuple>
 
 #include "types.h"
 #include "arithmetic.h"
@@ -208,54 +209,23 @@ auto random_complex(const Max& max, varg_tag, const Dims&... dims)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename X>
-auto random_choice(const X& x)
+template<typename Random, typename X, size_t OuterRank>
+auto _random_choice_batch_impl(const Random& random, const X& x,
+    const std::array<size_t, OuterRank>& outer_dims)
 {
-    WL_TRY_BEGIN()
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using XV = value_type_t<X>;
     const auto& valx = allows<view_category::Regular>(x);
     const auto x_iter = valx.begin();
-    auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
 
-    if constexpr (XR == 1u)
-    {
-        return *(x_iter + dist(global_random_engine));
-    }
-    else
-    {
-        auto item_dims = utils::dims_take<2u, XR>(x.dims());
-        auto item_size = utils::size_of_dims(item_dims);
-        ndarray<XV, XR - 1u> ret(item_dims);
-        utils::restrict_copy_n(
-            x_iter + item_size * dist(global_random_engine),
-            item_size, ret.data());
-        return ret;
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename X, typename... Dims>
-auto random_choice(const X& x, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    constexpr auto XR = array_rank_v<X>;
-    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    using XV = value_type_t<X>;
-    const auto& valx = allows<view_category::Regular>(x);
-    const auto x_iter = valx.begin();
-    auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
-
-    constexpr auto OuterRank = sizeof...(Dims);
-    const auto outer_dims = utils::get_dims_array(dims...);
     const auto outer_size = utils::size_of_dims(outer_dims);
     if constexpr (XR == 1u)
     {
         ndarray<XV, OuterRank> ret(outer_dims);
         auto ret_iter = ret.data();
         for (size_t i = 0; i < outer_size; ++i, ++ret_iter)
-            *ret_iter = *(x_iter + dist(global_random_engine));
+            *ret_iter = *(x_iter + random());
         return ret;
     }
     else
@@ -267,17 +237,121 @@ auto random_choice(const X& x, varg_tag, const Dims&... dims)
         auto base_iter = ret.data();
         for (size_t i = 0u; i < outer_size; ++i, base_iter += item_size)
             utils::restrict_copy_n(
-                x_iter + item_size * dist(global_random_engine),
+                x_iter + item_size * random(),
                 item_size, base_iter);
         return ret;
     }
+}
+
+template<typename Random, typename X>
+auto random_choice_single_impl(const Random& random, const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<X>;
+    const auto& valx = allows<view_category::Regular>(x);
+    const auto x_iter = valx.begin();
+
+    if constexpr (XR == 1u)
+    {
+        return *(x_iter + random());
+    }
+    else
+    {
+        auto item_dims = utils::dims_take<2u, XR>(x.dims());
+        auto item_size = utils::size_of_dims(item_dims);
+        ndarray<XV, XR - 1u> ret(item_dims);
+        utils::restrict_copy_n(
+            x_iter + item_size * random(), item_size, ret.data());
+        return ret;
+    }
+}
+
+inline auto _random_choice_prepare_uniform(const size_t x_length)
+{
+    if (!(x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
+    return [max = size_t(x_length - 1u)]
+    {
+        auto dist = std::uniform_int_distribution<size_t>(0u, max);
+        return dist(global_random_engine);
+    };
+}
+
+template<typename W>
+auto _random_choice_prepare_binary(const W& w, const size_t x_length)
+{
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+
+    const auto& valw = allows<view_category::Regular>(w);
+    const auto w_size = valw.size();
+    auto ret = ndarray<double, 1u>(valw.dims());
+    auto w_iter = valw.begin();
+    auto ret_iter = ret.data();
+    double accumulate = 0.0;
+
+    WL_IGNORE_DEPENDENCIES
+    for (size_t i = 0; i < w_size; ++i, ++w_iter, ++ret_iter)
+    {
+        const auto weight = double(*w_iter);
+        if (weight < 0.)
+            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+        accumulate += weight;
+        *ret_iter = accumulate;
+    }
+    return [weights = std::move(ret), sum = accumulate]
+    {
+        auto w_begin = weights.begin();
+        auto w_end = weights.end();
+        auto dist = std::uniform_real_distribution<>(0., sum);
+        return size_t(std::lower_bound(
+            w_begin, w_end, dist(global_random_engine)) - w_begin);
+    };
+}
+
+template<typename X>
+auto random_choice(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return _random_choice_single_impl(
+        _random_choice_prepare_uniform(x.dims()[0]), x);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename... Dims>
+auto random_choice(const X& x, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return _random_choice_batch_impl(
+        _random_choice_prepare_uniform(x.dims()[0]),
+        x, utils::get_dims_array(dims...));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename W, typename X>
 auto random_choice(const W& w, const X& x)
 {
-    
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return _random_choice_single_impl(
+        _random_choice_prepare_binary(w, x.dims()[0]), x);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename W, typename X, typename... Dims>
+auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return _random_choice_batch_impl(
+        _random_choice_prepare_binary(w, x.dims()[0]),
+        x, utils::get_dims_array(dims...));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

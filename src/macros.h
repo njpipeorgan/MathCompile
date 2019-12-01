@@ -228,6 +228,9 @@ namespace wl
 #define WL_ERROR_DELETE_CASES_LEVEL \
 "DeleteCases can only operate on the first level."
 
+#define WL_ERROR_RANDOM_WEIGHTS_TYPE \
+"The weights should form a list of integers or real numbers."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -289,5 +292,14 @@ namespace wl
 
 #define WL_ERROR_INSERT_POS_DIMS \
 "The each position specification should be a list of one integer."
+
+#define WL_ERROR_RANDOM_WEIGHTS_LENGTH \
+"The number of weights should match that of elements and more than zero."
+
+#define WL_ERROR_RANDOM_ELEM_LENGTH \
+"The number of elements should be more than zero."
+
+#define WL_ERROR_NEGATIVE_WEIGHT \
+"The weights should be non-negative."
 
 }

@@ -79,6 +79,8 @@ namespace wl
 
 #define WL_PASS(var) std::forward<decltype(var)>(var)
 
+#define WL_RANDOM_ENGINE std::mt19937_64
+
 
 // static assertion error messages
 

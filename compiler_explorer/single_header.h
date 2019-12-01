@@ -75,6 +75,7 @@ namespace wl
     [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
     [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
 #define WL_PASS(var) std::forward<decltype(var)>(var)
+#define WL_RANDOM_ENGINE std::mt19937_64
 #define WL_ERROR_INTERNAL \
 "An internal error is encountered."
 #define WL_ERROR_MUTABLE_TYPE \
@@ -6199,7 +6200,7 @@ auto bit_shift_right(X&& x, Y&& y)
 }
 namespace wl
 {
-extern std::default_random_engine global_random_engine;
+extern WL_RANDOM_ENGINE global_random_engine;
 namespace distribution
 {
 constexpr auto _min = [](const auto x, const auto y)

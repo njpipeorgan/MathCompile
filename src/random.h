@@ -26,7 +26,7 @@
 namespace wl
 {
 
-extern std::default_random_engine global_random_engine;
+extern WL_RANDOM_ENGINE global_random_engine;
 
 namespace distribution
 {

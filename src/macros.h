@@ -231,6 +231,9 @@ namespace wl
 #define WL_ERROR_CALLBACK \
 "Callback failed."
 
+#define WL_ERROR_NEGATIVE_DIMS \
+"The dimension specifications should be non-negative integers."
+
 #define WL_ERROR_LIST_ELEM_DIMS \
 "All elements of a list should have the same dimensions."
 

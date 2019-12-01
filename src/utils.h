@@ -126,6 +126,16 @@ inline auto _get_time()
     return now.time_since_epoch().count();
 }
 
+template<bool AllowEmpty = false, typename... Dims>
+auto get_dims_array(const Dims&... dims)
+{
+    static_assert(all_is_integral_v<Dims...> && (sizeof...(Dims) >= 1u),
+        WL_ERROR_DIMENSIONS_SPEC);
+    if (!((dims >= Dims(0)) && ...))
+        throw std::logic_error(WL_ERROR_NEGATIVE_DIMS);
+    return std::array<size_t, sizeof...(Dims)>{size_t(dims)...};
+}
+
 template<size_t R1, size_t R2, size_t... Is1, size_t... Is2>
 auto _dims_join_impl(
     const std::array<size_t, R1>& dims1, std::index_sequence<Is1...>,

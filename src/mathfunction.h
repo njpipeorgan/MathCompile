@@ -87,7 +87,7 @@ template<typename X, int64_t y>
 WL_INLINE auto _scalar_power(const X& x, const_int<y>)
 {
     if constexpr (y < 0)
-        return X(1) / _scalar_power<-y>(x);
+        return X(1) / _scalar_power(x, const_int<-y>{});
     else if constexpr (y == 0)
         return X(1);
     else if constexpr (y == 1)
@@ -96,7 +96,7 @@ WL_INLINE auto _scalar_power(const X& x, const_int<y>)
         return X(x * x);
     else if (y < 16)
     {
-        X ret = _scalar_power<y / 2>(x);
+        X ret = _scalar_power(x, const_int<(y / 2)>{});
         ret *= ret;
         if constexpr ((y & int64_t(1)) != 0)
             ret *= x;

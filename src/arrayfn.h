@@ -250,11 +250,11 @@ auto constant_array(const T& val, varg_tag, const Dims&... dims)
     constexpr auto all_rank = val_rank + rep_rank;
     if constexpr (val_rank > 0)
     {
-        using ValueType = typename T::value_type;
-        std::array<int64_t, all_rank> all_dims{int64_t(dims)...};
-        std::copy_n(val.dims().begin(), val_rank, all_dims.data() + rep_rank);
+        using ValueType = value_type_t<T>;
+        const auto all_dims = utils::dims_join(
+            utils::get_dims_array(dims...), val.dims());
         ndarray<ValueType, all_rank> ret(all_dims);
-        size_t val_size = val.size();
+        const size_t val_size = val.size();
         if constexpr (T::category == view_category::Array ||
             T::category == view_category::Simple)
         {
@@ -689,10 +689,8 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
     using XT = remove_cvref_t<X>;
     using XV = value_type_t<XT>;
     static_assert(array_rank_v<XT> >= 1, WL_ERROR_REQUIRE_ARRAY);
-    static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
     constexpr auto rank = sizeof...(dims);
-    static_assert(rank >= 1, WL_ERROR_DIMENSIONS_SPEC);
-    ndarray<XV, rank> ret(std::array<int64_t, rank>{int64_t(dims)...});
+    ndarray<XV, rank> ret(utils::get_dims_array(dims...));
 
     const size_t x_size = x.size();
     const size_t ret_size = ret.size();

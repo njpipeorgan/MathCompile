@@ -128,7 +128,6 @@ struct normal
 template<typename Dist, typename... Dims>
 auto _random_variate_impl(Dist dist, const Dims&... dims)
 {
-    static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
     using T = typename Dist::value_type;
     constexpr size_t R1 = Dist::rank;
     constexpr size_t R2 = sizeof...(dims);
@@ -139,7 +138,7 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
         return dist();
     else
     {
-        wl::ndarray<T, R> x(std::array<int64_t, R>{int64_t(dims)...});
+        wl::ndarray<T, R> x(utils::get_dims_array(dims...));
         x.for_each([&](auto& v) { v = dist(); });
         return x;
     }
@@ -209,20 +208,20 @@ auto random_complex(const Max& max, varg_tag, const Dims&... dims)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename Array>
-auto random_choice(const Array& x)
+template<typename X>
+auto random_choice(const X& x)
 {
     WL_TRY_BEGIN()
-    constexpr auto XR = array_rank_v<Array>;
+    constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    using XV = value_type_t<Array>;
+    using XV = value_type_t<X>;
     const auto& valx = allows<view_category::Regular>(x);
     const auto x_iter = valx.begin();
     auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
 
     if constexpr (XR == 1u)
     {
-        return *(valx.begin() + dist(global_random_engine));
+        return *(x_iter + dist(global_random_engine));
     }
     else
     {
@@ -230,24 +229,26 @@ auto random_choice(const Array& x)
         auto item_size = utils::size_of_dims(item_dims);
         ndarray<XV, XR - 1u> ret(item_dims);
         utils::restrict_copy_n(
-            valx.begin() + item_size * dist(global_random_engine),
+            x_iter + item_size * dist(global_random_engine),
             item_size, ret.data());
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename Array, size_t OuterRank>
-auto _random_choice_impl(const Array& x,
-    const std::array<size_t, OuterRank>& outer_dims)
+template<typename X, typename... Dims>
+auto random_choice(const X& x, varg_tag, const Dims&... dims)
 {
-    constexpr auto XR = array_rank_v<Array>;
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    using XV = value_type_t<Array>;
+    using XV = value_type_t<X>;
     const auto& valx = allows<view_category::Regular>(x);
     const auto x_iter = valx.begin();
     auto dist = std::uniform_int_distribution<size_t>(0u, x.dims()[0] - 1u);
 
+    constexpr auto OuterRank = sizeof...(Dims);
+    const auto outer_dims = utils::get_dims_array(dims...);
     const auto outer_size = utils::size_of_dims(outer_dims);
     if constexpr (XR == 1u)
     {
@@ -270,18 +271,13 @@ auto _random_choice_impl(const Array& x,
                 item_size, base_iter);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename Array, typename... Dims>
-auto random_choice(const Array& x, varg_tag, const Dims&... dims)
+template<typename W, typename X>
+auto random_choice(const W& w, const X& x)
 {
-    WL_TRY_BEGIN()
-    static_assert(all_is_integral_v<Dims...>, WL_ERROR_DIMENSIONS_SPEC);
-    if (!((dims > 0) && ...))
-        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
-    return _random_choice_impl(x,
-        std::array<size_t, sizeof...(Dims)>{size_t(dims)...});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
+    
 }
 
 }

@@ -3846,6 +3846,39 @@ auto divide(X&& x, Y&& y)
 }
 namespace wl
 {
+namespace io
+{
+#if defined(WL_USE_MATHLINK)
+template<typename X>
+auto print(const X& x);
+template<typename X>
+auto echo(X&& x);
+#else
+template<typename X>
+auto print(const X& x)
+{
+    return const_null;
+}
+template<typename X>
+auto echo(X&& x)
+{
+    return std::forward<decltype(x)>(x);
+}
+#endif
+template<typename Function>
+auto echo_function(Function f)
+{
+    return [=](auto&& x)
+    {
+        const auto& xref = x;
+        echo(f(x));
+        return std::forward<decltype(x)>(x);
+    };
+}
+}
+}
+namespace wl
+{
 template<typename F>
 struct function;
 template<typename Ret, typename... Args>
@@ -6469,56 +6502,45 @@ auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
     std::vector<double> p(n);
     w.copy_to(p.data());
     struct alias_t { double prob; uint64_t index; };
-    std::vector<alias_t> alias(n, alias_t{1.0, n});
-    std::vector<alias_t> small;
-    std::vector<alias_t> large;
-    small.reserve(n);
-    large.reserve(n);
+    std::vector<alias_t> alias_vec(n);
+    auto small_base = new alias_t[n];
+    auto large_base = new alias_t[n];
+    auto* alias = alias_vec.data();
+    auto* small = small_base;
+    auto* large = large_base;
+    auto push = [](auto*& ptr, alias_t elem) { *(ptr++) = elem; };
+    auto pop = [](auto*& ptr) { return *(--ptr); };
     auto normalize = double(n) / std::accumulate(p.cbegin(), p.cend(), 0.0);
     for (uint64_t i = 0; i < n; ++i)
     {
         const double prob = p[i] * normalize;
-        if (prob <= 1.)
-            small.push_back({prob, i});
-        else
-            large.push_back({prob, i});
+        push(prob <= 1. ? small : large, alias_t{prob, i});
     }
-    while (!small.empty() && !large.empty())
+    while (small > small_base && large > large_base)
     {
-        auto l = small.back();
-        auto g = large.back();
+        auto l = pop(small);
+        auto g = pop(large);
         alias[l.index].prob = l.prob;
         alias[l.index].index = g.index;
         g.prob += l.prob - 1.;
-        if (g.prob <= 1.)
-        {
-            large.pop_back();
-            small.back() = g;
-        }
-        else
-        {
-            small.pop_back();
-            large.back() = g;
-        }
+        push(g.prob <= 1. ? small : large, g);
     }
-    while (!large.empty())
+    while (large > large_base)
     {
-        auto g = large.back();
-        large.pop_back();
-        alias[g.index].prob = 1.;
+        alias[pop(large).index].prob = 1.;
     }
-    while (!small.empty())
+    while (small > small_base)
     {
-        auto l = small.back();
-        small.pop_back();
-        alias[l.index].prob = 1.;
+        alias[pop(small).index].prob = 1.;
     }
-    return [alias = std::move(alias), max = double(n)]
+    delete[] small_base;
+    delete[] large_base;
+    return[alias_vec = std::move(alias_vec), max = double(n)]
     {
         auto dist = std::uniform_real_distribution<>(0.0, max);
         double rand = dist(global_random_engine);
         double index = std::floor(rand);
-        const auto& a = alias[size_t(index)];
+        const auto& a = alias_vec[size_t(index)];
         return (rand - index <= a.prob) ? size_t(index) : a.index;
     };
 }
@@ -6559,12 +6581,12 @@ auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
     const auto outer_dims = utils::get_dims_array(dims...);
     const auto outer_size = utils::size_of_dims(outer_dims);
     // automatically select between binary and walker74
-    if ((outer_size >= 20u) && (outer_size * 5 >= x_length))
+    if ((outer_size >= 50u) && (outer_size * 5 >= x_length))
         return _random_choice_batch_impl(
             _random_choice_prepare_walker74(w, x_length), x, outer_dims);
     else
         return _random_choice_batch_impl(
-            _random_choice_prepare_walker74(w, x_length), x, outer_dims);
+            _random_choice_prepare_binary(w, x_length), x, outer_dims);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
@@ -9123,39 +9145,6 @@ auto tr(const X& x)
     WL_TRY_BEGIN()
     return tr(x, WL_FUNCTION(plus), const_int<array_rank_v<X>>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-}
-namespace wl
-{
-namespace io
-{
-#if defined(WL_USE_MATHLINK)
-template<typename X>
-auto print(const X& x);
-template<typename X>
-auto echo(X&& x);
-#else
-template<typename X>
-auto print(const X& x)
-{
-    return const_null;
-}
-template<typename X>
-auto echo(X&& x)
-{
-    return std::forward<decltype(x)>(x);
-}
-#endif
-template<typename Function>
-auto echo_function(Function f)
-{
-    return [=](auto&& x)
-    {
-        const auto& xref = x;
-        echo(f(x));
-        return std::forward<decltype(x)>(x);
-    };
-}
 }
 }
 namespace wl

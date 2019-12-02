@@ -312,6 +312,98 @@ auto _random_choice_prepare_binary(const W& w, const size_t x_length)
     };
 }
 
+template<typename Index = uint64_t, typename W>
+auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
+{
+    // Walker, A.J. (1974), Electronics Letters, 10(8), 127
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+
+    const size_t n = x_length;
+    std::vector<double> p(n);
+    w.copy_to(p.data());
+    auto normalize = double(n) / std::accumulate(p.cbegin(), p.cend(), 0.0);
+    for (auto& elem : p)
+        elem *= (normalize * 1.000);
+
+    struct alias_t
+    {
+        double prob;
+        Index idx_small;
+        Index idx_large;
+    };
+    std::vector<alias_t> alias(n, alias_t{1.0, n, n});
+
+    size_t in_small = 0u;
+    size_t in_large = 0u;
+    size_t out_small = 0u;
+    size_t out_large = 0u;
+
+    auto find_next_small = [&] {
+        do { ++in_small; } while (in_small < n && p[in_small] > 1.);
+    };
+    auto find_next_large = [&] {
+        do { ++in_large; } while (in_large < n && p[in_large] <= 1.);
+    };
+    auto alias_set = [&](size_t in)
+    {
+        alias[out_small].prob = p[in];
+        alias[out_small].idx_small = in;
+        ++out_small;
+    };
+
+    if (p[0] > 1.)
+        find_next_small();
+    else
+        find_next_large();
+    for (;;)
+    {
+        if (in_small < n)
+        {
+            alias_set(in_small);
+            find_next_small();
+        }
+        if (in_large < n)
+        {
+            alias[out_large].idx_large = in_large;
+            p[in_large] -= (1. - alias[out_large].prob);
+            ++out_large;
+            if (p[in_large] <= 1.)
+            {
+                if (in_large < in_small)
+                    alias_set(in_large);
+                find_next_large();
+            }
+        }
+        if (out_small == n)
+        {
+            if (out_small < n)
+            {
+                for (; out_small < n; ++out_small)
+                    alias[out_small].idx_small = in_large;
+                for (; out_large < n; ++out_large)
+                    alias[out_large].idx_large = in_large;
+            }
+            else
+            {
+                for (; out_large < n; ++out_large)
+                    alias[out_large].prob = 1.;
+            }
+            break;
+        }
+    }
+    return [alias = std::move(alias), max = double(n)]
+    {
+        auto dist = std::uniform_real_distribution<>(0.0, max);
+        double rand = dist(global_random_engine);
+        double index = std::floor(rand);
+        const auto& a = alias[size_t(index)];
+        return (rand - index <= a.prob) ? a.idx_small : a.idx_large;
+    };
+}
+
 template<typename X>
 auto random_choice(const X& x)
 {
@@ -348,9 +440,16 @@ auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
 {
     WL_TRY_BEGIN()
     static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    return _random_choice_batch_impl(
-        _random_choice_prepare_binary(w, x.dims()[0]),
-        x, utils::get_dims_array(dims...));
+    const auto x_length = x.dims()[0];
+    const auto outer_dims = utils::get_dims_array(dims...);
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    // automatically select between binary and walker74
+    if ((outer_size >= 20u) && (outer_size * 5 >= x_length))
+        return _random_choice_batch_impl(
+            _random_choice_prepare_binary(w, x_length), x, outer_dims);
+    else
+        return _random_choice_batch_impl(
+            _random_choice_prepare_binary(w, x_length), x, outer_dims);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

@@ -6457,7 +6457,7 @@ auto _random_choice_prepare_binary(const W& w, const size_t x_length)
             w_begin, w_end, dist(global_random_engine)) - w_begin);
     };
 }
-template<typename Index = uint64_t, typename W>
+template<typename W>
 auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
 {
     // Walker, A.J. (1974), Electronics Letters, 10(8), 127
@@ -6468,71 +6468,50 @@ auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
     const size_t n = x_length;
     std::vector<double> p(n);
     w.copy_to(p.data());
+    struct alias_t { double prob; uint64_t index; };
+    std::vector<alias_t> alias(n, alias_t{1.0, n});
+    std::vector<alias_t> small;
+    std::vector<alias_t> large;
+    small.reserve(n);
+    large.reserve(n);
     auto normalize = double(n) / std::accumulate(p.cbegin(), p.cend(), 0.0);
-    for (auto& elem : p)
-        elem *= (normalize * 1.000);
-    struct alias_t
+    for (uint64_t i = 0; i < n; ++i)
     {
-        double prob;
-        Index idx_small;
-        Index idx_large;
-    };
-    std::vector<alias_t> alias(n, alias_t{1.0, n, n});
-    size_t in_small = 0u;
-    size_t in_large = 0u;
-    size_t out_small = 0u;
-    size_t out_large = 0u;
-    auto find_next_small = [&] {
-        do { ++in_small; } while (in_small < n && p[in_small] > 1.);
-    };
-    auto find_next_large = [&] {
-        do { ++in_large; } while (in_large < n && p[in_large] <= 1.);
-    };
-    auto alias_set = [&](size_t in)
+        const double prob = p[i] * normalize;
+        if (prob <= 1.)
+            small.push_back({prob, i});
+        else
+            large.push_back({prob, i});
+    }
+    while (!small.empty() && !large.empty())
     {
-        alias[out_small].prob = p[in];
-        alias[out_small].idx_small = in;
-        ++out_small;
-    };
-    if (p[0] > 1.)
-        find_next_small();
-    else
-        find_next_large();
-    for (;;)
+        auto l = small.back();
+        auto g = large.back();
+        alias[l.index].prob = l.prob;
+        alias[l.index].index = g.index;
+        g.prob += l.prob - 1.;
+        if (g.prob <= 1.)
+        {
+            large.pop_back();
+            small.back() = g;
+        }
+        else
+        {
+            small.pop_back();
+            large.back() = g;
+        }
+    }
+    while (!large.empty())
     {
-        if (in_small < n)
-        {
-            alias_set(in_small);
-            find_next_small();
-        }
-        if (in_large < n)
-        {
-            alias[out_large].idx_large = in_large;
-            p[in_large] -= (1. - alias[out_large].prob);
-            ++out_large;
-            if (p[in_large] <= 1.)
-            {
-                if (in_large < in_small)
-                    alias_set(in_large);
-                find_next_large();
-            }
-        }
-        if (out_small == n)
-        {
-            if (out_small < n)
-            {
-                for (; out_small < n; ++out_small)
-                    alias[out_small].idx_small = in_large;
-                for (; out_large < n; ++out_large)
-                    alias[out_large].idx_large = in_large;
-            }
-            else
-            {
-                for (; out_large < n; ++out_large)
-                    alias[out_large].prob = 1.;
-            }
-            break;
-        }
+        auto g = large.back();
+        large.pop_back();
+        alias[g.index].prob = 1.;
+    }
+    while (!small.empty())
+    {
+        auto l = small.back();
+        small.pop_back();
+        alias[l.index].prob = 1.;
     }
     return [alias = std::move(alias), max = double(n)]
     {
@@ -6540,7 +6519,7 @@ auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
         double rand = dist(global_random_engine);
         double index = std::floor(rand);
         const auto& a = alias[size_t(index)];
-        return (rand - index <= a.prob) ? a.idx_small : a.idx_large;
+        return (rand - index <= a.prob) ? size_t(index) : a.index;
     };
 }
 template<typename X>
@@ -6582,10 +6561,10 @@ auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
     // automatically select between binary and walker74
     if ((outer_size >= 20u) && (outer_size * 5 >= x_length))
         return _random_choice_batch_impl(
-            _random_choice_prepare_binary(w, x_length), x, outer_dims);
+            _random_choice_prepare_walker74(w, x_length), x, outer_dims);
     else
         return _random_choice_batch_impl(
-            _random_choice_prepare_binary(w, x_length), x, outer_dims);
+            _random_choice_prepare_walker74(w, x_length), x, outer_dims);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }

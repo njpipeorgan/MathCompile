@@ -231,6 +231,12 @@ namespace wl
 #define WL_ERROR_RANDOM_WEIGHTS_TYPE \
 "The weights should form a list of integers or real numbers."
 
+#define WL_ERROR_UNIFORM_BOUNDS_SPEC \
+"The arguments should be an integer, a pair of number, or a list of pairs."
+
+#define WL_ERROR_NORMAL_DIST_SPEC \
+"The arguments should be two real numbers."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \

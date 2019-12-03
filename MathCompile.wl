@@ -469,6 +469,9 @@ $builtinfunctions=
   "Beta"            ->"beta",
   "Zeta"            ->"zeta",
 (* random number *)
+  "UniformDistribution"->"uniform_distribution",
+  "NormalDistribution"->"normal_distribution",
+  "ChiSquareDistribution"->"chi_square_distribution",
     (*"RandomInteger"*)
     (*"RandomReal"*)
     (*"RandomComplex"*)
@@ -577,7 +580,6 @@ listtoseq[expr_]:=Replace[expr,list[_][any___]:>Sequence[any]]
 
 functionmacro[code_]:=code//.{
     id["ConstantArray",p_][val_,dims_]:>native["constant_array",p][val,vargtag,listtoseq[dims]],
-    id["UniformDistribution",p_][list[_][min_,max_]]:>native["uniform_distribution",p][min,max,vargtag],
     id["RandomInteger",p_][spec_,dims_]:>native["random_integer",p][listtoseq[spec],vargtag,listtoseq[dims]],
     id["RandomInteger",p_][spec_]:>native["random_integer",p][listtoseq[spec],vargtag],
     id["RandomInteger",p_][]:>native["random_integer",p][literal[1,0],vargtag],

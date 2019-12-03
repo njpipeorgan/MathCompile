@@ -35,7 +35,7 @@ namespace wl
 {
 
 #ifndef WL_SMALL_ARRAY_SIZE
-#define WL_SMALL_ARRAY_SIZE 1024
+#define WL_SMALL_ARRAY_SIZE 256
 #endif
 
 template<typename T, size_t N>

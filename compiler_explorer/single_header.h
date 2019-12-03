@@ -174,6 +174,10 @@ namespace wl
 "DeleteCases can only operate on the first level."
 #define WL_ERROR_RANDOM_WEIGHTS_TYPE \
 "The weights should form a list of integers or real numbers."
+#define WL_ERROR_UNIFORM_BOUNDS_SPEC \
+"The arguments should be an integer, a pair of number, or a list of pairs."
+#define WL_ERROR_NORMAL_DIST_SPEC \
+"The arguments should be two real numbers."
 #define WL_ERROR_CALLBACK \
 "Callback failed."
 #define WL_ERROR_NEGATIVE_DIMS \
@@ -1941,7 +1945,7 @@ auto indirect_view_copy(Dst&& dst, const Src& src)
 namespace wl
 {
 #ifndef WL_SMALL_ARRAY_SIZE
-#define WL_SMALL_ARRAY_SIZE 1024
+#define WL_SMALL_ARRAY_SIZE 256
 #endif
 template<typename T, size_t N>
 struct _small_vector
@@ -6244,14 +6248,18 @@ namespace wl
 extern WL_RANDOM_ENGINE global_random_engine;
 namespace distribution
 {
-constexpr auto _min = [](const auto x, const auto y)
+template<typename T>
+WL_INLINE void adjust_bounds(T& min, T& max)
 {
-    return x < y ? x : y;
-};
-constexpr auto _max = [](const auto x, const auto y)
+    if (min > max)
+        std::swap(min, max);
+}
+template<typename T>
+WL_INLINE void adjust_bounds(complex<T>& min, complex<T>& max)
 {
-    return x < y ? y : x;
-};
+    adjust_bounds(min.real(), max.real());
+    adjust_bounds(min.imag(), max.imag());
+}
 template<typename T>
 struct uniform
 {
@@ -6260,8 +6268,9 @@ struct uniform
     static constexpr size_t rank = 0;
     T min_;
     T max_;
-    uniform(T a, T b) : min_{_min(a, b)}, max_{_max(a, b)}
+    uniform(T a, T b) : min_{a}, max_{b}
     {
+        adjust_bounds(min_, max_);
     }
     void generate(T* res)
     {
@@ -6278,34 +6287,188 @@ struct uniform<complex<T>>
     static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
     using value_type = complex<T>;
     static constexpr size_t rank = 0;
-    T re_min_;
-    T re_max_;
-    T im_min_;
-    T im_max_;
-    uniform(const complex<T>& a, const complex<T>& b) :
-        re_min_{_min(a.real(), b.real())}, re_max_{_max(a.real(), b.real())},
-        im_min_{_min(a.imag(), b.imag())}, im_max_{_max(a.imag(), b.imag())}
+    complex<T> min_;
+    complex<T> max_;
+    uniform(const complex<T>& a, const complex<T>& b) : min_{a}, max_{b}
     {
+        adjust_bounds(min_, max_);
     }
     void generate(complex<T>* res)
     {
-        using dist_type = std::conditional_t<is_integral_v<T>,
-            std::uniform_int_distribution<T>,
-            std::uniform_real_distribution<T>>;
-        auto re_dist = dist_type(re_min_, re_max_);
-        auto im_dist = dist_type(im_min_, im_max_);
+        using dist_type = std::uniform_real_distribution<T>;
+        auto re_dist = dist_type(min_.real(), max_.real());
+        auto im_dist = dist_type(min_.imag(), max_.imag());
         *res = complex<T>(re_dist(global_random_engine),
             im_dist(global_random_engine));
     }
 };
-}
-template<typename Min, typename Max>
-auto uniform_distribution(const Min& min, const Max& max, varg_tag)
+template<typename T>
+struct multi_uniform
 {
-    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
-    using C = common_type_t<Min, Max>;
-    using T = std::conditional_t<is_integral_v<C>, double, C>;
-    return distribution::uniform<T>(T(min), T(max));
+    static_assert(is_arithmetic_v<T>, WL_ERROR_INTERNAL);
+    using value_type = T;
+    static constexpr size_t rank = 1;
+    ndarray<T, 2u> bounds_;
+    multi_uniform(const ndarray<T, 2u>& bounds) : bounds_(bounds)
+    {
+        _initialize();
+    }
+    multi_uniform(ndarray<T, 2u>&& bounds) : bounds_(std::move(bounds))
+    {
+        _initialize();
+    }
+    void _initialize()
+    {
+        if (!(bounds_.dims()[0] >= 1u && bounds_.dims()[1] == 2u))
+            throw std::logic_error(WL_ERROR_INTERNAL);
+        const auto length = bounds_.dims()[0];
+        auto iter = bounds_.data();
+        for (size_t i = 0; i < length; ++i, iter += 2)
+            adjust_bounds(iter[0], iter[1]);
+    }
+    size_t length() const
+    {
+        return bounds_.dims()[0];
+    }
+    void _single_generate(T* res, T* bounds)
+    {
+        if constexpr (is_complex_v<T>)
+        {
+            using dist_type = std::uniform_real_distribution<T>;
+            auto re_dist = dist_type(bounds[0].real(), bounds[1].real());
+            auto im_dist = dist_type(bounds[0].imag(), bounds[1].imag());
+            res->real() = re_dist(global_random_engine);
+            res->imag() = im_dist(global_random_engine);
+        }
+        else
+        {
+            using dist_type = std::conditional_t<is_integral_v<T>,
+                std::uniform_int_distribution<T>,
+                std::uniform_real_distribution<T>>;
+            auto dist = dist_type(bounds[0], bounds[1]);
+            *res = dist(global_random_engine);
+        }
+    }
+    void generate(T* res)
+    {
+        const auto length = this->length();
+        auto bounds_ptr = bounds_.data();
+        for (size_t i = 0; i < length; ++i, ++res, bounds_ptr += 2)
+            _single_generate(res, bounds_ptr);
+    }
+};
+template<typename T>
+struct default_multi_uniform
+{
+    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
+    using value_type = T;
+    static constexpr size_t rank = 1;
+    size_t length_;
+    default_multi_uniform(size_t length) : length_{length}
+    {
+        if (!(length >= 1u))
+            throw std::logic_error(WL_ERROR_INTERNAL);
+    }
+    size_t length() const
+    {
+        return length_;
+    }
+    void generate(T* res)
+    {
+        for (size_t i = 0; i < length_; ++i, ++res)
+        {
+            auto dist = std::uniform_real_distribution<T>();
+            *res = dist(global_random_engine);
+        }
+    }
+};
+#define WL_DEFINE_SINGLE_PARAMETER_DISTRIBUTION(name, dist, P0T, P0)        \
+template<typename T>                                                        \
+struct name                                                                 \
+{                                                                           \
+    using value_type = T;                                                   \
+    static constexpr size_t rank = 0;                                       \
+    P0T P0;                                                                 \
+    name(P0T P0##_) : P0{P0##_} {}                                          \
+    void generate(T* res) {                                                 \
+        *res = std::dist##_distribution<T>(P0)(global_random_engine); }     \
+};
+WL_DEFINE_SINGLE_PARAMETER_DISTRIBUTION(chi_square, chi_squared, double, nu)
+template<typename T>
+struct normal
+{
+    using value_type = T;
+    static constexpr size_t rank = 0;
+    T mean_;
+    T stddev_;
+    normal(T mean, T stddev) : mean_{mean}, stddev_{stddev}
+    {
+    }
+    void generate(T* res)
+    {
+        auto dist = std::normal_distribution<T>(mean_, stddev_);
+        *res = dist(global_random_engine);
+    }
+};
+}
+inline auto uniform_distribution()
+{
+    return distribution::uniform<double>(0., 1.);
+}
+template<typename X>
+auto uniform_distribution(const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR <= 2u, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+    
+    if constexpr (XR == 0u)
+    {
+        static_assert(is_integral_v<X>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+        if (x <= X(0))
+            throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
+        return distribution::default_multi_uniform<double>(x);
+    }
+    else
+    {
+        using XV = value_type_t<X>;
+        static_assert(is_arithmetic_v<XV>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+        using RV = promote_integral_t<XV>;
+        if constexpr (XR == 1u)
+        {
+            if (x.dims()[0] != 2u)
+                throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
+            std::array<RV, 2u> bounds;
+            x.copy_to(bounds.data());
+            return distribution::uniform<RV>(bounds[0], bounds[1]);
+        }
+        else // XR == 2u
+        {
+            static_assert(is_arithmetic_v<XV>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+            if (!(x.dims()[0] >= 1u && x.dims()[1] == 2u))
+                throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
+            auto bounds = cast<ndarray<RV, 2u>>(x);
+            return distribution::multi_uniform<RV>(bounds);
+        }
+    }
+}
+inline auto normal_distribution()
+{
+    return distribution::normal<double>(0., 1.);
+}
+template<typename Mean, typename Stddev>
+auto normal_distribution(const Mean& mean, const Stddev& stddev)
+{
+    using C = common_type_t<Mean, Stddev>;
+    static_assert(is_real_v<C>, WL_ERROR_NORMAL_DIST_SPEC);
+    using P = promote_integral_t<C>;
+    return distribution::normal<P>(P(mean), P(stddev));
+}
+template<typename Nu>
+auto chi_square_distribution(const Nu& nu)
+{
+    static_assert(is_real_v<Nu>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<Nu>;
+    return distribution::chi_square<P>(P(nu));
 }
 template<typename Dist, typename... Dims>
 auto _random_variate_impl(Dist dist, const Dims&... dims)
@@ -6313,19 +6476,43 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
     using T = typename Dist::value_type;
     constexpr size_t R1 = Dist::rank;
     constexpr size_t R2 = sizeof...(dims);
-    constexpr size_t R = R1 + R2;
-    static_assert(R1 == 0u, WL_ERROR_OPERAND_RANK);
+    static_assert(R1 <= 1u, WL_ERROR_INTERNAL);
     if constexpr (R2 == 0u)
     {
-        T ret;
-        dist.generate(&ret);
-        return ret;
+        if constexpr (R1 == 0u)
+        {
+            T ret;
+            dist.generate(&ret);
+            return ret;
+        }
+        else
+        {
+            ndarray<T, 1u> ret(std::array<size_t, 1u>{dist.length()});
+            dist.generate(ret.data());
+            return ret;
+        }
     }
     else
     {
-        wl::ndarray<T, R> x(utils::get_dims_array(dims...));
-        x.for_each([&](auto& val) { dist.generate(&val); });
-        return x;
+        if constexpr (R1 == 0u)
+        {
+            wl::ndarray<T, R2> ret(utils::get_dims_array(dims...));
+            const auto size = ret.size();
+            auto iter = ret.data();
+            for (size_t i = 0; i < size; ++i, ++iter)
+                dist.generate(iter);
+            return ret;
+        }
+        else
+        {
+            const auto length = dist.length();
+            wl::ndarray<T, R2 + 1u> ret(
+                utils::get_dims_array(dims..., length));
+            const auto end = ret.data() + ret.size();
+            for (auto iter = ret.data(); iter != end; iter += length)
+                dist.generate(iter);
+            return ret;
+        }
     }
 }
 template<typename Dist, typename... Dims>

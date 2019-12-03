@@ -6258,21 +6258,18 @@ struct uniform
     static_assert(is_real_v<T>, WL_ERROR_INTERNAL);
     using value_type = T;
     static constexpr size_t rank = 0;
-    using _dist_type = std::conditional_t<is_integral_v<T>,
-        std::uniform_int_distribution<T>,
-        std::uniform_real_distribution<T>>;
-    _dist_type dist_;
-    uniform(T a, T b) :
-        dist_(_min(a, b), _max(a, b))
+    T min_;
+    T max_;
+    uniform(T a, T b) : min_{_min(a, b)}, max_{_max(a, b)}
     {
     }
-    size_t size() const
+    void generate(T* res)
     {
-        return 1u;
-    }
-    T operator()()
-    {
-        return dist_(global_random_engine);
+        using dist_type = std::conditional_t<is_integral_v<T>,
+            std::uniform_int_distribution<T>,
+            std::uniform_real_distribution<T>>;
+        auto dist = dist_type(min_, max_);
+        *res = dist(global_random_engine);
     }
 };
 template<typename T>
@@ -6281,44 +6278,34 @@ struct uniform<complex<T>>
     static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
     using value_type = complex<T>;
     static constexpr size_t rank = 0;
-    std::uniform_real_distribution<T> dist_re_;
-    std::uniform_real_distribution<T> dist_im_;
+    T re_min_;
+    T re_max_;
+    T im_min_;
+    T im_max_;
     uniform(const complex<T>& a, const complex<T>& b) :
-        dist_re_(_min(a.real(), b.real()), _max(a.real(), b.real())),
-        dist_im_(_min(a.imag(), b.imag()), _max(a.imag(), b.imag()))
+        re_min_{_min(a.real(), b.real())}, re_max_{_max(a.real(), b.real())},
+        im_min_{_min(a.imag(), b.imag())}, im_max_{_max(a.imag(), b.imag())}
     {
     }
-    size_t size() const
+    void generate(complex<T>* res)
     {
-        return 1u;
-    }
-    complex<T> operator()()
-    {
-        return complex<T>(
-            dist_re_(global_random_engine),
-            dist_im_(global_random_engine));
+        using dist_type = std::conditional_t<is_integral_v<T>,
+            std::uniform_int_distribution<T>,
+            std::uniform_real_distribution<T>>;
+        auto re_dist = dist_type(re_min_, re_max_);
+        auto im_dist = dist_type(im_min_, im_max_);
+        *res = complex<T>(re_dist(global_random_engine),
+            im_dist(global_random_engine));
     }
 };
-template<typename T>
-struct normal
+}
+template<typename Min, typename Max>
+auto uniform_distribution(const Min& min, const Max& max, varg_tag)
 {
-    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
-    using value_type = T;
-    static constexpr size_t rank = 0;
-    std::normal_distribution<T> dist_;
-    normal(T mean, T stddev) :
-        dist_(mean, stddev)
-    {
-    }
-    size_t size() const
-    {
-        return 1u;
-    }
-    T operator()()
-    {
-        return dist_(global_random_engine);
-    }
-};
+    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
+    using C = common_type_t<Min, Max>;
+    using T = std::conditional_t<is_integral_v<C>, double, C>;
+    return distribution::uniform<T>(T(min), T(max));
 }
 template<typename Dist, typename... Dims>
 auto _random_variate_impl(Dist dist, const Dims&... dims)
@@ -6329,13 +6316,24 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
     constexpr size_t R = R1 + R2;
     static_assert(R1 == 0u, WL_ERROR_OPERAND_RANK);
     if constexpr (R2 == 0u)
-        return dist();
+    {
+        T ret;
+        dist.generate(&ret);
+        return ret;
+    }
     else
     {
         wl::ndarray<T, R> x(utils::get_dims_array(dims...));
-        x.for_each([&](auto& v) { v = dist(); });
+        x.for_each([&](auto& val) { dist.generate(&val); });
         return x;
     }
+}
+template<typename Dist, typename... Dims>
+auto random_variate(Dist dist, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Min, typename Max, typename... Dims>
 auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
@@ -6359,10 +6357,7 @@ template<typename Min, typename Max, typename... Dims>
 auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
     WL_TRY_BEGIN()
-    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
-    using C = common_type_t<Min, Max>;
-    using T = std::conditional_t<is_integral_v<C>, double, C>;
-    auto dist = distribution::uniform<T>(T(min), T(max));
+    auto dist = uniform_distribution(min, max, varg_tag{});
     return _random_variate_impl(dist, dims...);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

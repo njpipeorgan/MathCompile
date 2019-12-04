@@ -35,14 +35,14 @@ namespace distribution
 {
 
 template<typename T>
-WL_INLINE void adjust_bounds(T& min, T& max)
+void adjust_bounds(T& min, T& max)
 {
     if (min > max)
         std::swap(min, max);
 }
 
 template<typename T>
-WL_INLINE void adjust_bounds(complex<T>& min, complex<T>& max)
+void adjust_bounds(complex<T>& min, complex<T>& max)
 {
     adjust_bounds(min.real(), max.real());
     adjust_bounds(min.imag(), max.imag());
@@ -561,7 +561,9 @@ template<typename Min, typename Max, typename... Dims>
 auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
 {
     WL_TRY_BEGIN()
-    auto dist = uniform_distribution(min, max, varg_tag{});
+    static_assert(all_is_real_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
+    using P = promote_integral_t<common_type_t<Min, Max>>;
+    auto dist = distribution::uniform<P>(min, max);
     return _random_variate_impl(dist, dims...);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -845,6 +847,11 @@ auto _random_sample_prepare(const W& w, const size_t x_length)
         total_uint_p += prob;
         uint_p[i] = prob;
     }
+
+    const auto max_jump = n == 1u ? size_t(0) :
+        size_t(1) << (63u - utils::_lzcnt(uint64_t(n - 1u)));
+    
+
     return 0;
 }
 

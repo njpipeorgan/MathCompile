@@ -193,37 +193,81 @@ struct default_multi_uniform
     }
 };
 
-#define WL_DEFINE_SINGLE_PARAMETER_DISTRIBUTION(name, dist, P0T, P0)        \
-template<typename T>                                                        \
-struct name                                                                 \
-{                                                                           \
-    using value_type = T;                                                   \
-    static constexpr size_t rank = 0;                                       \
-    P0T P0;                                                                 \
-    name(P0T P0##_) : P0{P0##_} {}                                          \
-    void generate(T* res) {                                                 \
-        *res = std::dist##_distribution<T>(P0)(global_random_engine); }     \
-};
-
-WL_DEFINE_SINGLE_PARAMETER_DISTRIBUTION(chi_square, chi_squared, double, nu)
-
-template<typename T>
-struct normal
+template<typename RT, template<typename> typename Dist, typename... Params>
+struct scalar_distribution
 {
-    using value_type = T;
+    using value_type = RT;
     static constexpr size_t rank = 0;
 
-    T mean_;
-    T stddev_;
+    Dist<RT> dist_;
 
-    normal(T mean, T stddev) : mean_{mean}, stddev_{stddev}
+    scalar_distribution(const Params&... params) : dist_(params...)
     {
     }
 
-    void generate(T* res)
+    void generate(RT* res)
     {
-        auto dist = std::normal_distribution<T>(mean_, stddev_);
-        *res = dist(global_random_engine);
+        *res = dist_(global_random_engine);
+    }
+};
+
+#define WL_DEFINE_DISTRIBUTION_TYPE(name, stdname)          \
+template<typename ReturnType, typename... Params>           \
+using name = scalar_distribution<                           \
+    ReturnType, std::stdname##_distribution, Params...>;
+
+WL_DEFINE_DISTRIBUTION_TYPE(log_normal, lognormal)
+WL_DEFINE_DISTRIBUTION_TYPE(normal, normal)
+WL_DEFINE_DISTRIBUTION_TYPE(chi_square, chi_squared)
+WL_DEFINE_DISTRIBUTION_TYPE(cauchy, cauchy)
+WL_DEFINE_DISTRIBUTION_TYPE(student_t_nu, student_t)
+WL_DEFINE_DISTRIBUTION_TYPE(f_ratio, fisher_f)
+WL_DEFINE_DISTRIBUTION_TYPE(exponential, exponential)
+WL_DEFINE_DISTRIBUTION_TYPE(poisson, poisson)
+WL_DEFINE_DISTRIBUTION_TYPE(gamma, gamma)
+WL_DEFINE_DISTRIBUTION_TYPE(weibull, weibull)
+WL_DEFINE_DISTRIBUTION_TYPE(extreme_value, extreme_value)
+WL_DEFINE_DISTRIBUTION_TYPE(geometric, geometric)
+WL_DEFINE_DISTRIBUTION_TYPE(binomial, binomial)
+WL_DEFINE_DISTRIBUTION_TYPE(negative_binomial, negative_binomial)
+
+template<typename RT, typename Mu, typename Sigma, typename Nu>
+struct student_t
+{
+    using value_type = RT;
+    static constexpr size_t rank = 0;
+
+    RT mu_;
+    RT sigma_;
+    std::student_t_distribution<RT> dist_;
+
+    student_t(const Mu& mu, const Sigma& sigma, const Nu& nu) :
+        mu_{RT(mu)}, sigma_{RT(sigma)}, dist_(nu)
+    {
+    }
+
+    void generate(RT* res)
+    {
+        *res = dist_(global_random_engine) * sigma_ + mu_;
+    }
+};
+
+template<typename RT, typename P>
+struct bernoulli
+{
+    using value_type = RT;
+    static constexpr size_t rank = 0;
+
+    double p_;
+
+    bernoulli(const P& p) : p_{double(p)}
+    {
+    }
+
+    void generate(RT* res)
+    {
+        double rand = std::uniform_real_distribution<>()(global_random_engine);
+        *res = boolean(rand < double(p_));
     }
 };
 
@@ -272,27 +316,171 @@ auto uniform_distribution(const X& x)
     }
 }
 
-inline auto normal_distribution()
-{
-    return distribution::normal<double>(0., 1.);
-}
-
-template<typename Mean, typename Stddev>
-auto normal_distribution(const Mean& mean, const Stddev& stddev)
-{
-    using C = common_type_t<Mean, Stddev>;
-    static_assert(is_real_v<C>, WL_ERROR_NORMAL_DIST_SPEC);
-    using P = promote_integral_t<C>;
-    return distribution::normal<P>(P(mean), P(stddev));
-}
-
 template<typename Nu>
 auto chi_square_distribution(const Nu& nu)
 {
     static_assert(is_real_v<Nu>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<Nu>;
-    return distribution::chi_square<P>(P(nu));
+    if (!(nu > Nu(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::chi_square<promote_integral_t<Nu>, Nu>(nu);
 }
+
+template<typename Mean, typename Dev>
+auto normal_distribution(const Mean& mean, const Dev& dev)
+{
+    static_assert(all_is_real_v<Mean, Dev>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Mean, Dev>>;
+    if (!(dev > Dev(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::normal<P, Mean, Dev>(mean, dev);
+}
+
+inline auto normal_distribution()
+{
+    return normal_distribution(0., 1.);
+}
+
+template<typename Mean, typename Dev>
+auto log_normal_distribution(const Mean& mean, const Dev& dev)
+{
+    static_assert(all_is_real_v<Mean, Dev>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Mean, Dev>>;
+    if (!(dev > Dev(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::log_normal<P, Mean, Dev>(mean, dev);
+}
+
+template<typename A, typename B>
+auto cauchy_distribution(const A& a, const B& b)
+{
+    static_assert(all_is_real_v<A, B>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<A, B>>;
+    if (!(b > B(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::cauchy<P, A, B>(a, b);
+}
+
+inline auto cauchy_distribution()
+{
+    return cauchy_distribution(0., 1.);
+}
+
+template<typename Mean, typename Scale, typename Nu>
+auto student_t_distribution(const Mean& mean, const Scale& scale, const Nu& nu)
+{
+    static_assert(all_is_real_v<Mean, Scale, Nu>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Mean, Scale, Nu>>;
+    if (!(scale > Scale(0) && nu > Nu(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::student_t<P, Mean, Scale, Nu>(mean, scale, nu);
+}
+
+template<typename Nu>
+auto student_t_distribution(const Nu& nu)
+{
+    static_assert(is_real_v<Nu>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(nu > Nu(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::student_t_nu<promote_integral_t<Nu>, Nu>(nu);
+}
+
+template<typename N, typename M>
+auto f_ratio_distribution(const N& n, const M& m)
+{
+    static_assert(all_is_real_v<N, M>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<N, M>>;
+    if (!(n > N(0) && m > M(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::f_ratio<P, N, M>(n, m);
+}
+
+template<typename Mean>
+auto poisson_distribution(const Mean& mean)
+{
+    static_assert(is_real_v<Mean>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(mean > Mean(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::poisson<int64_t, Mean>(mean);
+}
+
+template<typename Lambda>
+auto exponential_distribution(const Lambda& lambda)
+{
+    static_assert(is_real_v<Lambda>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(lambda > Lambda(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::exponential<
+        promote_integral_t<Lambda>, Lambda>(lambda);
+}
+
+template<typename P>
+auto bernoulli_distribution(const P& p)
+{
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(P(0) <= p && p <= P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::bernoulli<boolean, P>(p);
+}
+
+template<typename Alpha, typename Beta>
+auto gamma_distribution(const Alpha& alpha, const Beta& beta)
+{
+    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
+    if (!(alpha > Alpha(0) && beta > Beta(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::gamma<P, Alpha, Beta>(alpha, beta);
+}
+
+template<typename Alpha, typename Beta>
+auto weibull_distribution(const Alpha& alpha, const Beta& beta)
+{
+    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
+    if (!(alpha > Alpha(0) && beta > Beta(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::weibull<P, Alpha, Beta>(alpha, beta);
+}
+
+template<typename Alpha, typename Beta>
+auto extreme_value_distribution(const Alpha& alpha, const Beta& beta)
+{
+    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
+    if (!(beta > Beta(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::extreme_value<P, Alpha, Beta>(alpha, beta);
+}
+
+template<typename P>
+auto geometric_distribution(const P& p)
+{
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(P(0) < p && p < P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::geometric<int64_t, P>(p);
+}
+
+template<typename N, typename P>
+auto binomial_distribution(const N& n, const P& p)
+{
+    static_assert(is_integral_v<N>, WL_ERROR_INTEGRAL_TYPE_ARG);
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(n >= N(0) && P(0) <= p && p <= P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::binomial<N, N, P>(n, p);
+}
+
+template<typename N, typename P>
+auto negative_binomial_distribution(const N& n, const P& p)
+{
+    static_assert(is_integral_v<N>, WL_ERROR_INTEGRAL_TYPE_ARG);
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(n > N(0) && P(0) < p && p <= P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::negative_binomial<N, N, P>(n, p);
+}
+
 
 template<typename Dist, typename... Dims>
 auto _random_variate_impl(Dist dist, const Dims&... dims)

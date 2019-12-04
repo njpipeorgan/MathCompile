@@ -234,8 +234,8 @@ namespace wl
 #define WL_ERROR_UNIFORM_BOUNDS_SPEC \
 "The arguments should be an integer, a pair of number, or a list of pairs."
 
-#define WL_ERROR_NORMAL_DIST_SPEC \
-"The arguments should be two real numbers."
+#define WL_ERROR_DIST_PARAMETER_COUNT \
+"The distribution is not specified with a correct number of parameters."
 
 // runtime error messages
 
@@ -307,5 +307,8 @@ namespace wl
 
 #define WL_ERROR_NEGATIVE_WEIGHT \
 "The weights should be non-negative."
+
+#define WL_ERROR_DIST_PARAMETER_DOMAIN \
+"The distribution is not specified with appropriate parameter values."
 
 }

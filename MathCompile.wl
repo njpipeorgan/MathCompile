@@ -469,9 +469,22 @@ $builtinfunctions=
   "Beta"            ->"beta",
   "Zeta"            ->"zeta",
 (* random number *)
+  "ChiSquareDistribution"->"chi_square_distribution",
   "UniformDistribution"->"uniform_distribution",
   "NormalDistribution"->"normal_distribution",
-  "ChiSquareDistribution"->"chi_square_distribution",
+  "LogNormalDistribution"->"log_normal_distribution",
+  "CauchyDistribution"->"cauchy_distribution",
+  "StudentTDistribution"->"student_t_distribution",
+  "FRatioDistribution"->"f_ratio_distribution",
+  "ExponentialDistribution"->"exponential_distribution",
+  "PoissonDistribution"->"poisson_distribution",
+  "BernoulliDistribution"->"bernoulli_distribution",
+  "GammaDistribution"->"gamma_distribution",
+  "WeibullDistribution"->"weibull_distribution",
+  "ExtremeValueDistribution"->"extreme_value_distribution",
+  "GeometricDistribution"->"geometric_distribution",
+  "BinomialDistribution"->"binomial_distribution",
+  "NegativeBinomialDistribution"->"negative_binomial_distribution",
     (*"RandomInteger"*)
     (*"RandomReal"*)
     (*"RandomComplex"*)

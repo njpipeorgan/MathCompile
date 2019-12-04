@@ -306,6 +306,20 @@ struct all_is_integral<T1, Ts...> :
 template<typename... Ts>
 constexpr auto all_is_integral_v = all_is_integral<Ts...>::value;
 
+template<typename... Ts>
+struct all_is_real;
+
+template<>
+struct all_is_real<> : std::true_type {};
+
+template<typename T1, typename... Ts>
+struct all_is_real<T1, Ts...> :
+    std::bool_constant<is_real_v<T1> && all_is_real<Ts...>::value> {};
+
+template<typename... Ts>
+constexpr auto all_is_real_v = all_is_real<Ts...>::value;
+
+
 template<typename F>
 struct is_variadic_function : std::false_type {};
 

@@ -725,7 +725,13 @@ auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
     auto push = [](auto*& ptr, alias_t elem) { *(ptr++) = elem; };
     auto pop = [](auto*& ptr) { return *(--ptr); };
 
-    auto normalize = double(n) / std::accumulate(p.cbegin(), p.cend(), 0.0);
+    double normalize = 0.0;
+    for (const auto& prob : p)
+    {
+        if (prob < 0.)
+            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+        normalize += prob;
+    }
     for (uint64_t i = 0; i < n; ++i)
     {
         const double prob = p[i] * normalize;
@@ -808,6 +814,38 @@ auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
         return _random_choice_batch_impl(
             _random_choice_prepare_binary(w, x_length), x, outer_dims);
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename W>
+auto _random_sample_prepare(const W& w, const size_t x_length)
+{
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+
+    const size_t n = x_length;
+    std::vector<double> p(n);
+    std::vector<uint64_t> uint_p(n);
+    w.copy_to(p.data());
+
+    double total_p = 0.0;
+    for (const auto& prob : p)
+    {
+        if (prob < 0.)
+            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+        total_p += prob;
+    }
+    const double factor = 9.223372036854776e+18 / total_p; // 2^63
+    
+    uint64_t total_uint_p = 0;
+    for (size_t i = 0; i < n; ++i)
+    {
+        uint64_t prob = std::floor(p[i] * factor);
+        total_uint_p += prob;
+        uint_p[i] = prob;
+    }
+    return 0;
 }
 
 }

@@ -75,7 +75,7 @@ namespace wl
     [](auto&&... args) { return fn(std::forward<decltype(args)>(args)...); }, \
     [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
 #define WL_PASS(var) std::forward<decltype(var)>(var)
-#define WL_RANDOM_ENGINE std::mt19937_64
+#define WL_BASE_RANDOM_ENGINE std::mt19937_64
 #define WL_ERROR_INTERNAL \
 "An internal error is encountered."
 #define WL_ERROR_MUTABLE_TYPE \
@@ -6260,7 +6260,74 @@ auto bit_shift_right(X&& x, Y&& y)
 }
 namespace wl
 {
-extern WL_RANDOM_ENGINE global_random_engine;
+struct random_engine
+{
+    using _base_engine_t = WL_BASE_RANDOM_ENGINE;
+    static_assert(uint64_t(_base_engine_t::max()) -
+        uint64_t(_base_engine_t::min()) == uint64_t(-1),
+        "64-bit random engine is required.");
+    static constexpr size_t bits_width = 64u;
+    using result_type = uint64_t;
+    _base_engine_t base_engine_{};
+    uint64_t active_bits_{};
+    uint64_t reserved_bits_{};
+    size_t n_bits_active_{};
+    random_engine()
+    {
+        update_all_bits();
+    }
+    static constexpr auto max()
+    {
+        return _base_engine_t::max();
+    }
+    static constexpr auto min()
+    {
+        return _base_engine_t::min();
+    }
+    WL_INLINE auto base_engine_get_bits()
+    {
+        return uint64_t(base_engine_());
+    }
+    auto get_bits(size_t n)
+    {
+        if (n >= 64u)
+            return base_engine_get_bits();
+        else if (n > 32u)
+            return base_engine_get_bits() >> (64u - n);
+        uint64_t ret = active_bits_ >> (bits_width - n);
+        if (n <= n_bits_active_)
+        {
+            active_bits_ <<= n;
+            n_bits_active_ -= n;
+        }
+        else
+        {
+            size_t n_bits_short = n - n_bits_active_;
+            ret |= reserved_bits_ >> (bits_width - n_bits_short);
+            active_bits_ = reserved_bits_ << n_bits_short;
+            n_bits_active_ = (bits_width - n_bits_short);
+            reserved_bits_ = base_engine_get_bits();
+        }
+        return ret;
+    }
+    void update_all_bits()
+    {
+        active_bits_ = base_engine_get_bits();
+        reserved_bits_ = base_engine_get_bits();
+        n_bits_active_ = bits_width;
+    }
+    template<typename Any>
+    void seed(Any&& any)
+    {
+        base_engine_.seed(std::forward<decltype(any)>(any));
+        update_all_bits();
+    }
+    WL_INLINE auto operator()()
+    {
+        return base_engine_get_bits();
+    }
+};
+extern random_engine global_random_engine;
 namespace distribution
 {
 template<typename T>
@@ -6275,7 +6342,7 @@ void adjust_bounds(complex<T>& min, complex<T>& max)
     adjust_bounds(min.real(), max.real());
     adjust_bounds(min.imag(), max.imag());
 }
-template<typename T>
+template<typename T, bool Multiple = false>
 struct uniform
 {
     static_assert(is_real_v<T>, WL_ERROR_INTERNAL);
@@ -6283,21 +6350,55 @@ struct uniform
     static constexpr size_t rank = 0;
     T min_;
     T max_;
+    uint64_t range_{};
+    size_t n_bits_{};
     uniform(T a, T b) : min_{a}, max_{b}
     {
         adjust_bounds(min_, max_);
+        if constexpr (is_integral_v<T> && Multiple)
+        {
+            const auto diff = uint64_t(max_) - uint64_t(min_);
+            n_bits_ = size_t(64u - utils::_lzcnt(diff));
+            range_ = diff + 1u; // could be zero
+        }
+    }
+    T generate_int()
+    {
+        if (range_ == 0u)
+            return T(global_random_engine());
+        if constexpr (Multiple)
+        {
+            for (;;)
+            {
+                uint64_t rand = global_random_engine.get_bits(n_bits_);
+                if (rand <= uint64_t(range_ - 1u))
+                    return T(rand + std::make_unsigned_t<T>(min_));
+            }
+        }
+        else
+        {
+            for (;;)
+            {
+                uint64_t rand = global_random_engine();
+                uint64_t mask = uint64_t(-1);
+                if (rand / range_ < mask / range_ ||
+                    mask % range_ == (range_ - 1u)) {
+                    return T((rand % range_) + std::make_unsigned_t<T>(min_));
+                }
+            }
+        }
     }
     void generate(T* res)
     {
-        using dist_type = std::conditional_t<is_integral_v<T>,
-            std::uniform_int_distribution<T>,
-            std::uniform_real_distribution<T>>;
-        auto dist = dist_type(min_, max_);
-        *res = dist(global_random_engine);
+        if constexpr (is_integral_v<T>)
+            *res = generate_int();
+        else
+            *res = std::uniform_real_distribution<T>(
+                min_, max_)(global_random_engine);
     }
 };
-template<typename T>
-struct uniform<complex<T>>
+template<typename T, bool Multiple>
+struct uniform<complex<T>, Multiple>
 {
     static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
     using value_type = complex<T>;
@@ -6707,7 +6808,7 @@ auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dim
     WL_TRY_BEGIN()
     static_assert(all_is_integral_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
     using T = common_type_t<Min, Max>;
-    auto dist = distribution::uniform<T>(T(min), T(max));
+    auto dist = distribution::uniform<T, true>(T(min), T(max));
     return _random_variate_impl(dist, dims...);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

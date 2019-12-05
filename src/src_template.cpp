@@ -17,7 +17,7 @@
 
 #include "librarylink.h"
 
-WL_RANDOM_ENGINE wl::global_random_engine;
+wl::random_engine wl::global_random_engine;
 WolframLibraryData wl::librarylink::lib_data;
 
 EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {

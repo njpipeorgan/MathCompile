@@ -311,4 +311,10 @@ namespace wl
 #define WL_ERROR_DIST_PARAMETER_DOMAIN \
 "The distribution is not specified with appropriate parameter values."
 
+#define WL_ERROR_RANDOM_SAMPLE_NO_ELEM \
+"There are not enough elements in the list to sample from."
+
+#define WL_ERROR_RANDOM_SAMPLE_ZERO_WEIGHTS \
+"The total weights of the elements are effectively zero."
+
 }

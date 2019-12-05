@@ -601,7 +601,7 @@ auto random_complex(const Max& max, varg_tag, const Dims&... dims)
 }
 
 template<typename Random, typename X, size_t OuterRank>
-auto _random_choice_batch_impl(const Random& random, const X& x,
+auto _random_choice_batch_impl(Random&& random, const X& x,
     const std::array<size_t, OuterRank>& outer_dims)
 {
     constexpr auto XR = array_rank_v<X>;
@@ -809,7 +809,7 @@ auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
     const auto outer_dims = utils::get_dims_array(dims...);
     const auto outer_size = utils::size_of_dims(outer_dims);
     // automatically select between binary and walker74
-    if ((outer_size >= 50u) && (outer_size * 5 >= x_length))
+    if ((outer_size >= 50u) && (outer_size * 5u >= x_length))
         return _random_choice_batch_impl(
             _random_choice_prepare_walker74(w, x_length), x, outer_dims);
     else
@@ -818,8 +818,58 @@ auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+inline auto _random_sample_prepare_uniform(const size_t x_length)
+{
+    if (!(x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
+    ndarray<size_t, 1u> idx_vec(std::array<size_t, 1u>{x_length});
+    auto* const idx = idx_vec.data();
+    for (size_t i = 0; i < x_length; ++i)
+        idx[i] = i;
+
+    return [idx_vec = std::move(idx_vec), remain = x_length]() mutable
+    {
+        if (remain == 0u)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+        else if (remain == 1u)
+            return idx_vec.data()[0];
+        auto* const idx = idx_vec.data();
+        const auto this_idx = std::uniform_int_distribution<size_t>(
+            0u, remain - 1u)(global_random_engine);
+        if (this_idx + 1u < remain) // did not pick the last element
+            idx[this_idx] = idx[remain - 1u];
+        --remain;
+        return this_idx;
+    };
+}
+
+inline auto _random_sample_prepare_short_uniform(const size_t x_length)
+{
+    if (!(x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
+
+    return [idx_vec = ndarray<size_t, 1u>{}, x_length]() mutable
+    {
+        const auto n_taken = idx_vec.size();
+        auto* const idx = idx_vec.data();
+        if (x_length == n_taken)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+        if (n_taken >= 2u)
+            std::push_heap(idx, idx + n_taken, std::greater<>{});
+        auto this_idx = std::uniform_int_distribution<size_t>(
+            0u, x_length - n_taken - 1u)(global_random_engine);
+        idx_vec.for_each([&](const auto& taken)
+            {
+                if (this_idx >= taken)
+                    ++this_idx;
+            });
+        idx_vec.append(size_t(this_idx));
+        return this_idx;
+    };
+}
+
 template<typename W>
-auto _random_sample_prepare(const W& w, const size_t x_length)
+auto _random_sample_prepare_binary(const W& w, const size_t x_length)
 {
     static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
         WL_ERROR_RANDOM_WEIGHTS_TYPE);
@@ -827,32 +877,193 @@ auto _random_sample_prepare(const W& w, const size_t x_length)
         throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
 
     const size_t n = x_length;
-    std::vector<double> p(n);
-    std::vector<uint64_t> uint_p(n);
-    w.copy_to(p.data());
+    if (n <= 3u)
+        throw std::logic_error(WL_ERROR_INTERNAL);
+    ndarray<double, 1u> probs_vec(std::array<size_t, 1>{n});
+    ndarray<uint64_t, 1u> uint_probs_vec(std::array<size_t, 1>{n});
+    auto* const probs = probs_vec.data();
+    auto* const uint_probs = uint_probs_vec.data();
 
-    double total_p = 0.0;
-    for (const auto& prob : p)
+    w.copy_to(probs);
+    double sum_prob = 0.0;
+    for (const auto& prob : probs_vec)
     {
         if (prob < 0.)
             throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
-        total_p += prob;
+        sum_prob += prob;
     }
-    const double factor = 9.223372036854776e+18 / total_p; // 2^63
-    
-    uint64_t total_uint_p = 0;
+    constexpr double target_sum_prob = 1.0e+19; // ~2^63
+    const double factor = target_sum_prob / sum_prob;
+    WL_IGNORE_DEPENDENCIES
     for (size_t i = 0; i < n; ++i)
     {
-        uint64_t prob = std::floor(p[i] * factor);
-        total_uint_p += prob;
-        uint_p[i] = prob;
+        const auto prob = uint64_t(std::floor(probs[i] * factor + 0.5));
+        // each element should have a probability of at least ~2^-63
+        uint_probs[i] = (prob > 0u) ? prob : uint64_t(1);
     }
 
-    const auto max_jump = n == 1u ? size_t(0) :
-        size_t(1) << (63u - utils::_lzcnt(uint64_t(n - 1u)));
-    
+    const auto lzcnt = utils::_lzcnt(uint64_t(n - 1u));
+    const auto max_jump = size_t(1) << (63u - lzcnt);
 
-    return 0;
+    // fold the ragged part
+    for (size_t i = max_jump; i < n; ++i)
+        uint_probs[i - max_jump] += uint_probs[i];
+    // fold the regular parts
+    for (auto jump = max_jump >> 1; jump > 0u; jump >>= 1)
+    {
+        for (size_t i = 0; i < jump; ++i)
+            uint_probs[i] += uint_probs[jump + i];
+    }
+    
+    return [uint_probs_vec = std::move(uint_probs_vec), n, max_jump]() mutable
+    {
+        auto* uint_probs = uint_probs_vec.data();
+        if (uint_probs[0] == 0u)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+        auto rand = std::uniform_int_distribution<uint64_t>(
+            0u, uint_probs[0] - 1u)(global_random_engine);
+
+        // pick the index
+        auto index = uint64_t(0);
+        auto weight = uint_probs[0]; // to be removed from uint_probs
+        for (size_t jump = 1u; jump <= max_jump; jump <<= 1)
+        {
+            if (index + jump >= n)
+                break;
+            else
+            {
+                const auto proposed = uint_probs[index + jump];
+                if (rand >= proposed)
+                {
+                    rand -= proposed;
+                    weight -= proposed;
+                }
+                else
+                {
+                    index += jump;
+                    weight = proposed;
+                }
+            }
+        }
+        const auto ret_index = size_t(index);
+
+        // remove weight from the uint_probs
+        uint_probs[index] -= weight;
+        for (size_t jump = max_jump; true; jump >>= 1)
+        {
+            if (jump <= index)
+            {
+                index -= jump;
+                uint_probs[index] -= weight;
+            }
+            if (index == 0u)
+                break;
+        }
+        return ret_index;
+    };
+}
+
+template<typename W>
+auto _random_sample_prepare_linear(const W& w, const size_t x_length)
+{
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+
+    const size_t n = x_length;
+    if (n <= 1u)
+        throw std::logic_error(WL_ERROR_INTERNAL);
+    ndarray<double, 1u> pmf_vec(std::array<size_t, 1u>{n});
+    ndarray<double, 1u> cmf_vec(std::array<size_t, 1u>{n});
+    auto* const pmf = pmf_vec.data();
+    auto* const cmf = cmf_vec.data();
+
+    w.copy_to(pmf);
+    if (std::any_of(pmf, pmf + n, [](auto p) { return p < 0.; }))
+        throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+    std::partial_sum(pmf, pmf + n, cmf);
+
+    return [cmf_vec = std::move(cmf_vec), n, last_index = n]() mutable
+    {
+        auto* const cmf = cmf_vec.data();
+        if (last_index < n)
+        { // if not the last element, update pmf and cmf
+            const auto diff = last_index == 0u ? cmf[0u] :
+                (cmf[last_index] - cmf[last_index - 1u]);
+            for (auto i = last_index; i < n; ++i)
+                cmf[i] -= diff;
+        }
+        if (cmf[n - 1u] <= 0.)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_ZERO_WEIGHTS);
+        const auto rand = std::uniform_real_distribution<>(
+            0., cmf[n - 1u])(global_random_engine);
+        size_t index = size_t(std::lower_bound(cmf, cmf + n, rand) - cmf);
+        last_index = index;
+        return index;
+    };
+}
+
+template<typename W, typename X, typename Size>
+auto random_sample(const W& w, const X& x, varg_tag, const Size& size)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    const auto outer_dims = utils::get_dims_array(size);
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if (size > x_length)
+        throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+    // automatically select between binary and linear
+    if (outer_size > 5u && x_length > 35u)
+        return _random_choice_batch_impl(
+            _random_sample_prepare_binary(w, x_length), x, outer_dims);
+    else
+        return _random_choice_batch_impl(
+            _random_sample_prepare_linear(w, x_length), x, outer_dims);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename W, typename X>
+auto random_sample(const W& w, const X& x, varg_tag)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    return random_sample(w, x, x_length);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Size>
+auto random_sample(const X& x, const Size& size)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    const auto outer_dims = utils::get_dims_array(size);
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if (size > x_length)
+        throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+    // automatically select between two methods
+    if (x_length == 1u && size == 1u)
+        return val(x);
+    else if (size <= 2u || 10 * size * size <= x_length)
+        return _random_choice_batch_impl(
+            _random_sample_prepare_short_uniform(x_length), x, outer_dims);
+    else
+        return _random_choice_batch_impl(
+            _random_sample_prepare_uniform(x_length), x, outer_dims);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto random_sample(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    return random_sample(x, x_length);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

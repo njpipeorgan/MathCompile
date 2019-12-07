@@ -97,7 +97,15 @@ struct argument_pack
             return *(this->iter_ + i);
     }
 
-    auto get_pack(size_t i) const
+    auto get(size_t i, dim_checked) const
+    {
+        if constexpr (HasStride)
+            return *(this->iter_ + i * stride_);
+        else
+            return *(this->iter_ + i);
+    }
+
+    auto get_pack(size_t i, dim_checked) const
     {
         if (i > size_)
             throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);

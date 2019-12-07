@@ -256,16 +256,9 @@ auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
 {
     auto ret = val(args.get(0));
     const auto size = args.size();
-    if (size == 0u)
-        return ret;
-    else
-    {
-        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
-            for (auto i = _loop_begin; i < _loop_end; ++i)
-                add_to(ret, args.get(i));
-        WL_CHECK_ABORT_LOOP_END()
-        return ret;
-    }
+    for (size_t i = 1u; i < size; ++i)
+        add_to(ret, args.get(i));
+    return ret;
 }
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
@@ -300,16 +293,9 @@ auto _variadic_times(const argument_pack<Iter, HasStride>& args)
 {
     auto ret = val(args.get(0));
     const auto size = args.size();
-    if (size == 0u)
-        return ret;
-    else
-    {
-        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
-            for (auto i = _loop_begin; i < _loop_end; ++i)
-                times_by(ret, args.get(i));
-        WL_CHECK_ABORT_LOOP_END()
-        return ret;
-    }
+    for (size_t i = 1u; i < size; ++i)
+        times_by(ret, args.get(i));
+    return ret;
 }
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)

@@ -20,7 +20,6 @@
 #include "macros.h"
 #include "types.h"
 #include "arrayview.h"
-#include "utils.h"
 
 namespace wl
 {
@@ -44,14 +43,14 @@ auto listable_function(Fn fn, X&& x)
         using RV = decltype(fn(XV{}));
         if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
         {
-            x.for_each([=](auto& a) { a = fn(a); }); // contains check abort
+            x.for_each([=](auto& a) { a = fn(a); });
             return std::move(x);
         }
         else
         {
             ndarray<RV, x_rank> ret(x.dims());
             x.for_each([=](const auto& a, auto& r) { r = fn(a); },
-                ret.begin()); // contains check abort
+                ret.begin());
             return ret;
         }
     }
@@ -75,14 +74,14 @@ auto listable_function(Fn fn, X&& x, Y&& y)
         using RV = decltype(fn(x, YV{}));
         if constexpr (is_movable_v<Y&&> && std::is_same_v<RV, YV>)
         {
-            y.for_each([=](auto& b) { b = fn(x, b); }); // contains check abort
+            y.for_each([=](auto& b) { b = fn(x, b); });
             return std::move(y);
         }
         else
         {
             ndarray<RV, y_rank> ret(y.dims());
             y.for_each([=](const auto& b, auto& r) { r = fn(x, b); },
-                ret.begin()); // contains check abort
+                ret.begin());
             return ret;
         }
     }
@@ -92,14 +91,14 @@ auto listable_function(Fn fn, X&& x, Y&& y)
         using RV = decltype(fn(XV{}, y));
         if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
         {
-            x.for_each([=](auto& a) { a = fn(a, y); }); // contains check abort
+            x.for_each([=](auto& a) { a = fn(a, y); });
             return std::move(x);
         }
         else
         {
             ndarray<RV, x_rank> ret(x.dims());
             x.for_each([=](const auto& a, auto& r) { r = fn(a, y); },
-                ret.begin()); // contains check abort
+                ret.begin());
             return ret;
         }
     }
@@ -114,7 +113,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
         if constexpr (is_movable_v<X&&> && std::is_same_v<XV, RV>)
         {
             y.for_each([=](const auto& b, auto& a) { a = fn(a, b); },
-                x.begin()); // contains check abort
+                x.begin());
             return std::move(x);
         }
         else if constexpr (XT::category == view_category::General)
@@ -122,7 +121,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
             if constexpr (is_movable_v<Y&&> && std::is_same_v<YV, RV>)
             {
                 x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
-                    y.begin()); // contains check abort
+                    y.begin());
                 return std::move(y);
             }
             else if constexpr (YT::category == view_category::General)
@@ -139,7 +138,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
                 ndarray<RV, x_rank> ret(x.dims());
                 x.for_each([=](const auto& a, const auto& b, auto& r)
                     { r = fn(a, b); },
-                    y.begin(), ret.begin()); // contains check abort
+                    y.begin(), ret.begin());
                 return ret;
             }
         }
@@ -148,7 +147,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
             if constexpr (is_movable_v<Y&&>&& std::is_same_v<YV, RV>)
             {
                 x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
-                    y.begin()); // contains check abort
+                    y.begin());
                 return std::move(y);
             }
             else
@@ -156,7 +155,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
                 ndarray<RV, x_rank> ret(x.dims());
                 y.for_each([=](const auto& b, const auto& a, auto& r)
                     { r = fn(a, b); },
-                    x.begin(), ret.begin()); // contains check abort
+                    x.begin(), ret.begin());
                 return ret;
             }
         }
@@ -170,16 +169,9 @@ auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
 {                                                                   \
     auto ret = val(args.get(0));                                    \
     const auto size = args.size();                                  \
-    if (size == 0u)                                                 \
-        return ret;                                                 \
-    else                                                            \
-    {                                                               \
-        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)                        \
-            for (auto i = _loop_begin; i < _loop_end; ++i)          \
-                ret = name(std::move(ret), args.get(i));            \
-        WL_CHECK_ABORT_LOOP_END()                                   \
-        return ret;                                                 \
-    }                                                               \
+    for (size_t i = 1u; i < size; ++i)                              \
+        ret = name(std::move(ret), args.get(i));                    \
+    return ret;                                                     \
 }
 
 #define WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(name)        \

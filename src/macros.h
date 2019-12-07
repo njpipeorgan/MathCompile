@@ -38,8 +38,6 @@
 #  define _wl_popcnt64 __popcnt64
 #  define NOMINMAX // disable min, max macros
 #  define WL_FUNCSIG __FUNCSIG__
-#  define WL_LIKELY(x) x
-#  define WL_UNLIKELY(x) x
 #elif defined(__INTEL_COMPILER)
 #  if __INTEL_COMPILER < 1900
 #    pragma message ("error: cxx::compilerver")
@@ -48,8 +46,6 @@
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #  define WL_RESTRICT __restrict
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
-#  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
-#  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  if __clang_major__ < 5
@@ -59,8 +55,6 @@
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
-#  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
-#  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #elif defined(__GNUC__)
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")
@@ -69,8 +63,6 @@
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
-#  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
-#  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #endif
 
 // no random device for MinGW
@@ -88,9 +80,6 @@ namespace wl
 #define WL_PASS(var) std::forward<decltype(var)>(var)
 
 #define WL_BASE_RANDOM_ENGINE std::mt19937_64
-
-#define WL_CHECK_ABORT_PERIOD 100 // milliseconds
-#define WL_CHECK_ABORT_LENGTH 1024
 
 
 // static assertion error messages

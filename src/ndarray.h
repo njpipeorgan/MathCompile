@@ -513,54 +513,48 @@ struct ndarray
     void for_each(Function f, Iters... iters)
     {
         auto ptr = this->data();
-        const auto size = this->size();
-        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < size && continue_flag; ++i)
-                continue_flag = !f(ptr[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < size; ++i)
-                f(ptr[i], iters[i]...);
-        }
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ++ptr, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
 
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
         auto ptr = this->data();
-        const auto size = this->size();
-        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < size && continue_flag; ++i)
-                continue_flag = !f(ptr[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < size; ++i)
-                f(ptr[i], iters[i]...);
-        }
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ++ptr, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
 
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        auto ptr = this->data();
-        const auto size = this->size();
-        for (size_t i = 0u; i < size; ++i)
-            iter[i] = ptr[i];
+        utils::restrict_copy_n(this->data(), this->size(), iter);
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter) &
     {
-        auto ptr = this->data();
-        const auto size = this->size();
-        for (size_t i = 0u; i < size; ++i)
-            ptr[i] = iter[i];
+        utils::restrict_copy_n(iter, this->size(), this->data());
     }
 
     template<typename FwdIter>

@@ -9,6 +9,8 @@
 #include <limits>
 #include <cstring>
 #include <chrono>
+#include <memory>
+#include <thread>
 #include <vector>
 #include <exception>
 #include <iterator>
@@ -40,6 +42,8 @@
 #  define _wl_popcnt64 __popcnt64
 #  define NOMINMAX // disable min, max macros
 #  define WL_FUNCSIG __FUNCSIG__
+#  define WL_LIKELY(x) x
+#  define WL_UNLIKELY(x) x
 #elif defined(__INTEL_COMPILER)
 #  if __INTEL_COMPILER < 1900
 #    pragma message ("error: cxx::compilerver")
@@ -48,6 +52,8 @@
 #  define WL_IGNORE_DEPENDENCIES __pragma(ivdep)
 #  define WL_RESTRICT __restrict
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
+#  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
+#  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #  pragma warning (disable:1011)
 #elif defined(__clang__)
 #  if __clang_major__ < 5
@@ -57,6 +63,8 @@
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
+#  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
+#  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #elif defined(__GNUC__)
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")
@@ -65,6 +73,8 @@
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
+#  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
+#  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #endif
 #if defined(__MINGW64__)
 #  define WL_NO_RANDOM_DEVICE 1
@@ -76,6 +86,8 @@ namespace wl
     [](auto&& arg) { return fn(std::forward<decltype(arg)>(arg)); })
 #define WL_PASS(var) std::forward<decltype(var)>(var)
 #define WL_BASE_RANDOM_ENGINE std::mt19937_64
+#define WL_CHECK_ABORT_PERIOD 100 // milliseconds
+#define WL_CHECK_ABORT_LENGTH 1024
 #define WL_ERROR_INTERNAL \
 "An internal error is encountered."
 #define WL_ERROR_MUTABLE_TYPE \
@@ -953,13 +965,6 @@ auto _lzcnt(X x)
     return n - ((y >> 1) ? int64_t(2) : int64_t(y));
 #endif
 }
-template<typename XIter, typename YIter>
-WL_INLINE void restrict_copy_n(XIter x_iter, size_t n, YIter y_iter)
-{
-    WL_IGNORE_DEPENDENCIES
-    for (size_t i = 0u; i < n; ++i, ++x_iter, ++y_iter)
-        *y_iter = *x_iter;
-}
 }
 #if defined(WL_USE_MATHLINK)
 namespace librarylink
@@ -981,6 +986,38 @@ inline std::string extract_filename(const char* file)
     const char* output = std::strrchr(file, separator);
     return output ? std::string(output + 1) : std::string(file);
 }
+extern volatile bool global_abort_in_progress;
+extern volatile bool global_stop_check_abort;
+template<typename AbortQ>
+void start_check_abort(std::unique_ptr<std::thread>& thread, AbortQ* abort_q)
+{
+#if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
+    global_stop_check_abort = false;
+    global_abort_in_progress = false;
+    if (thread)
+        return;
+    thread = std::make_unique<std::thread>([=]
+        {
+            for (;;)
+            {
+                global_abort_in_progress = bool(abort_q());
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(WL_CHECK_ABORT_PERIOD));
+                if (global_stop_check_abort || global_abort_in_progress)
+                    return;
+            }
+        });
+#endif
+}
+inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
+{
+#if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
+    global_stop_check_abort = true;
+    global_abort_in_progress = false;
+    if (thread)
+        thread.release()->join();
+#endif
+}
 }
 #endif
 #if defined(WL_USE_MATHLINK) && !defined(NDEBUG)
@@ -996,9 +1033,65 @@ inline std::string extract_filename(const char* file)
             "\" line " + std::to_string(line)));                \
     }
 #else
-#  define WL_TRY_BEGIN() (void)(0);
-#  define WL_TRY_END(...) (void)(0);
+#  define WL_TRY_BEGIN() ((void)0);
+#  define WL_TRY_END(...) ((void)0);
 #endif
+#if defined(WL_USE_MATHLINK) && (defined(WL_CHECK_ABORT) || defined(WL_CHECK_ABORT_TEST))
+#  define WL_THROW_IF_ABORT()                                           \
+    {                                                                   \
+        if (WL_UNLIKELY(librarylink::global_abort_in_progress))         \
+            throw std::logic_error("AbortQ is called.");                \
+    }
+#  define WL_CHECK_ABORT_LOOP_BEGIN(n)                                  \
+    const int64_t _loop_total_size = int64_t(n);                        \
+    for (int64_t _loop_begin = 0;                                       \
+        _loop_begin < _loop_total_size;                                 \
+        _loop_begin += WL_CHECK_ABORT_LENGTH)                           \
+    {                                                                   \
+        constexpr int64_t _loop_zero = int64_t(0);                      \
+        const int64_t _loop_size =                                      \
+            _loop_begin + WL_CHECK_ABORT_LENGTH > _loop_total_size ?    \
+            _loop_total_size - _loop_begin : WL_CHECK_ABORT_LENGTH;     \
+        const int64_t _loop_end = _loop_begin + _loop_size;
+#  define WL_CHECK_ABORT_LOOP_END()                                     \
+        WL_THROW_IF_ABORT()                                             \
+    }
+#else
+#  define WL_THROW_IF_ABORT() ((void)0);
+#  define WL_CHECK_ABORT_LOOP_BEGIN(n)                                  \
+    {                                                                   \
+        constexpr int64_t _loop_zero = int64_t(0);                      \
+        const int64_t _loop_size = int64_t(n);                          \
+        const int64_t _loop_begin = 0;                                  \
+        const int64_t _loop_end = _loop_size;
+#  define WL_CHECK_ABORT_LOOP_END()                                     \
+    }
+#endif
+namespace utils
+{
+template<typename XIter, typename YIter>
+WL_INLINE void restrict_copy_n(XIter x_iter, const size_t n, YIter y_iter)
+{
+    using XV = remove_cvref_t<decltype(*x_iter)>;
+    using YV = remove_cvref_t<decltype(*y_iter)>;
+    constexpr bool use_memcpy =
+        std::is_same_v<XV, YV> && std::is_trivially_copyable_v<XV> &&
+        std::is_pointer_v<XIter> && std::is_pointer_v<YIter>;
+    if constexpr (use_memcpy)
+    {
+        std::memcpy((void*)y_iter, (void*)x_iter, n * sizeof(XV));
+        WL_THROW_IF_ABORT()
+    }
+    else
+    {
+        WL_CHECK_ABORT_LOOP_BEGIN(n)
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size; ++i, ++x_iter, ++y_iter)
+                *y_iter = *x_iter;
+        WL_CHECK_ABORT_LOOP_END()
+    }
+}
+}
 }
 namespace wl
 {
@@ -1188,13 +1281,24 @@ struct list_indexer
     template<typename Iter>
     list_indexer(Iter idx_begin, Iter idx_end, size_t level_dim)
     {
-        indices_.resize(idx_end - idx_begin);
-        std::transform(idx_begin, idx_end, indices_.begin(),
-            [&](const auto& idx) { return convert_index(idx, level_dim); });
+        const size_t idx_size = size_t(idx_end - idx_begin);
+        indices_.resize(idx_size);
+        WL_CHECK_ABORT_LOOP_BEGIN(idx_size)
+            std::transform(
+                idx_begin + _loop_begin, idx_begin + _loop_end,
+                indices_.data() + _loop_begin,
+                [&](const auto& idx) {
+                    return convert_index(idx, level_dim);
+                });
+        WL_CHECK_ABORT_LOOP_END()
     }
     size_t offset() const
     {
         return 0u;
+    }
+    const auto* data() const
+    {
+        return indices_.data();
     }
     ptrdiff_t stride() = delete;
     size_t size() const
@@ -1423,29 +1527,29 @@ struct simple_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
-                continue_flag = !f(this->data_[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < this->size_; ++i)
-                f(this->data_[i], iters[i]...);
-        }
+        auto ptr = this->data();
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ++ptr, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            iter[i] = this->data_[i];
+        utils::restrict_copy_n(this->data(), this->size(), iter);
     }
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            this->data_[i] = iter[i];
+        utils::restrict_copy_n(iter, this->size(), this->data());
     }
     auto to_array() const
     {
@@ -1645,29 +1749,36 @@ struct regular_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
-                continue_flag = !f(this->data_[i * stride_], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < this->size_; ++i)
-                f(this->data_[i * stride_], iters[i]...);
-        }
+        auto ptr = this->data();
+        const auto stride = this->stride();
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ptr += stride, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            iter[i] = this->data_[i * stride_];
+        if (this->stride_ == 1)
+            utils::restrict_copy_n(this->data(), this->size(), iter);
+        else
+            utils::restrict_copy_n(this->begin(), this->size(), iter);
     }
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            this->data_[i * stride_] = iter[i];
+        if (this->stride_ == 1)
+            utils::restrict_copy_n(iter, this->size(), this->data());
+        else
+            utils::restrict_copy_n(iter, this->size(), this->begin());
     }
     auto to_array() const
     {
@@ -1797,31 +1908,42 @@ struct general_view
             const auto last_stride = _has_last_stride ? 
                 this->strides_[ViewLevel] : ptrdiff_t(1);
             if constexpr (std::is_same_v<Indexer, list_indexer>)
-                for (const auto& i : indexer.indices())
-                {
-                    if constexpr (check_break)
+            {
+                auto index_ptr = indexer.data();
+                WL_CHECK_ABORT_LOOP_BEGIN(indexer.size())
+                    for (auto i = _loop_zero; i < _loop_size;
+                        ++i, ++index_ptr, (++iters, ...))
                     {
-                        if (f(this->data_[(index + i) * last_stride], 
-                            (*iters++)...))
+                        if constexpr (!check_break)
+                            f(data_[(index + *index_ptr) * last_stride],
+                                *iters...);
+                        else if (f(data_[(index + *index_ptr) * last_stride],
+                            *iters...))
+                        {
+                            break_flag = true;
                             break;
+                        }
                     }
-                    else
-                        f(this->data_[(index + i) * last_stride], 
-                        (*iters++)...);
-                }
+                WL_CHECK_ABORT_LOOP_END()
+            }
             else
-                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                {
-                    if constexpr (check_break)
+            {
+                WL_CHECK_ABORT_LOOP_BEGIN(this->dims_[ViewLevel])
+                    for (auto i = _loop_begin; i < _loop_end;
+                        ++i, (++iters, ...))
                     {
-                        if (f(this->data_[(index + i) * last_stride], 
-                            (*iters++)...))
+                        if constexpr (!check_break)
+                            f(this->data_[(index + i) * last_stride],
+                                *iters...);
+                        else if (f(this->data_[(index + i) * last_stride],
+                            *iters...))
+                        {
+                            break_flag = true;
                             break;
+                        }
                     }
-                    else
-                        f(this->data_[(index + i) * last_stride], 
-                        (*iters++)...);
-                }
+                WL_CHECK_ABORT_LOOP_END()
+            }
         }
     }
     template<typename Function, typename... Iters>
@@ -2377,51 +2499,45 @@ struct ndarray
     void for_each(Function f, Iters... iters)
     {
         auto ptr = this->data();
-        const auto size = this->size();
-        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < size && continue_flag; ++i)
-                continue_flag = !f(ptr[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < size; ++i)
-                f(ptr[i], iters[i]...);
-        }
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ++ptr, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
         auto ptr = this->data();
-        const auto size = this->size();
-        if constexpr (std::is_same_v<bool, decltype(f(*ptr, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < size && continue_flag; ++i)
-                continue_flag = !f(ptr[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < size; ++i)
-                f(ptr[i], iters[i]...);
-        }
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ++ptr, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        auto ptr = this->data();
-        const auto size = this->size();
-        for (size_t i = 0u; i < size; ++i)
-            iter[i] = ptr[i];
+        utils::restrict_copy_n(this->data(), this->size(), iter);
     }
     template<typename FwdIter>
     void copy_from(FwdIter iter) &
     {
-        auto ptr = this->data();
-        const auto size = this->size();
-        for (size_t i = 0u; i < size; ++i)
-            ptr[i] = iter[i];
+        utils::restrict_copy_n(iter, this->size(), this->data());
     }
     template<typename FwdIter>
     void copy_from(FwdIter) && = delete;
@@ -2454,14 +2570,14 @@ auto listable_function(Fn fn, X&& x)
         using RV = decltype(fn(XV{}));
         if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
         {
-            x.for_each([=](auto& a) { a = fn(a); });
+            x.for_each([=](auto& a) { a = fn(a); }); // contains check abort
             return std::move(x);
         }
         else
         {
             ndarray<RV, x_rank> ret(x.dims());
             x.for_each([=](const auto& a, auto& r) { r = fn(a); },
-                ret.begin());
+                ret.begin()); // contains check abort
             return ret;
         }
     }
@@ -2483,14 +2599,14 @@ auto listable_function(Fn fn, X&& x, Y&& y)
         using RV = decltype(fn(x, YV{}));
         if constexpr (is_movable_v<Y&&> && std::is_same_v<RV, YV>)
         {
-            y.for_each([=](auto& b) { b = fn(x, b); });
+            y.for_each([=](auto& b) { b = fn(x, b); }); // contains check abort
             return std::move(y);
         }
         else
         {
             ndarray<RV, y_rank> ret(y.dims());
             y.for_each([=](const auto& b, auto& r) { r = fn(x, b); },
-                ret.begin());
+                ret.begin()); // contains check abort
             return ret;
         }
     }
@@ -2500,14 +2616,14 @@ auto listable_function(Fn fn, X&& x, Y&& y)
         using RV = decltype(fn(XV{}, y));
         if constexpr (is_movable_v<X&&> && std::is_same_v<RV, XV>)
         {
-            x.for_each([=](auto& a) { a = fn(a, y); });
+            x.for_each([=](auto& a) { a = fn(a, y); }); // contains check abort
             return std::move(x);
         }
         else
         {
             ndarray<RV, x_rank> ret(x.dims());
             x.for_each([=](const auto& a, auto& r) { r = fn(a, y); },
-                ret.begin());
+                ret.begin()); // contains check abort
             return ret;
         }
     }
@@ -2522,7 +2638,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
         if constexpr (is_movable_v<X&&> && std::is_same_v<XV, RV>)
         {
             y.for_each([=](const auto& b, auto& a) { a = fn(a, b); },
-                x.begin());
+                x.begin()); // contains check abort
             return std::move(x);
         }
         else if constexpr (XT::category == view_category::General)
@@ -2530,7 +2646,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
             if constexpr (is_movable_v<Y&&> && std::is_same_v<YV, RV>)
             {
                 x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
-                    y.begin());
+                    y.begin()); // contains check abort
                 return std::move(y);
             }
             else if constexpr (YT::category == view_category::General)
@@ -2547,7 +2663,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
                 ndarray<RV, x_rank> ret(x.dims());
                 x.for_each([=](const auto& a, const auto& b, auto& r)
                     { r = fn(a, b); },
-                    y.begin(), ret.begin());
+                    y.begin(), ret.begin()); // contains check abort
                 return ret;
             }
         }
@@ -2556,7 +2672,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
             if constexpr (is_movable_v<Y&&>&& std::is_same_v<YV, RV>)
             {
                 x.for_each([=](const auto& a, auto& b) { b = fn(a, b); },
-                    y.begin());
+                    y.begin()); // contains check abort
                 return std::move(y);
             }
             else
@@ -2564,7 +2680,7 @@ auto listable_function(Fn fn, X&& x, Y&& y)
                 ndarray<RV, x_rank> ret(x.dims());
                 y.for_each([=](const auto& b, const auto& a, auto& r)
                     { r = fn(a, b); },
-                    x.begin(), ret.begin());
+                    x.begin(), ret.begin()); // contains check abort
                 return ret;
             }
         }
@@ -2576,9 +2692,16 @@ auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
 {                                                                   \
     auto ret = val(args.get(0));                                    \
     const auto size = args.size();                                  \
-    for (size_t i = 1u; i < size; ++i)                              \
-        ret = name(std::move(ret), args.get(i));                    \
-    return ret;                                                     \
+    if (size == 0u)                                                 \
+        return ret;                                                 \
+    else                                                            \
+    {                                                               \
+        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)                        \
+            for (auto i = _loop_begin; i < _loop_end; ++i)          \
+                ret = name(std::move(ret), args.get(i));            \
+        WL_CHECK_ABORT_LOOP_END()                                   \
+        return ret;                                                 \
+    }                                                               \
 }
 #define WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(name)        \
 if constexpr (is_argument_pack_v<remove_cvref_t<Y>>)                \
@@ -3797,9 +3920,16 @@ auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
 {
     auto ret = val(args.get(0));
     const auto size = args.size();
-    for (size_t i = 1u; i < size; ++i)
-        add_to(ret, args.get(i));
-    return ret;
+    if (size == 0u)
+        return ret;
+    else
+    {
+        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+                add_to(ret, args.get(i));
+        WL_CHECK_ABORT_LOOP_END()
+        return ret;
+    }
 }
 template<typename X, typename Y>
 auto plus(X&& x, Y&& y)
@@ -3832,9 +3962,16 @@ auto _variadic_times(const argument_pack<Iter, HasStride>& args)
 {
     auto ret = val(args.get(0));
     const auto size = args.size();
-    for (size_t i = 1u; i < size; ++i)
-        times_by(ret, args.get(i));
-    return ret;
+    if (size == 0u)
+        return ret;
+    else
+    {
+        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+                times_by(ret, args.get(i));
+        WL_CHECK_ABORT_LOOP_END()
+        return ret;
+    }
 }
 template<typename X, typename Y>
 auto times(X&& x, Y&& y)
@@ -4046,8 +4183,13 @@ auto apply(Function f, const X& x, const_int<I>)
             ndarray<RT, Level> ret(apply_dims);
             auto ret_iter = ret.begin();
             auto ret_size = ret.size();
-            for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
-                *ret_iter = f(PackType(x_iter, argc));
+            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+                for (auto i = _loop_zero; i < _loop_size;
+                    ++i, ++ret_iter, x_iter += argc)
+                {
+                    *ret_iter = f(PackType(x_iter, argc));
+                }
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
         else
@@ -4066,7 +4208,7 @@ auto apply(Function f, const X& x, const_int<I>)
                 auto item = f(PackType(x_iter, argc));
                 if (!utils::check_dims(item.dims(), item_dims))
                     throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
+                item.copy_to(ret_iter.begin()); // contains check abort
             }
             return ret;
         }
@@ -4089,8 +4231,13 @@ auto apply(Function f, const X& x, const_int<I>)
             ndarray<RT, Level> ret(apply_dims);
             auto ret_iter = ret.begin();
             auto ret_size = ret.size();
-            for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
-                *ret_iter = _apply_fixed_impl(f, x_iter, index_seq);
+            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+                for (auto i = _loop_zero; i < _loop_size;
+                    ++i, ++ret_iter, x_iter += argc)
+                {
+                    *ret_iter = _apply_fixed_impl(f, x_iter, index_seq);
+                }
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
         else
@@ -4109,7 +4256,7 @@ auto apply(Function f, const X& x, const_int<I>)
                 auto item = _apply_fixed_impl(f, x_iter, index_seq);
                 if (!utils::check_dims(item.dims(), item_dims))
                     throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
+                item.copy_to(ret_iter.begin()); //contains check abort
             }
             return ret;
         }
@@ -4129,15 +4276,15 @@ auto _select_impl(const ndarray<T, R>& a, Function f)
     static_assert(R >= 2u, WL_ERROR_INTERNAL);
     ndarray<T, R> ret;
     auto view_iter = a.template view_begin<1u>();
-    auto view_end = a.template view_end<1u>();
-    size_t item_size = view_iter.size();
-    for (; view_iter != view_end; ++view_iter)
-    {
-        auto out = f(*view_iter);
-        static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
-        if (out)
-            ret.append(*view_iter);
-    }
+    WL_CHECK_ABORT_LOOP_BEGIN(a.dims()[0])
+        for (auto i = _loop_zero; i < _loop_size; ++i, ++view_iter)
+        {
+            auto out = f(*view_iter);
+            static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
+            if (out)
+                ret.append(*view_iter);
+        }
+    WL_CHECK_ABORT_LOOP_END()
     return ret;
 }
 template<typename X, typename Function>
@@ -4154,7 +4301,7 @@ auto select(X&& x, Function f)
                 auto out = f(a);
                 static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
                 if (out) ret.push_back(a);
-            });
+            }); // contains check abort
         return ndarray<value_type_t<XT>, 1u>(
             std::array<size_t, 1u>{ret.size()}, std::move(ret));
     }
@@ -4174,22 +4321,25 @@ auto count(const X& x, varg_tag, Function f, const_int<I>)
     {
         using RT = remove_cvref_t<decltype(f(value_type_t<X>{}))>;
         static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        // contains check abort
         x.for_each([&](const auto& a) { if (f(a)) ++item_count; });
     }
     else
     {
         const auto& valx = allows<view_category::Array>(x);
         auto view_iter = valx.template view_begin<Level>();
-        const auto view_end = valx.template view_end<Level>();
         using RT = remove_cvref_t<decltype(f(*view_iter))>;
         static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
-        for (; view_iter != view_end; ++view_iter)
-        {
-            if (f(*view_iter))
-                ++item_count;
-        }
+        const auto outer_size = utils::size_of_dims<Level>(valx.dims().data());
+        WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+            for (auto i = _loop_zero; i < _loop_size; ++i, ++view_iter)
+            {
+                if (f(*view_iter))
+                    ++item_count;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
-    return item_count;
+    return int64_t(item_count);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Function>
@@ -4209,18 +4359,21 @@ auto count(const X& x, const Y& y, const_int<I>)
     const auto& valy = allows<view_category::Array>(y);
     if constexpr (YR == 0u)
     {
+        // contains check abort
         x.for_each([&](const auto& a) { if (equal(a, valy)) ++item_count; });
     }
     else
     {
         const auto& valx = allows<view_category::Array>(x);
         auto view_iter = valx.template view_begin<Level>();
-        const auto view_end = valx.template view_end<Level>();
-        for (; view_iter != view_end; ++view_iter)
-        {
-            if (equal(*view_iter, valy))
-                ++item_count;
-        }
+        const auto outer_size = utils::size_of_dims<Level>(valx.dims().data());
+        WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+            for (auto i = _loop_zero; i < _loop_size; ++i, ++view_iter)
+            {
+                if (equal(*view_iter, valy))
+                    ++item_count;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
     return item_count;
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -4242,6 +4395,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
     if constexpr (array_rank_v<RT> == 0u)
     {
         ndarray<RT, Level> ret(map_dims);
+        // contains check abort
         ret.for_each([&](auto& r) { r = f(*a_iter); ++a_iter; });
         return ret;
     }
@@ -4261,7 +4415,7 @@ auto _map_impl(Function f, const ndarray<T, R>& a)
             auto item = f(*a_iter);
             if (!utils::check_dims(item.dims(), item_dims))
                 throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            item.copy_to(ret_iter.begin());
+            item.copy_to(ret_iter.begin()); // contains check abort
         }
         return ret;
     }
@@ -4305,9 +4459,11 @@ auto scan(Function f, X&& x, const_int<I>)
     static_assert(1 <= Level && Level <= int64_t(R), WL_ERROR_BAD_LEVEL);
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<Level>();
-    const auto x_end = valx.template view_end<Level>();
-    for (; x_iter != x_end; ++x_iter)
-        f(*x_iter);
+    const auto outer_size = utils::size_of_dims<Level>(valx.dims().data());
+    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+        for (auto i = _loop_zero; i < _loop_size; ++i, ++x_iter)
+            f(*x_iter);
+    WL_CHECK_ABORT_LOOP_END()
     return const_null;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -4326,10 +4482,14 @@ auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
     if constexpr (array_rank_v<RT> == 0u)
     {
         ndarray<RT, 1u> ret(map_dims);
-        const auto ret_size = ret.size();
-        auto ret_iter = ret.begin();
-        for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, (++iters, ...))
-            *ret_iter = f(*iters...);
+        auto ret_iter = ret.data();
+        WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ++ret_iter, (++iters, ...))
+            {
+                *ret_iter = f(*iters...);
+            }
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     else
@@ -4348,7 +4508,7 @@ auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
             auto item = f(*iters...);
             if (!utils::check_dims(item.dims(), item_dims))
                 throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            item.copy_to(ret_iter.begin());
+            item.copy_to(ret_iter.begin()); // contains check abort
         }
         return ret;
     }
@@ -4415,9 +4575,13 @@ auto map_thread(Function f, X&& x, const_int<I>)
         {
             ndarray<RT, Level> ret(map_dims);
             auto ret_iter = ret.begin();
-            const auto ret_size = ret.size();
-            for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
-                *ret_iter = f(PackType(x_iter, pack_size, pack_stride));
+            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+                for (auto i = _loop_zero; i < _loop_size;
+                    ++i, ++ret_iter, ++x_iter)
+                {
+                    *ret_iter = f(PackType(x_iter, pack_size, pack_stride));
+                }
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
         else
@@ -4435,7 +4599,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
                 auto item = f(PackType(x_iter, pack_size, pack_stride));
                 if (!utils::check_dims(item.dims(), item_dims))
                     throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
+                item.copy_to(ret_iter.begin()); // contains check abort
             }
             return ret;
         }
@@ -4453,10 +4617,14 @@ auto map_thread(Function f, X&& x, const_int<I>)
         {
             ndarray<RT, Level> ret(map_dims);
             auto ret_iter = ret.begin();
-            const auto ret_size = ret.size();
-            for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
-                *ret_iter = _apply_fixed_impl(
-                    f, x_iter, pack_stride, index_seq);
+            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+                for (auto i = _loop_zero; i < _loop_size;
+                    ++i, ++ret_iter, ++x_iter)
+                {
+                    *ret_iter = _apply_fixed_impl(
+                        f, x_iter, pack_stride, index_seq);
+                }
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
         else
@@ -4476,7 +4644,7 @@ auto map_thread(Function f, X&& x, const_int<I>)
                     f, x_iter, pack_stride, index_seq);
                 if (!utils::check_dims(item.dims(), item_dims))
                     throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
+                item.copy_to(ret_iter.begin()); // contains check abort
             }
             return ret;
         }
@@ -4506,16 +4674,18 @@ auto nest(Function f, X&& x, const int64_t n)
     else // n >= 1
     {
         auto ret = cast<XT2>(f(std::forward<decltype(x)>(x)));
-        for (size_t i = 1u; i < size_t(n); ++i)
-        {
-            if constexpr (rank == 0u)
-                ret = cast<XT2>(f(ret));
-            else
+        WL_CHECK_ABORT_LOOP_BEGIN(n - 1)
+            for (auto i = _loop_zero; i < _loop_size; ++i)
             {
-                auto temp = val(f(std::move(ret)));
-                ret = std::move(temp);
+                if constexpr (rank == 0u)
+                    ret = cast<XT2>(f(ret));
+                else
+                {
+                    auto temp = val(f(std::move(ret)));
+                    ret = std::move(temp);
+                }
             }
-        }
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -4536,9 +4706,16 @@ auto nest_list(Function f, X&& x, const int64_t n)
         ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
         auto ret_iter = ret.begin();
         *ret_iter = cast<XT2>(std::forward<decltype(x)>(x));
-        for (size_t i = 1; i <= size_t(n); ++i, ++ret_iter)
-            *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
-        return ret;
+        if (n == 0)
+            return ret;
+        else
+        {
+            WL_CHECK_ABORT_LOOP_BEGIN(n - 1)
+                for (auto i = _loop_zero; i < _loop_size; ++i, ++ret_iter)
+                    *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
+            WL_CHECK_ABORT_LOOP_END()
+            return ret;
+        }
     }
     else
     {
@@ -4569,7 +4746,7 @@ auto nest_list(Function f, X&& x, const int64_t n)
                 item = std::move(temp);
                 if (!utils::check_dims(item.dims(), item_dims))
                     throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(view_iter.begin());
+                item.copy_to(view_iter.begin()); // contains check abort
             }
             return ret;
         }

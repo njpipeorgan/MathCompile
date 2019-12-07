@@ -19,7 +19,9 @@
 
 #include <cstring>
 #include <chrono>
+#include <memory>
 #include <type_traits>
+#include <thread>
 #include <vector>
 
 #include "macros.h"
@@ -292,14 +294,6 @@ auto _lzcnt(X x)
 #endif
 }
 
-template<typename XIter, typename YIter>
-WL_INLINE void restrict_copy_n(XIter x_iter, size_t n, YIter y_iter)
-{
-    WL_IGNORE_DEPENDENCIES
-    for (size_t i = 0u; i < n; ++i, ++x_iter, ++y_iter)
-        *y_iter = *x_iter;
-}
-
 }
 
 #if defined(WL_USE_MATHLINK)
@@ -327,12 +321,46 @@ inline std::string extract_filename(const char* file)
     return output ? std::string(output + 1) : std::string(file);
 }
 
+extern volatile bool global_abort_in_progress;
+extern volatile bool global_stop_check_abort;
+
+template<typename AbortQ>
+void start_check_abort(std::unique_ptr<std::thread>& thread, AbortQ* abort_q)
+{
+#if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
+    global_stop_check_abort = false;
+    global_abort_in_progress = false;
+    if (thread)
+        return;
+    thread = std::make_unique<std::thread>([=]
+        {
+            for (;;)
+            {
+                global_abort_in_progress = bool(abort_q());
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(WL_CHECK_ABORT_PERIOD));
+                if (global_stop_check_abort || global_abort_in_progress)
+                    return;
+            }
+        });
+#endif
+}
+
+inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
+{
+#if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
+    global_stop_check_abort = true;
+    global_abort_in_progress = false;
+    if (thread)
+        thread.release()->join();
+#endif
+}
+
 }
 
 #endif
 
 #if defined(WL_USE_MATHLINK) && !defined(NDEBUG)
-
 #  define WL_TRY_BEGIN()                                        \
     try                                                         \
     {
@@ -344,12 +372,71 @@ inline std::string extract_filename(const char* file)
             "\" in \"" + librarylink::extract_filename(file) +  \
             "\" line " + std::to_string(line)));                \
     }
-
 #else
-
-#  define WL_TRY_BEGIN() (void)(0);
-#  define WL_TRY_END(...) (void)(0);
-
+#  define WL_TRY_BEGIN() ((void)0);
+#  define WL_TRY_END(...) ((void)0);
 #endif
+
+
+#if defined(WL_USE_MATHLINK) && (defined(WL_CHECK_ABORT) || defined(WL_CHECK_ABORT_TEST))
+#  define WL_THROW_IF_ABORT()                                           \
+    {                                                                   \
+        if (WL_UNLIKELY(librarylink::global_abort_in_progress))         \
+            throw std::logic_error("AbortQ is called.");                \
+    }
+#  define WL_CHECK_ABORT_LOOP_BEGIN(n)                                  \
+    const int64_t _loop_total_size = int64_t(n);                        \
+    for (int64_t _loop_begin = 0;                                       \
+        _loop_begin < _loop_total_size;                                 \
+        _loop_begin += WL_CHECK_ABORT_LENGTH)                           \
+    {                                                                   \
+        constexpr int64_t _loop_zero = int64_t(0);                      \
+        const int64_t _loop_size =                                      \
+            _loop_begin + WL_CHECK_ABORT_LENGTH > _loop_total_size ?    \
+            _loop_total_size - _loop_begin : WL_CHECK_ABORT_LENGTH;     \
+        const int64_t _loop_end = _loop_begin + _loop_size;
+#  define WL_CHECK_ABORT_LOOP_END()                                     \
+        WL_THROW_IF_ABORT()                                             \
+    }
+#else
+#  define WL_THROW_IF_ABORT() ((void)0);
+#  define WL_CHECK_ABORT_LOOP_BEGIN(n)                                  \
+    {                                                                   \
+        constexpr int64_t _loop_zero = int64_t(0);                      \
+        const int64_t _loop_size = int64_t(n);                          \
+        const int64_t _loop_begin = 0;                                  \
+        const int64_t _loop_end = _loop_size;
+#  define WL_CHECK_ABORT_LOOP_END()                                     \
+    }
+#endif
+
+namespace utils
+{
+
+template<typename XIter, typename YIter>
+WL_INLINE void restrict_copy_n(XIter x_iter, const size_t n, YIter y_iter)
+{
+    using XV = remove_cvref_t<decltype(*x_iter)>;
+    using YV = remove_cvref_t<decltype(*y_iter)>;
+    constexpr bool use_memcpy =
+        std::is_same_v<XV, YV> && std::is_trivially_copyable_v<XV> &&
+        std::is_pointer_v<XIter> && std::is_pointer_v<YIter>;
+
+    if constexpr (use_memcpy)
+    {
+        std::memcpy((void*)y_iter, (void*)x_iter, n * sizeof(XV));
+        WL_THROW_IF_ABORT()
+    }
+    else
+    {
+        WL_CHECK_ABORT_LOOP_BEGIN(n)
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size; ++i, ++x_iter, ++y_iter)
+                *y_iter = *x_iter;
+        WL_CHECK_ABORT_LOOP_END()
+    }
+}
+
+}
 
 }

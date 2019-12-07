@@ -262,14 +262,26 @@ struct list_indexer
     template<typename Iter>
     list_indexer(Iter idx_begin, Iter idx_end, size_t level_dim)
     {
-        indices_.resize(idx_end - idx_begin);
-        std::transform(idx_begin, idx_end, indices_.begin(),
-            [&](const auto& idx) { return convert_index(idx, level_dim); });
+        const size_t idx_size = size_t(idx_end - idx_begin);
+        indices_.resize(idx_size);
+        WL_CHECK_ABORT_LOOP_BEGIN(idx_size)
+            std::transform(
+                idx_begin + _loop_begin, idx_begin + _loop_end,
+                indices_.data() + _loop_begin,
+                [&](const auto& idx) {
+                    return convert_index(idx, level_dim);
+                });
+        WL_CHECK_ABORT_LOOP_END()
     }
 
     size_t offset() const
     {
         return 0u;
+    }
+
+    const auto* data() const
+    {
+        return indices_.data();
     }
 
     ptrdiff_t stride() = delete;
@@ -525,31 +537,31 @@ struct simple_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
-                continue_flag = !f(this->data_[i], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < this->size_; ++i)
-                f(this->data_[i], iters[i]...);
-        }
+        auto ptr = this->data();
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ++ptr, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
 
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            iter[i] = this->data_[i];
+        utils::restrict_copy_n(this->data(), this->size(), iter);
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            this->data_[i] = iter[i];
+        utils::restrict_copy_n(iter, this->size(), this->data());
     }
 
     auto to_array() const
@@ -784,31 +796,38 @@ struct regular_view
     template<typename Function, typename... Iters>
     void for_each(Function f, Iters... iters) const
     {
-        if constexpr (std::is_same_v<bool, decltype(f(*data_, *iters...))>)
-        {
-            bool continue_flag = true;
-            for (size_t i = 0u; i < this->size_ && continue_flag; ++i)
-                continue_flag = !f(this->data_[i * stride_], iters[i]...);
-        }
-        else
-        {
-            for (size_t i = 0u; i < this->size_; ++i)
-                f(this->data_[i * stride_], iters[i]...);
-        }
+        auto ptr = this->data();
+        const auto stride = this->stride();
+        using RV = remove_cvref_t<decltype(f(*ptr, *iters...))>;
+        WL_CHECK_ABORT_LOOP_BEGIN(this->size())
+            WL_IGNORE_DEPENDENCIES
+            for (auto i = _loop_zero; i < _loop_size;
+                ++i, ptr += stride, (++iters, ...))
+            {
+                if constexpr (!std::is_same_v<bool, RV>)
+                    f(*ptr, *iters...);
+                else if (f(*ptr, *iters...))
+                    break;
+            }
+        WL_CHECK_ABORT_LOOP_END()
     }
 
     template<typename FwdIter>
     void copy_to(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            iter[i] = this->data_[i * stride_];
+        if (this->stride_ == 1)
+            utils::restrict_copy_n(this->data(), this->size(), iter);
+        else
+            utils::restrict_copy_n(this->begin(), this->size(), iter);
     }
 
     template<typename FwdIter>
     void copy_from(FwdIter iter) const
     {
-        for (size_t i = 0u; i < this->size_; ++i)
-            this->data_[i * stride_] = iter[i];
+        if (this->stride_ == 1)
+            utils::restrict_copy_n(iter, this->size(), this->data());
+        else
+            utils::restrict_copy_n(iter, this->size(), this->begin());
     }
 
     auto to_array() const
@@ -954,31 +973,42 @@ struct general_view
             const auto last_stride = _has_last_stride ? 
                 this->strides_[ViewLevel] : ptrdiff_t(1);
             if constexpr (std::is_same_v<Indexer, list_indexer>)
-                for (const auto& i : indexer.indices())
-                {
-                    if constexpr (check_break)
+            {
+                auto index_ptr = indexer.data();
+                WL_CHECK_ABORT_LOOP_BEGIN(indexer.size())
+                    for (auto i = _loop_zero; i < _loop_size;
+                        ++i, ++index_ptr, (++iters, ...))
                     {
-                        if (f(this->data_[(index + i) * last_stride], 
-                            (*iters++)...))
+                        if constexpr (!check_break)
+                            f(data_[(index + *index_ptr) * last_stride],
+                                *iters...);
+                        else if (f(data_[(index + *index_ptr) * last_stride],
+                            *iters...))
+                        {
+                            break_flag = true;
                             break;
+                        }
                     }
-                    else
-                        f(this->data_[(index + i) * last_stride], 
-                        (*iters++)...);
-                }
+                WL_CHECK_ABORT_LOOP_END()
+            }
             else
-                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
-                {
-                    if constexpr (check_break)
+            {
+                WL_CHECK_ABORT_LOOP_BEGIN(this->dims_[ViewLevel])
+                    for (auto i = _loop_begin; i < _loop_end;
+                        ++i, (++iters, ...))
                     {
-                        if (f(this->data_[(index + i) * last_stride], 
-                            (*iters++)...))
+                        if constexpr (!check_break)
+                            f(this->data_[(index + i) * last_stride],
+                                *iters...);
+                        else if (f(this->data_[(index + i) * last_stride],
+                            *iters...))
+                        {
+                            break_flag = true;
                             break;
+                        }
                     }
-                    else
-                        f(this->data_[(index + i) * last_stride], 
-                        (*iters++)...);
-                }
+                WL_CHECK_ABORT_LOOP_END()
+            }
         }
     }
 

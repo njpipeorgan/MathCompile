@@ -610,7 +610,7 @@ functionmacro[code_]:=code//.{
     id["RandomSample",p_][id["Rule",_][weights_,array_],dims_]:>native["random_sample",p][weights,array,vargtag,dims],
     id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_]]:>native["count",p][array,vargtag,func],
     id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_],list[literal[i_Integer]]]:>native["count",p][array,vargtag,func,const[i]],
-    id["Count",p_][array_,patt_,literal[i_Integer]]:>native["count",p][array,patt,const[i]],
+    id["Count",p_][array_,patt_,literal[i_Integer,_]]:>native["count",p][array,patt,const[i]],
     id["Total",p_][array_,literal[i_Integer,_]]:>native["total",p][array,const[i]],
     id["Total",p_][array_,list[_][literal[i_Integer,_]]]:>native["total",p][array,const[i],const[i]],
     id["Total",p_][array_,list[_][literal[i1_Integer,_],literal[i2_Integer,_]]]:>native["total",p][array,const[i1],const[i2]],
@@ -950,7 +950,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "CompileOptions"->$joinoptions@{
           opt["Base"],
           opt["Optimize"][If[TrueQ@OptionValue["Debug"],0,3]],
-          opt["Define"][{"WL_USE_MATHLINK",
+          opt["Define"][{"WL_USE_MATHLINK","WL_CHECK_ABORT",
             If[!TrueQ@OptionValue["Debug"],"NDEBUG",Nothing]}],
           OptionValue["CompileOptions"]
         },

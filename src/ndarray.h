@@ -72,9 +72,14 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_default_construct_n(static_begin(), size);
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(size);
+        }
         this->is_static_ = is_static;
     }
 
@@ -82,9 +87,14 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_fill_n(static_begin(), size, val);
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(size, val);
+        }
         this->is_static_ = is_static;
     }
 
@@ -93,9 +103,14 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_copy_n(begin, size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(begin, end);
+        }
         this->is_static_ = is_static;
     }
 
@@ -103,14 +118,20 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_copy_n(other.begin(), size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(other);
+        }
         this->is_static_ = is_static;
     }
 
     explicit _small_vector(dynamic_t&& other) : size_{other.size()}
     {
+        WL_THROW_IF_ABORT()
         new(&data_.dynamic_) dynamic_t(std::move(other));
         this->is_static_ = false;
     }
@@ -124,6 +145,7 @@ struct _small_vector
         }
         else
         {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
             this->is_static_ = false;
         }
@@ -132,10 +154,15 @@ struct _small_vector
     _small_vector(_small_vector&& other) : size_{other.size_}
     {
         if (other.is_static_)
+        {
             std::uninitialized_move_n(
                 other.static_begin(), size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
+        }
         this->is_static_ = other.is_static_;
     }
 
@@ -149,6 +176,7 @@ struct _small_vector
         }
         else
         {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
             this->is_static_ = false;
         }
@@ -160,10 +188,15 @@ struct _small_vector
     {
         this->destroy();
         if (other.is_static_)
+        {
             std::uninitialized_move_n(
                 other.static_begin(), other.size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
+        }
         this->is_static_ = other.is_static_;
         this->size_ = other.size_;
         return *this;
@@ -175,6 +208,7 @@ struct _small_vector
     }
     WL_INLINE void destroy_dynamic()
     {
+        WL_THROW_IF_ABORT()
         data_.dynamic_.~dynamic_t();
     }
 
@@ -230,12 +264,14 @@ struct _small_vector
         const auto prev_size = size_;
         if (!is_static_)
         {
+            WL_THROW_IF_ABORT()
             data_.dynamic_.resize(new_size);
             if (new_size < prev_size)
                 data_.dynamic_.shrink_to_fit();
         }
         else if (new_size > N)
         {
+            WL_THROW_IF_ABORT()
             dynamic_t new_data(new_size);
             std::move(static_begin(), static_end(), new_data.data());
             std::destroy(static_begin(), static_end());

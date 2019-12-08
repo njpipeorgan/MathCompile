@@ -168,9 +168,10 @@ template<typename Iter, bool HasStride>                             \
 auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
 {                                                                   \
     auto ret = val(args.get(0));                                    \
-    const auto size = args.size();                                  \
-    for (size_t i = 1u; i < size; ++i)                              \
-        ret = name(std::move(ret), args.get(i));                    \
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)                     \
+        for (auto i = _loop_begin; i < _loop_end; ++i)              \
+            ret = name(std::move(ret), args.get(i, dim_checked{})); \
+    WL_CHECK_ABORT_LOOP_END()                                       \
     return ret;                                                     \
 }
 

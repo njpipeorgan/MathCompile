@@ -139,7 +139,8 @@ auto re_im(X&& x)
         auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
         ndarray<XV, rank + 1u> ret(dims);
         auto iter = ret.begin();
-        x.for_each([&](const auto& a) { *iter++ = re(a), *iter++ = im(a); });
+        x.for_each([&](const auto& a)
+            { *iter++ = re(a), *iter++ = im(a); });
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)

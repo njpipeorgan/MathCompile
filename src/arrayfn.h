@@ -154,9 +154,10 @@ void _copy_list_scalar_elements(T*& ret_iter, First&& first, Rest&&... rest)
     {
         using ItemType = value_type_t<FirstType>;
         static_assert(is_convertible_v<ItemType, T>, WL_ERROR_LIST_ELEM_TYPE);
-        const auto size = first.size();
-        for (size_t i = 0; i < size; ++i, ++ret_iter)
-            *ret_iter = cast<T>(first.get(i));
+        WL_CHECK_ABORT_LOOP_BEGIN(first.size())
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_iter)
+                *ret_iter = cast<T>(first.get(i, dim_checked{}));
+        WL_CHECK_ABORT_LOOP_END()
     }
     else
     {
@@ -251,26 +252,16 @@ auto constant_array(const T& val, varg_tag, const Dims&... dims)
     if constexpr (val_rank > 0)
     {
         using ValueType = value_type_t<T>;
-        const auto all_dims = utils::dims_join(
+        const auto ret_dims = utils::dims_join(
             utils::get_dims_array(dims...), val.dims());
-        ndarray<ValueType, all_rank> ret(all_dims);
-        const size_t val_size = val.size();
-        if constexpr (T::category == view_category::Array ||
-            T::category == view_category::Simple)
-        {
-            auto iter = ret.begin();
-            auto end = iter + ret.size();
-            for (; iter != end; iter += val_size)
-                val.copy_to(iter);
-        }
-        else
-        {
-            auto buffer = val.to_array();
-            auto iter = ret.begin();
-            auto end = iter + ret.size();
-            for (; iter != end; iter += val_size)
-                buffer.copy_to(iter);
-        }
+        ndarray<ValueType, all_rank> ret(ret_dims);
+        const auto& valx = allows<view_category::Simple>(val);
+        const size_t valx_size = valx.size();
+        const auto* valx_iter = valx.data();
+        auto* ret_iter = ret.data();
+        auto* ret_end = ret_iter + ret.size();
+        for (; ret_iter != ret_end; ret_iter += valx_size)
+            valx.copy_to(ret_iter);
         return ret;
     }
     else
@@ -420,9 +411,14 @@ auto range(Begin begin, End end, Step step)
             {
                 size_t length = size_t(diff / ptrdiff_t(step)) + 1u;
                 ndarray<T, 1u> ret(std::array<size_t, 1>{length});
-                auto ret_iter = ret.begin();
-                for (size_t i = 0; i < length; ++i, begin += step, ++ret_iter)
-                    *ret_iter = begin;
+                auto* ret_iter = ret.data();
+                WL_CHECK_ABORT_LOOP_BEGIN(length)
+                    for (auto i = _loop_zero; i < _loop_size;
+                        ++i, begin += step, ++ret_iter)
+                    {
+                        *ret_iter = begin;
+                    }
+                WL_CHECK_ABORT_LOOP_END()
                 return ret;
             }
         }
@@ -443,9 +439,11 @@ auto range(Begin begin, End end, Step step)
                 if (step * remain > T(0))
                     --length;
                 ndarray<T, 1u> ret(std::array<size_t, 1>{length});
-                auto ret_iter = ret.begin();
-                for (size_t i = 0; i < length; ++i, ++ret_iter)
-                    *ret_iter = T(begin + i * step);
+                auto* ret_iter = ret.data();
+                WL_CHECK_ABORT_LOOP_BEGIN(length)
+                    for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_iter)
+                        *ret_iter = T(begin + i * step);
+                WL_CHECK_ABORT_LOOP_END()
                 return ret;
             }
         }
@@ -489,6 +487,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
         return total(a.to_array(), const_int<I1>{}, const_int<I2>{});
     else
     {
+        WL_THROW_IF_ABORT()
         if constexpr (L1 == 1)
         {
             if constexpr (L2 == rank)
@@ -616,6 +615,7 @@ template<typename T, size_t R>
 void _reverse_inplace(ndarray<T, R>& a,
     size_t outer_size, size_t inter_size, size_t inner_size)
 {
+    WL_THROW_IF_ABORT()
     if (inner_size == 1u)
     {
         auto base = a.data();
@@ -692,6 +692,7 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
     constexpr auto rank = sizeof...(dims);
     ndarray<XV, rank> ret(utils::get_dims_array(dims...));
 
+    WL_THROW_IF_ABORT()
     const size_t x_size = x.size();
     const size_t ret_size = ret.size();
     if (x_size <= ret_size)
@@ -802,6 +803,7 @@ auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
         ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
         throw std::logic_error(WL_ERROR_TRANSPOSE_COLLAPSE)), ...);
 
+    WL_THROW_IF_ABORT()
     if constexpr (std::is_pointer_v<Output>)
     {
         auto dst_ptr = ptr;
@@ -855,6 +857,7 @@ auto conjugate_transpose(const X& x)
         return transpose(x, const_int<2>{}, const_int<1>{});
     else
     {
+        WL_THROW_IF_ABORT()
         const auto& valx = allows<view_category::Regular>(x);
         auto x_iter = valx.begin();
         if constexpr (XR == 2u)
@@ -1135,10 +1138,12 @@ auto ordering(const X& x, const int64_t n, Pred pred)
     std::vector<Ret> indices(x_size);
     for (size_t i = 0u; i < x_size; ++i)
         indices[i] = Ret(i + 1);
+
     if (n > 0)
     {
         auto order = [=](size_t a, size_t b)
         {
+            WL_THROW_IF_ABORT()
             auto res = pred(*(x_base + a), *(x_base + b));
             using OrderType = decltype(res);
             if constexpr (std::is_same_v<OrderType, bool> ||
@@ -1166,6 +1171,7 @@ auto ordering(const X& x, const int64_t n, Pred pred)
     {
         auto order = [=](size_t a, size_t b)
         {
+            WL_THROW_IF_ABORT()
             auto res = pred(*(x_base + a), *(x_base + b));
             using OrderType = decltype(res);
             if constexpr (std::is_same_v<OrderType, bool> ||
@@ -1255,6 +1261,7 @@ auto ordering(const X& x, all_type)
 template<typename T, typename Pred>
 auto _sort_simple(ndarray<T, 1u>&& a, Pred pred)
 {
+    WL_THROW_IF_ABORT()
     std::sort(a.begin(), a.end(), pred);
     return std::move(a);
 }
@@ -1263,6 +1270,7 @@ template<typename T, typename Pred>
 auto _sort_simple(const ndarray<T, 1u>& a, Pred pred)
 {
     auto copy = a;
+    WL_THROW_IF_ABORT()
     std::sort(copy.begin(), copy.end(), pred);
     return copy;
 }
@@ -1347,6 +1355,7 @@ auto ordered_q(const X& x, Pred pred)
     const auto copy_length = copy.dims()[0];
     auto in_order = [=](const auto& a, const auto& b)
     {
+        WL_THROW_IF_ABORT()
         using OrderType = remove_cvref_t<decltype(pred(a, b))>;
         if constexpr (std::is_same_v<OrderType, bool> ||
             is_boolean_v<OrderType>)
@@ -1372,6 +1381,7 @@ auto ordered_q(const X& x)
     const auto copy_length = copy.dims()[0];
     auto in_order = [=](const auto& a, const auto& b)
     {
+        WL_THROW_IF_ABORT()
         constexpr auto AR = array_rank_v<remove_cvref_t<decltype(a)>>;
         if constexpr (AR == 0u)
             return _order_scalar(a, b) >= 0;
@@ -1719,6 +1729,7 @@ auto set_union(const First& first, const Rest&... rest)
         auto idx_begin = idx.data();
         auto sort_pred = [=](size_t a, size_t b)
         {
+            WL_THROW_IF_ABORT()
             auto a_iter = copy_data + a * item_size;
             auto b_iter = copy_data + b * item_size;
             return std::lexicographical_compare(
@@ -2169,6 +2180,7 @@ void _insert_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
     const Y* WL_RESTRICT y_ptr, const int64_t* WL_RESTRICT pos_ptr,
     const size_t x_size, const size_t y_size, const size_t pos_size)
 {
+    WL_THROW_IF_ABORT()
     size_t last_offset = 0u;
     size_t this_offset = 0u;
     for (size_t p = 0; p < pos_size; ++p, ++pos_ptr)
@@ -2176,7 +2188,6 @@ void _insert_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
         this_offset = size_t(ScalarY ? (*pos_ptr) : (*pos_ptr) * y_size);
         const auto copy_size = this_offset - last_offset;
         last_offset = this_offset;
-
         for (size_t i = 0; i < copy_size; ++i, ++src_ptr, ++dst_ptr)
             *dst_ptr = *src_ptr;
         if constexpr (ScalarY)
@@ -2212,7 +2223,10 @@ auto _insert_impl1(X&& x, const Y& y, ndarray<int64_t, 1u> pos)
 
         pos.for_each([d0 = x.dims()[0] + 1u](auto& a){
             a = int64_t(convert_index(a, d0)); });
-        std::sort(pos.begin(), pos.end());
+        auto* pos_begin = pos.data();
+        auto* pos_end = pos_begin + pos.size();
+        auto* pos_sort_from = std::is_sorted_until(pos_begin, pos_end);
+        std::sort(pos_sort_from, pos_end);
 
         const auto& valx = allows<view_category::Simple>(x);
         auto ret_dims = valx.dims();
@@ -2313,6 +2327,7 @@ void _delete_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
     const int64_t* WL_RESTRICT pos_ptr,
     const size_t x_size, const size_t y_size, const size_t pos_size)
 {
+    WL_THROW_IF_ABORT()
     size_t last_offset = 0u;
     size_t this_offset = 0u;
     for (size_t p = 0; p < pos_size; ++p, ++pos_ptr)
@@ -2320,7 +2335,6 @@ void _delete_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
         this_offset = size_t(ScalarY ? (*pos_ptr) : (*pos_ptr) * y_size);
         const auto copy_size = this_offset - last_offset;
         last_offset = this_offset;
-
         for (size_t i = 0; i < copy_size; ++i, ++src_ptr, ++dst_ptr)
             *dst_ptr = *src_ptr;
         src_ptr += ScalarY ? size_t(1u) : y_size;
@@ -2346,12 +2360,16 @@ auto _delete_impl1(X&& x, ndarray<int64_t, 1u> pos)
 
         pos.for_each([d0 = x.dims()[0]](auto& a){
             a = int64_t(convert_index(a, d0)); });
-        std::sort(pos.begin(), pos.end());
+        auto* pos_begin = pos.data();
+        auto* pos_end = pos_begin + pos.size();
+        auto* pos_sort_from = std::is_sorted_until(pos_begin, pos_end);
+        std::sort(pos_sort_from, pos_end);
 
         const auto& valx = allows<view_category::Simple>(x);
         auto ret_dims = valx.dims();
         ret_dims[0] -= pos_size;
         auto ret = ndarray<XV, XR>(ret_dims);
+        WL_THROW_IF_ABORT()
         if constexpr (XR == 1u)
             _delete_impl2<true>(valx.data(), ret.data(), pos.data(),
                 valx.size(), 1u, pos.size());

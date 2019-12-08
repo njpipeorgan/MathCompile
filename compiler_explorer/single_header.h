@@ -1992,18 +1992,28 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_default_construct_n(static_begin(), size);
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(size);
+        }
         this->is_static_ = is_static;
     }
     _small_vector(size_t size, const T& val) : size_{size}
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_fill_n(static_begin(), size, val);
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(size, val);
+        }
         this->is_static_ = is_static;
     }
     template<typename FwdIter>
@@ -2011,22 +2021,33 @@ struct _small_vector
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_copy_n(begin, size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(begin, end);
+        }
         this->is_static_ = is_static;
     }
     explicit _small_vector(const dynamic_t& other) : size_{other.size()}
     {
         bool is_static = (size_ <= N);
         if (is_static)
+        {
             std::uninitialized_copy_n(other.begin(), size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(other);
+        }
         this->is_static_ = is_static;
     }
     explicit _small_vector(dynamic_t&& other) : size_{other.size()}
     {
+        WL_THROW_IF_ABORT()
         new(&data_.dynamic_) dynamic_t(std::move(other));
         this->is_static_ = false;
     }
@@ -2039,6 +2060,7 @@ struct _small_vector
         }
         else
         {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
             this->is_static_ = false;
         }
@@ -2046,10 +2068,15 @@ struct _small_vector
     _small_vector(_small_vector&& other) : size_{other.size_}
     {
         if (other.is_static_)
+        {
             std::uninitialized_move_n(
                 other.static_begin(), size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
+        }
         this->is_static_ = other.is_static_;
     }
     _small_vector& operator=(const _small_vector& other)
@@ -2062,6 +2089,7 @@ struct _small_vector
         }
         else
         {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(other.data_.dynamic_);
             this->is_static_ = false;
         }
@@ -2072,10 +2100,15 @@ struct _small_vector
     {
         this->destroy();
         if (other.is_static_)
+        {
             std::uninitialized_move_n(
                 other.static_begin(), other.size_, static_begin());
+        }
         else
+        {
+            WL_THROW_IF_ABORT()
             new(&data_.dynamic_) dynamic_t(std::move(other.data_.dynamic_));
+        }
         this->is_static_ = other.is_static_;
         this->size_ = other.size_;
         return *this;
@@ -2086,6 +2119,7 @@ struct _small_vector
     }
     WL_INLINE void destroy_dynamic()
     {
+        WL_THROW_IF_ABORT()
         data_.dynamic_.~dynamic_t();
     }
     WL_INLINE void destroy()
@@ -2132,12 +2166,14 @@ struct _small_vector
         const auto prev_size = size_;
         if (!is_static_)
         {
+            WL_THROW_IF_ABORT()
             data_.dynamic_.resize(new_size);
             if (new_size < prev_size)
                 data_.dynamic_.shrink_to_fit();
         }
         else if (new_size > N)
         {
+            WL_THROW_IF_ABORT()
             dynamic_t new_data(new_size);
             std::move(static_begin(), static_end(), new_data.data());
             std::destroy(static_begin(), static_end());
@@ -2575,9 +2611,10 @@ template<typename Iter, bool HasStride>                             \
 auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
 {                                                                   \
     auto ret = val(args.get(0));                                    \
-    const auto size = args.size();                                  \
-    for (size_t i = 1u; i < size; ++i)                              \
-        ret = name(std::move(ret), args.get(i));                    \
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)                     \
+        for (auto i = _loop_begin; i < _loop_end; ++i)              \
+            ret = name(std::move(ret), args.get(i, dim_checked{})); \
+    WL_CHECK_ABORT_LOOP_END()                                       \
     return ret;                                                     \
 }
 #define WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(name)        \
@@ -2649,29 +2686,15 @@ auto n(X&& x)
 {
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
-    constexpr auto x_rank = array_rank_v<XT>;
+    constexpr auto XR = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
-    if constexpr (x_rank == 0u)
-    {
-        if constexpr (is_integral_v<XT>)
-            return double(x);
-        else
-            return x;
-    }
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
+    if constexpr (!is_integral_v<XV>)
+        return std::forward<decltype(x)>(x);
     else
-    {
-        using XV = value_type_t<XT>;
-        if constexpr (is_integral_v<XV>)
-        {
-            ndarray<decltype(n(XV{})), x_rank> ret(x.dims());
-            x.for_each(
-                [](const auto& src, auto& dst) { dst = n(src); },
-                ret.begin());
-            return ret;
-        }
-        else
-            return std::forward<decltype(x)>(x);
-    }
+        return utils::listable_function(
+            [](const auto& a) { return double(a); },
+            std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 #define WL_DEFINE_ROUNDING_FUNCTION(name, stdname)                      \
@@ -2680,30 +2703,24 @@ auto name(X&& x)                                                        \
 {                                                                       \
     WL_TRY_BEGIN()                                                      \
     using XT = remove_cvref_t<X>;                                       \
-    constexpr auto x_rank = array_rank_v<XT>;                           \
+    constexpr auto XR = array_rank_v<XT>;                               \
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);      \
-    if constexpr (x_rank == 0u)                                         \
-    {                                                                   \
-        if constexpr (is_integral_v<XT>)                                \
-            return x;                                                   \
-        if constexpr (is_float_v<XT>)                                   \
-            return int64_t(std::stdname(x));                            \
-        else if constexpr (is_complex_v<XT>)                            \
-            return XT(name(std::real(x)), name(std::imag(x)));          \
-    }                                                                   \
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;      \
+    if constexpr (is_integral_v<XV>)                                    \
+        return std::forward<decltype(x)>(x);                            \
     else                                                                \
     {                                                                   \
-        using XVT = typename XT::value_type;                            \
-        if constexpr (is_integral_v<XVT>)                               \
-            return std::forward<decltype(x)>(x);                        \
-        else                                                            \
+        auto pure = [](const auto& x)                                   \
         {                                                               \
-            ndarray<decltype(name(XVT{})), x_rank> ret(x.dims());       \
-            x.for_each(                                                 \
-                [](const auto& src, auto& dst) { dst = name(src); },    \
-                ret.begin());                                           \
-            return ret;                                                 \
-        }                                                               \
+            if constexpr (is_float_v<XV>)                               \
+                return int64_t(std::stdname(x));                        \
+            else if constexpr (is_complex_v<XV>)                        \
+                return XV(name(std::real(x)), name(std::imag(x)));      \
+            else                                                        \
+                static_assert(always_false_v<XV>, WL_ERROR_INTERNAL);   \
+        };                                                              \
+        return utils::listable_function(pure,                           \
+            std::forward<decltype(x)>(x));                              \
     }                                                                   \
     WL_TRY_END(__func__, __FILE__, __LINE__)                            \
 }
@@ -2716,39 +2733,20 @@ auto fractional_part(X&& x)
 {
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
-    constexpr auto x_rank = array_rank_v<XT>;
+    constexpr auto XR = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
-    if constexpr (x_rank == 0u)
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
+    auto pure = [](const auto& x)
     {
-        if constexpr (is_integral_v<XT>)
+        if constexpr (is_integral_v<XV>)
             return double(0);
-        else if constexpr (is_float_v<XT>)
+        else if constexpr (is_float_v<XV>)
             return x - std::trunc(x);
         else
-            return XT(fractional_part(x.real()), fractional_part(x.imag()));
-    }
-    else
-    {
-        using XV = typename XT::value_type;
-        if constexpr (is_integral_v<XV>)
-        {
-            return ndarray<double, x_rank>(x.dims());
-        }
-        else if constexpr (is_movable_v<X&&>)
-        { // movable
-            ndarray<XV, x_rank> ret(std::move(x));
-            ret.for_each([](auto& src) { src = fractional_part(src); });
-            return ret;
-        }
-        else
-        {
-            ndarray<XV, x_rank> ret(x.dims());
-            x.for_each(
-                [](const auto& src, auto& dst) { dst = fractional_part(src); },
-                ret.begin());
-            return ret;
-        }
-    }
+            return XV(std::real(x) - std::trunc(std::real(x)),
+                std::imag(x) - std::trunc(std::imag(x)));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
@@ -2760,7 +2758,7 @@ auto abs(X&& x)
     using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     if constexpr (std::is_unsigned_v<XV>)
-        return val(std::forward<decltype(x)>(x));
+        return std::forward<decltype(x)>(x);
     else
         return utils::listable_function([](auto x) { return std::abs(x); },
             std::forward<decltype(x)>(x));
@@ -2772,15 +2770,14 @@ auto ramp(X&& x)
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
-    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
     if constexpr (std::is_unsigned_v<XV>)
-        return val(std::forward<decltype(x)>(x));
+        return std::forward<decltype(x)>(x);
     else
     {
-        auto pure = [](auto x)
+        auto pure = [](const auto& x)
         {
-            using XV = decltype(x);
             return x >= XV(0) ? x : XV(0);
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
@@ -3006,18 +3003,13 @@ auto sign(X&& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         if constexpr (is_complex_v<XV>)
-        {
             return x / std::abs(x);
-        }
+        else if (x == XV(0))
+            return Ret(0);
+        else if (x > XV(0))
+            return Ret(1);
         else
-        {
-            if (x == XV(0))
-                return Ret(0);
-            else if (x > XV(0))
-                return Ret(1);
-            else
-                return Ret(-1);
-        }
+            return Ret(-1);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -3294,8 +3286,10 @@ auto min(const X& x)
         using XV = value_type_t<value_type_t<X>>;
         const auto pack_size = x.size();
         auto ret = std::numeric_limits<XV>::max();
-        for (size_t i = 0u; i < pack_size; ++i)
-            ret = std::min(ret, min(x.get(i)));
+        WL_CHECK_ABORT_LOOP_BEGIN(x.size())
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+                ret = std::min(ret, min(x.get(i, dim_checked{})));
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     else if constexpr (array_rank_v<X> == 0u)
@@ -3365,10 +3359,11 @@ auto max(const X& x)
     if constexpr (is_argument_pack_v<X>)
     {
         using XV = value_type_t<value_type_t<X>>;
-        const auto pack_size = x.size();
         auto ret = std::numeric_limits<XV>::min();
-        for (size_t i = 0u; i < pack_size; ++i)
-            ret = std::max(ret, max(x.get(i)));
+        WL_CHECK_ABORT_LOOP_BEGIN(x.size())
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+                ret = std::max(ret, max(x.get(i, dim_checked{})));
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     else if constexpr (array_rank_v<X> == 0u)
@@ -3433,7 +3428,7 @@ auto chop(X&& x, const Y& y)
         return std::forward<decltype(x)>(x);
     else
     {
-        auto pure =[lim = cast<value_type_t<XV>>(y)](const auto& x)
+        auto pure = [lim = cast<value_type_t<XV>>(y)](const auto& x)
         {
             if constexpr (is_real_v<XV>)
                 return std::abs(x) < lim ? XV(0) : x;
@@ -3796,9 +3791,10 @@ template<typename Iter, bool HasStride>
 auto _variadic_plus(const argument_pack<Iter, HasStride>& args)
 {
     auto ret = val(args.get(0));
-    const auto size = args.size();
-    for (size_t i = 1u; i < size; ++i)
-        add_to(ret, args.get(i));
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)
+        for (auto i = _loop_begin; i < _loop_end; ++i)
+            add_to(ret, args.get(i + 1, dim_checked{}));
+    WL_CHECK_ABORT_LOOP_END()
     return ret;
 }
 template<typename X, typename Y>
@@ -3831,9 +3827,10 @@ template<typename Iter, bool HasStride>
 auto _variadic_times(const argument_pack<Iter, HasStride>& args)
 {
     auto ret = val(args.get(0));
-    const auto size = args.size();
-    for (size_t i = 1u; i < size; ++i)
-        times_by(ret, args.get(i));
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)
+        for (auto i = _loop_begin; i < _loop_end; ++i)
+            times_by(ret, args.get(i + 1, dim_checked{}));
+    WL_CHECK_ABORT_LOOP_END()
     return ret;
 }
 template<typename X, typename Y>
@@ -3950,6 +3947,13 @@ struct argument_pack
     {
         if (i >= size_)
             throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
+        if constexpr (HasStride)
+            return *(this->iter_ + i * stride_);
+        else
+            return *(this->iter_ + i);
+    }
+    auto get(size_t i, dim_checked) const
+    {
         if constexpr (HasStride)
             return *(this->iter_ + i * stride_);
         else
@@ -4675,20 +4679,22 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             continue_flag = test();
         else if constexpr (num_args == 1u)
             continue_flag = test(ret);
-        for (int64_t i = 1; i <= max_steps && continue_flag; ++i)
-        {
-            if constexpr (XR == 0u)
-                ret = cast<XT2>(f(ret));
-            else
+        WL_CHECK_ABORT_LOOP_BEGIN(max_steps)
+            for (auto i = _loop_zero; i < _loop_size && continue_flag; ++i)
             {
-                auto temp = val(f(std::move(ret)));
-                set(ret, std::move(temp));
+                if constexpr (XR == 0u)
+                    ret = cast<XT2>(f(ret));
+                else
+                {
+                    auto temp = val(f(std::move(ret)));
+                    set(ret, std::move(temp));
+                }
+                if constexpr (num_args == 0u)
+                    continue_flag = test();
+                else if constexpr (num_args == 1u)
+                    continue_flag = test(ret);
             }
-            if constexpr (num_args == 0u)
-                continue_flag = test();
-            else if constexpr (num_args == 1u)
-                continue_flag = test(ret);
-        }
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     else
@@ -4696,20 +4702,20 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
         using XV = std::conditional_t<XR == 0u, XT2, value_type_t<XT2>>;
         _nest_while_queue<XV, XR> queue(history_size);
         queue.push(std::forward<decltype(x)>(x));
-        int64_t i = 1;
-        for (; i < int64_t(num_args); ++i)
+        
+        for (int64_t i = 1; i < int64_t(num_args); ++i)
         {
             queue.push(f(queue.last()));
         }
         bool continue_flag = queue.template apply_test<num_args>(test);
-        for (; i <= max_steps && continue_flag; ++i)
-        {
-            queue.push(f(queue.last()));
-            continue_flag = queue.template apply_test<num_args>(test);
-        }
-        if (offset <= -i)
-            throw std::logic_error(WL_ERROR_INTERNAL);
-        else if (offset <= 0)
+        WL_CHECK_ABORT_LOOP_BEGIN(max_steps - num_args + 1)
+            for (auto i = _loop_zero; i <= _loop_size && continue_flag; ++i)
+            {
+                queue.push(f(queue.last()));
+                continue_flag = queue.template apply_test<num_args>(test);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+        if (offset <= 0)
             return std::move(queue).get(size_t(-offset));
         else
             return nest(f, std::move(queue).last(), offset);
@@ -4761,26 +4767,24 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             ret.append(last);
         }
         bool continue_flag = false;
-        if constexpr (num_args == 0u)
-            continue_flag = test();
-        else if constexpr (num_args == 1u)
-            continue_flag = test(last);
-        else
-            continue_flag = _nest_while_list_apply_test(test,
-                ret.begin() + i - 1, std::make_index_sequence<num_args>{});
-        for (; i <= max_steps && continue_flag; ++i)
+        do
         {
-            auto temp = f(std::move(last));
-            last = std::move(temp);
-            ret.append(last);
+            WL_THROW_IF_ABORT()
             if constexpr (num_args == 0u)
                 continue_flag = test();
             else if constexpr (num_args == 1u)
                 continue_flag = test(last);
             else
                 continue_flag = _nest_while_list_apply_test(test,
-                    ret.begin() + i, std::make_index_sequence<num_args>{});
-        }
+                    ret.begin() + i - 1, std::make_index_sequence<num_args>{});
+            if (!continue_flag)
+                break;
+            if (i++ > max_steps)
+                break;
+            auto temp = f(std::move(last));
+            last = std::move(temp);
+            ret.append(last);
+        } while (true);
         return ret;
     }
     else
@@ -4800,30 +4804,27 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             ret.append(last);
         }
         bool continue_flag = false;
-        if constexpr (num_args == 0u)
-            continue_flag = test();
-        else if constexpr (false && num_args == 1u)
-            continue_flag = test(last);
-        else
-            continue_flag = _nest_while_list_apply_test(test,
-                ret.template view_begin<1u>() + i - 1,
-                std::make_index_sequence<num_args>{});
-        for (; i <= max_steps && continue_flag; ++i)
+        do
         {
-            auto temp = val(f(std::move(last)));
-            last = std::move(temp);
-            if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            ret.append(last);
+            WL_THROW_IF_ABORT()
             if constexpr (num_args == 0u)
                 continue_flag = test();
             else if constexpr (false && num_args == 1u)
                 continue_flag = test(last);
             else
                 continue_flag = _nest_while_list_apply_test(test,
-                    ret.template view_begin<1u>() + i,
+                    ret.template view_begin<1u>() + i - 1,
                     std::make_index_sequence<num_args>{});
-        }
+            if (!continue_flag)
+                break;
+            if (i++ > max_steps)
+                break;
+            auto temp = val(f(std::move(last)));
+            last = std::move(temp);
+            if (!utils::check_dims(item_dims, last.dims()))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            ret.append(last);
+        } while (true);
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -5102,12 +5103,14 @@ auto all_true(X&& x, Test test, const_int<I>)
     static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<I>();
-    const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         WL_ERROR_PRED_TYPE);
     auto ret = true;
-    for (; ret && x_iter != x_end; ++x_iter)
-        ret = ret && test(*x_iter);
+    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
+    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+        for (auto i = _loop_zero; i < _loop_size && ret; ++i, ++x_iter)
+            ret = ret && test(*x_iter);
+    WL_CHECK_ABORT_LOOP_END()
     return boolean(ret);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -5128,12 +5131,14 @@ auto any_true(X&& x, Test test, const_int<I>)
     static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<I>();
-    const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         WL_ERROR_PRED_TYPE);
     auto ret = false;
-    for (; !ret && x_iter != x_end; ++x_iter)
-        ret = ret || test(*x_iter);
+    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
+    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+        for (auto i = _loop_zero; i < _loop_size && !ret; ++i, ++x_iter)
+            ret = ret || test(*x_iter);
+    WL_CHECK_ABORT_LOOP_END()
     return boolean(ret);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -5324,10 +5329,16 @@ auto loop_for(Test test, Incr incr, Body body)
         WL_ERROR_LOOP_TEST);
     try
     {
-        while (test())
+        for (;;)
         {
-            body();
-            incr();
+            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
+            {
+                if (!test())
+                    return const_null;
+                body();
+                incr();
+            }
+            WL_THROW_IF_ABORT()
         }
     }
     catch (const loop_break&)
@@ -5344,9 +5355,15 @@ auto loop_while(Test test, Body body)
         WL_ERROR_LOOP_TEST);
     try
     {
-        while (test())
+        for (;;)
         {
-            body();
+            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
+            {
+                if (!test())
+                    return const_null;
+                body();
+            }
+            WL_THROW_IF_ABORT()
         }
     }
     catch (const loop_break&)
@@ -5364,19 +5381,21 @@ auto _clause_impl(Skip& skip_flag,
 {
     if constexpr (sizeof...(Rest) == 0)
     {
-        for (size_t i = 0; i < first.length(); ++i)
-        {
-            if constexpr (std::is_same_v<Skip, bool>)
-                if (skip_flag)
-                {
-                    skip_flag = false;
-                    continue;
-                }
-            if constexpr (First::has_variable)
-                fn(first[i]);
-            else
-                fn();
-        }
+        WL_CHECK_ABORT_LOOP_BEGIN(first.length())
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+            {
+                if constexpr (std::is_same_v<Skip, bool>)
+                    if (skip_flag)
+                    {
+                        skip_flag = false;
+                        continue;
+                    }
+                if constexpr (First::has_variable)
+                    fn(first[i]);
+                else
+                    fn();
+            }
+        WL_CHECK_ABORT_LOOP_END();
     }
     else
     {
@@ -5648,7 +5667,8 @@ auto re_im(X&& x)
         auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
         ndarray<XV, rank + 1u> ret(dims);
         auto iter = ret.begin();
-        x.for_each([&](const auto& a) { *iter++ = re(a), *iter++ = im(a); });
+        x.for_each([&](const auto& a)
+            { *iter++ = re(a), *iter++ = im(a); });
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -6048,9 +6068,10 @@ template<typename Iter, bool HasStride>
 auto _variadic_bool_and(const argument_pack<Iter, HasStride>& args)
 {
     boolean ret = val(args.get(0));
-    const auto size = args.size();
-    for (size_t i = 1u; ret && i < size; ++i)
-        ret = bool_and(ret, args.get(i));
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)
+        for (auto i = _loop_begin; i < _loop_end && ret; ++i)
+            ret = bool_and(ret, args.get(i + 1, dim_checked{}));
+    WL_CHECK_ABORT_LOOP_END()
     return ret;
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_and, const_true)
@@ -6072,9 +6093,10 @@ template<typename Iter, bool HasStride>
 auto _variadic_bool_or(const argument_pack<Iter, HasStride>& args)
 {
     boolean ret = val(args.get(0));
-    const auto size = args.size();
-    for (size_t i = 1u; !ret && i < size; ++i)
-        ret = bool_or(ret, args.get(i));
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)
+        for (auto i = _loop_begin; i < _loop_end && !ret; ++i)
+            ret = bool_or(ret, args.get(i + 1, dim_checked{}));
+    WL_CHECK_ABORT_LOOP_END()
     return ret;
 }
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bool_or, const_false)
@@ -6777,10 +6799,11 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
         if constexpr (R1 == 0u)
         {
             wl::ndarray<T, R2> ret(utils::get_dims_array(dims...));
-            const auto size = ret.size();
             auto iter = ret.data();
-            for (size_t i = 0; i < size; ++i, ++iter)
-                dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+                for (auto i = _loop_zero; i < _loop_size; ++i, ++iter)
+                    dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
         else
@@ -6788,9 +6811,12 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
             const auto length = dist.length();
             wl::ndarray<T, R2 + 1u> ret(
                 utils::get_dims_array(dims..., length));
-            const auto end = ret.data() + ret.size();
-            for (auto iter = ret.data(); iter != end; iter += length)
-                dist.generate(iter);
+            const auto outer_size = utils::size_of_dims<R2>(ret.dims().data());
+            auto iter = ret.data();
+            WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+                for (auto i = _loop_zero; i < _loop_size; ++i, iter += length)
+                    dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
     }
@@ -7409,9 +7435,10 @@ void _copy_list_scalar_elements(T*& ret_iter, First&& first, Rest&&... rest)
     {
         using ItemType = value_type_t<FirstType>;
         static_assert(is_convertible_v<ItemType, T>, WL_ERROR_LIST_ELEM_TYPE);
-        const auto size = first.size();
-        for (size_t i = 0; i < size; ++i, ++ret_iter)
-            *ret_iter = cast<T>(first.get(i));
+        WL_CHECK_ABORT_LOOP_BEGIN(first.size())
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_iter)
+                *ret_iter = cast<T>(first.get(i, dim_checked{}));
+        WL_CHECK_ABORT_LOOP_END()
     }
     else
     {
@@ -7500,26 +7527,16 @@ auto constant_array(const T& val, varg_tag, const Dims&... dims)
     if constexpr (val_rank > 0)
     {
         using ValueType = value_type_t<T>;
-        const auto all_dims = utils::dims_join(
+        const auto ret_dims = utils::dims_join(
             utils::get_dims_array(dims...), val.dims());
-        ndarray<ValueType, all_rank> ret(all_dims);
-        const size_t val_size = val.size();
-        if constexpr (T::category == view_category::Array ||
-            T::category == view_category::Simple)
-        {
-            auto iter = ret.begin();
-            auto end = iter + ret.size();
-            for (; iter != end; iter += val_size)
-                val.copy_to(iter);
-        }
-        else
-        {
-            auto buffer = val.to_array();
-            auto iter = ret.begin();
-            auto end = iter + ret.size();
-            for (; iter != end; iter += val_size)
-                buffer.copy_to(iter);
-        }
+        ndarray<ValueType, all_rank> ret(ret_dims);
+        const auto& valx = allows<view_category::Simple>(val);
+        const size_t valx_size = valx.size();
+        const auto* valx_iter = valx.data();
+        auto* ret_iter = ret.data();
+        auto* ret_end = ret_iter + ret.size();
+        for (; ret_iter != ret_end; ret_iter += valx_size)
+            valx.copy_to(ret_iter);
         return ret;
     }
     else
@@ -7658,9 +7675,14 @@ auto range(Begin begin, End end, Step step)
             {
                 size_t length = size_t(diff / ptrdiff_t(step)) + 1u;
                 ndarray<T, 1u> ret(std::array<size_t, 1>{length});
-                auto ret_iter = ret.begin();
-                for (size_t i = 0; i < length; ++i, begin += step, ++ret_iter)
-                    *ret_iter = begin;
+                auto* ret_iter = ret.data();
+                WL_CHECK_ABORT_LOOP_BEGIN(length)
+                    for (auto i = _loop_zero; i < _loop_size;
+                        ++i, begin += step, ++ret_iter)
+                    {
+                        *ret_iter = begin;
+                    }
+                WL_CHECK_ABORT_LOOP_END()
                 return ret;
             }
         }
@@ -7681,9 +7703,11 @@ auto range(Begin begin, End end, Step step)
                 if (step * remain > T(0))
                     --length;
                 ndarray<T, 1u> ret(std::array<size_t, 1>{length});
-                auto ret_iter = ret.begin();
-                for (size_t i = 0; i < length; ++i, ++ret_iter)
-                    *ret_iter = T(begin + i * step);
+                auto* ret_iter = ret.data();
+                WL_CHECK_ABORT_LOOP_BEGIN(length)
+                    for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_iter)
+                        *ret_iter = T(begin + i * step);
+                WL_CHECK_ABORT_LOOP_END()
                 return ret;
             }
         }
@@ -7723,6 +7747,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
         return total(a.to_array(), const_int<I1>{}, const_int<I2>{});
     else
     {
+        WL_THROW_IF_ABORT()
         if constexpr (L1 == 1)
         {
             if constexpr (L2 == rank)
@@ -7843,6 +7868,7 @@ template<typename T, size_t R>
 void _reverse_inplace(ndarray<T, R>& a,
     size_t outer_size, size_t inter_size, size_t inner_size)
 {
+    WL_THROW_IF_ABORT()
     if (inner_size == 1u)
     {
         auto base = a.data();
@@ -7914,6 +7940,7 @@ auto array_reshape(X&& x, const Pad& padding, varg_tag, const Dims&... dims)
     static_assert(array_rank_v<XT> >= 1, WL_ERROR_REQUIRE_ARRAY);
     constexpr auto rank = sizeof...(dims);
     ndarray<XV, rank> ret(utils::get_dims_array(dims...));
+    WL_THROW_IF_ABORT()
     const size_t x_size = x.size();
     const size_t ret_size = ret.size();
     if (x_size <= ret_size)
@@ -8013,6 +8040,7 @@ auto _transpose_impl(const ndarray<T, R>& a, Output ptr,
         (ret_dims[Is - 1] = a_dims[Cs], ret_strides[Is - 1] += strides[Cs]) :
         ret_dims[Is - 1] == a_dims[Cs] ? ret_strides[Is - 1] += strides[Cs] :
         throw std::logic_error(WL_ERROR_TRANSPOSE_COLLAPSE)), ...);
+    WL_THROW_IF_ABORT()
     if constexpr (std::is_pointer_v<Output>)
     {
         auto dst_ptr = ptr;
@@ -8062,6 +8090,7 @@ auto conjugate_transpose(const X& x)
         return transpose(x, const_int<2>{}, const_int<1>{});
     else
     {
+        WL_THROW_IF_ABORT()
         const auto& valx = allows<view_category::Regular>(x);
         auto x_iter = valx.begin();
         if constexpr (XR == 2u)
@@ -8323,6 +8352,7 @@ auto ordering(const X& x, const int64_t n, Pred pred)
     {
         auto order = [=](size_t a, size_t b)
         {
+            WL_THROW_IF_ABORT()
             auto res = pred(*(x_base + a), *(x_base + b));
             using OrderType = decltype(res);
             if constexpr (std::is_same_v<OrderType, bool> ||
@@ -8350,6 +8380,7 @@ auto ordering(const X& x, const int64_t n, Pred pred)
     {
         auto order = [=](size_t a, size_t b)
         {
+            WL_THROW_IF_ABORT()
             auto res = pred(*(x_base + a), *(x_base + b));
             using OrderType = decltype(res);
             if constexpr (std::is_same_v<OrderType, bool> ||
@@ -8434,6 +8465,7 @@ auto ordering(const X& x, all_type)
 template<typename T, typename Pred>
 auto _sort_simple(ndarray<T, 1u>&& a, Pred pred)
 {
+    WL_THROW_IF_ABORT()
     std::sort(a.begin(), a.end(), pred);
     return std::move(a);
 }
@@ -8441,6 +8473,7 @@ template<typename T, typename Pred>
 auto _sort_simple(const ndarray<T, 1u>& a, Pred pred)
 {
     auto copy = a;
+    WL_THROW_IF_ABORT()
     std::sort(copy.begin(), copy.end(), pred);
     return copy;
 }
@@ -8522,6 +8555,7 @@ auto ordered_q(const X& x, Pred pred)
     const auto copy_length = copy.dims()[0];
     auto in_order = [=](const auto& a, const auto& b)
     {
+        WL_THROW_IF_ABORT()
         using OrderType = remove_cvref_t<decltype(pred(a, b))>;
         if constexpr (std::is_same_v<OrderType, bool> ||
             is_boolean_v<OrderType>)
@@ -8546,6 +8580,7 @@ auto ordered_q(const X& x)
     const auto copy_length = copy.dims()[0];
     auto in_order = [=](const auto& a, const auto& b)
     {
+        WL_THROW_IF_ABORT()
         constexpr auto AR = array_rank_v<remove_cvref_t<decltype(a)>>;
         if constexpr (AR == 0u)
             return _order_scalar(a, b) >= 0;
@@ -8878,6 +8913,7 @@ auto set_union(const First& first, const Rest&... rest)
         auto idx_begin = idx.data();
         auto sort_pred = [=](size_t a, size_t b)
         {
+            WL_THROW_IF_ABORT()
             auto a_iter = copy_data + a * item_size;
             auto b_iter = copy_data + b * item_size;
             return std::lexicographical_compare(
@@ -9298,6 +9334,7 @@ void _insert_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
     const Y* WL_RESTRICT y_ptr, const int64_t* WL_RESTRICT pos_ptr,
     const size_t x_size, const size_t y_size, const size_t pos_size)
 {
+    WL_THROW_IF_ABORT()
     size_t last_offset = 0u;
     size_t this_offset = 0u;
     for (size_t p = 0; p < pos_size; ++p, ++pos_ptr)
@@ -9338,7 +9375,10 @@ auto _insert_impl1(X&& x, const Y& y, ndarray<int64_t, 1u> pos)
         constexpr auto YR = array_rank_v<Y>;
         pos.for_each([d0 = x.dims()[0] + 1u](auto& a){
             a = int64_t(convert_index(a, d0)); });
-        std::sort(pos.begin(), pos.end());
+        auto* pos_begin = pos.data();
+        auto* pos_end = pos_begin + pos.size();
+        auto* pos_sort_from = std::is_sorted_until(pos_begin, pos_end);
+        std::sort(pos_sort_from, pos_end);
         const auto& valx = allows<view_category::Simple>(x);
         auto ret_dims = valx.dims();
         ret_dims[0] += pos_size;
@@ -9433,6 +9473,7 @@ void _delete_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
     const int64_t* WL_RESTRICT pos_ptr,
     const size_t x_size, const size_t y_size, const size_t pos_size)
 {
+    WL_THROW_IF_ABORT()
     size_t last_offset = 0u;
     size_t this_offset = 0u;
     for (size_t p = 0; p < pos_size; ++p, ++pos_ptr)
@@ -9463,11 +9504,15 @@ auto _delete_impl1(X&& x, ndarray<int64_t, 1u> pos)
         constexpr auto XR = array_rank_v<XT>;
         pos.for_each([d0 = x.dims()[0]](auto& a){
             a = int64_t(convert_index(a, d0)); });
-        std::sort(pos.begin(), pos.end());
+        auto* pos_begin = pos.data();
+        auto* pos_end = pos_begin + pos.size();
+        auto* pos_sort_from = std::is_sorted_until(pos_begin, pos_end);
+        std::sort(pos_sort_from, pos_end);
         const auto& valx = allows<view_category::Simple>(x);
         auto ret_dims = valx.dims();
         ret_dims[0] -= pos_size;
         auto ret = ndarray<XV, XR>(ret_dims);
+        WL_THROW_IF_ABORT()
         if constexpr (XR == 1u)
             _delete_impl2<true>(valx.data(), ret.data(), pos.data(),
                 valx.size(), 1u, pos.size());
@@ -9549,6 +9594,7 @@ template<typename Z, typename X, typename Y>
 void _dot_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K)
 {
+    WL_THROW_IF_ABORT()
     for (size_t m = 0u; m < M; ++m)
         _dot_vv(pz + m, px + m * K, py, K);
 }
@@ -9556,6 +9602,7 @@ template<typename Z, typename X, typename Y>
 auto _dot_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t K, const size_t N)
 {
+    WL_THROW_IF_ABORT()
     for (size_t k = 0u; k < K; k += 1)
     {
         const auto xk = Z(px[k]);
@@ -9583,6 +9630,7 @@ auto dot(const X& x, const Y& y)
     using XV = value_type_t<X>;
     using YV = value_type_t<Y>;
     using C = common_type_t<XV, YV>;
+    WL_THROW_IF_ABORT()
     const auto& valx = allows<view_category::Simple>(x);
     const auto& valy = allows<view_category::Simple>(y);
     const auto* px = valx.data();
@@ -9645,13 +9693,17 @@ void _inner_f(C* WL_RESTRICT pc, const X* WL_RESTRICT px,
 {
     if (dy != 1)
     {
-        for (size_t k = 0; k < K; ++k)
-            pc[k] = f(px[k], py[k * dy]);
+        WL_CHECK_ABORT_LOOP_BEGIN(K)
+            for (auto k = _loop_begin; k < _loop_end; ++k)
+                pc[k] = f(px[k], py[k * dy]);
+        WL_CHECK_ABORT_LOOP_END()
     }
     else
     {
-        for (size_t k = 0; k < K; ++k)
-            pc[k] = f(px[k], py[k]);
+        WL_CHECK_ABORT_LOOP_BEGIN(K)
+            for (auto k = _loop_begin; k < _loop_end; ++k)
+                pc[k] = f(px[k], py[k]);
+        WL_CHECK_ABORT_LOOP_END()
     }
 }
 template<typename C, typename X, typename Y, typename F, typename G>

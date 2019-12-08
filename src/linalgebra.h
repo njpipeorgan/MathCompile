@@ -41,6 +41,7 @@ template<typename Z, typename X, typename Y>
 void _dot_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K)
 {
+    WL_THROW_IF_ABORT()
     for (size_t m = 0u; m < M; ++m)
         _dot_vv(pz + m, px + m * K, py, K);
 }
@@ -49,6 +50,7 @@ template<typename Z, typename X, typename Y>
 auto _dot_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t K, const size_t N)
 {
+    WL_THROW_IF_ABORT()
     for (size_t k = 0u; k < K; k += 1)
     {
         const auto xk = Z(px[k]);
@@ -78,6 +80,7 @@ auto dot(const X& x, const Y& y)
     using XV = value_type_t<X>;
     using YV = value_type_t<Y>;
     using C = common_type_t<XV, YV>;
+    WL_THROW_IF_ABORT()
     const auto& valx = allows<view_category::Simple>(x);
     const auto& valy = allows<view_category::Simple>(y);
     const auto* px = valx.data();
@@ -144,13 +147,17 @@ void _inner_f(C* WL_RESTRICT pc, const X* WL_RESTRICT px,
 {
     if (dy != 1)
     {
-        for (size_t k = 0; k < K; ++k)
-            pc[k] = f(px[k], py[k * dy]);
+        WL_CHECK_ABORT_LOOP_BEGIN(K)
+            for (auto k = _loop_begin; k < _loop_end; ++k)
+                pc[k] = f(px[k], py[k * dy]);
+        WL_CHECK_ABORT_LOOP_END()
     }
     else
     {
-        for (size_t k = 0; k < K; ++k)
-            pc[k] = f(px[k], py[k]);
+        WL_CHECK_ABORT_LOOP_BEGIN(K)
+            for (auto k = _loop_begin; k < _loop_end; ++k)
+                pc[k] = f(px[k], py[k]);
+        WL_CHECK_ABORT_LOOP_END()
     }
 }
 

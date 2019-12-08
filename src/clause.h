@@ -32,19 +32,21 @@ auto _clause_impl(Skip& skip_flag,
 {
     if constexpr (sizeof...(Rest) == 0)
     {
-        for (size_t i = 0; i < first.length(); ++i)
-        {
-            if constexpr (std::is_same_v<Skip, bool>)
-                if (skip_flag)
-                {
-                    skip_flag = false;
-                    continue;
-                }
-            if constexpr (First::has_variable)
-                fn(first[i]);
-            else
-                fn();
-        }
+        WL_CHECK_ABORT_LOOP_BEGIN(first.length())
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+            {
+                if constexpr (std::is_same_v<Skip, bool>)
+                    if (skip_flag)
+                    {
+                        skip_flag = false;
+                        continue;
+                    }
+                if constexpr (First::has_variable)
+                    fn(first[i]);
+                else
+                    fn();
+            }
+        WL_CHECK_ABORT_LOOP_END();
     }
     else
     {

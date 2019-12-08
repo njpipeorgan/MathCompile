@@ -168,10 +168,16 @@ auto loop_for(Test test, Incr incr, Body body)
         WL_ERROR_LOOP_TEST);
     try
     {
-        while (test())
+        for (;;)
         {
-            body();
-            incr();
+            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
+            {
+                if (!test())
+                    return const_null;
+                body();
+                incr();
+            }
+            WL_THROW_IF_ABORT()
         }
     }
     catch (const loop_break&)
@@ -189,9 +195,15 @@ auto loop_while(Test test, Body body)
         WL_ERROR_LOOP_TEST);
     try
     {
-        while (test())
+        for (;;)
         {
-            body();
+            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
+            {
+                if (!test())
+                    return const_null;
+                body();
+            }
+            WL_THROW_IF_ABORT()
         }
     }
     catch (const loop_break&)

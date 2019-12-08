@@ -624,10 +624,11 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
         if constexpr (R1 == 0u)
         {
             wl::ndarray<T, R2> ret(utils::get_dims_array(dims...));
-            const auto size = ret.size();
             auto iter = ret.data();
-            for (size_t i = 0; i < size; ++i, ++iter)
-                dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+                for (auto i = _loop_zero; i < _loop_size; ++i, ++iter)
+                    dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
         else
@@ -635,9 +636,12 @@ auto _random_variate_impl(Dist dist, const Dims&... dims)
             const auto length = dist.length();
             wl::ndarray<T, R2 + 1u> ret(
                 utils::get_dims_array(dims..., length));
-            const auto end = ret.data() + ret.size();
-            for (auto iter = ret.data(); iter != end; iter += length)
-                dist.generate(iter);
+            const auto outer_size = utils::size_of_dims<R2>(ret.dims().data());
+            auto iter = ret.data();
+            WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+                for (auto i = _loop_zero; i < _loop_size; ++i, iter += length)
+                    dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_END()
             return ret;
         }
     }

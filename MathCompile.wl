@@ -907,7 +907,8 @@ $template=Import[$packagepath<>"/src/src_template.cpp","Text"];
 Options[compilelink]={
   "LibraryDirectory"->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],
   "WorkingDirectory"->Automatic,
-  "Debug"->False, 
+  "Debug"->False,
+  "MonitorAbort"->True,
   "CompileOptions"->""
 };
 Options[CompileToBinary]=Options[compilelink];
@@ -950,7 +951,8 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "CompileOptions"->$joinoptions@{
           opt["Base"],
           opt["Optimize"][If[TrueQ@OptionValue["Debug"],0,3]],
-          opt["Define"][{"WL_USE_MATHLINK","WL_CHECK_ABORT",
+          opt["Define"][{"WL_USE_MATHLINK",
+            If[TrueQ!OptionValue["MonitorAbort"],"WL_CHECK_ABORT",Nothing],
             If[!TrueQ@OptionValue["Debug"],"NDEBUG",Nothing]}],
           OptionValue["CompileOptions"]
         },

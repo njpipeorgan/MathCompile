@@ -919,20 +919,22 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             continue_flag = test();
         else if constexpr (num_args == 1u)
             continue_flag = test(ret);
-        for (int64_t i = 1; i <= max_steps && continue_flag; ++i)
-        {
-            if constexpr (XR == 0u)
-                ret = cast<XT2>(f(ret));
-            else
+        WL_CHECK_ABORT_LOOP_BEGIN(max_steps)
+            for (auto i = _loop_zero; i < _loop_size && continue_flag; ++i)
             {
-                auto temp = val(f(std::move(ret)));
-                set(ret, std::move(temp));
+                if constexpr (XR == 0u)
+                    ret = cast<XT2>(f(ret));
+                else
+                {
+                    auto temp = val(f(std::move(ret)));
+                    set(ret, std::move(temp));
+                }
+                if constexpr (num_args == 0u)
+                    continue_flag = test();
+                else if constexpr (num_args == 1u)
+                    continue_flag = test(ret);
             }
-            if constexpr (num_args == 0u)
-                continue_flag = test();
-            else if constexpr (num_args == 1u)
-                continue_flag = test(ret);
-        }
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     else
@@ -940,20 +942,20 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
         using XV = std::conditional_t<XR == 0u, XT2, value_type_t<XT2>>;
         _nest_while_queue<XV, XR> queue(history_size);
         queue.push(std::forward<decltype(x)>(x));
-        int64_t i = 1;
-        for (; i < int64_t(num_args); ++i)
+        
+        for (int64_t i = 1; i < int64_t(num_args); ++i)
         {
             queue.push(f(queue.last()));
         }
         bool continue_flag = queue.template apply_test<num_args>(test);
-        for (; i <= max_steps && continue_flag; ++i)
-        {
-            queue.push(f(queue.last()));
-            continue_flag = queue.template apply_test<num_args>(test);
-        }
-        if (offset <= -i)
-            throw std::logic_error(WL_ERROR_INTERNAL);
-        else if (offset <= 0)
+        WL_CHECK_ABORT_LOOP_BEGIN(max_steps - num_args + 1)
+            for (auto i = _loop_zero; i <= _loop_size && continue_flag; ++i)
+            {
+                queue.push(f(queue.last()));
+                continue_flag = queue.template apply_test<num_args>(test);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+        if (offset <= 0)
             return std::move(queue).get(size_t(-offset));
         else
             return nest(f, std::move(queue).last(), offset);
@@ -1010,26 +1012,24 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             ret.append(last);
         }
         bool continue_flag = false;
-        if constexpr (num_args == 0u)
-            continue_flag = test();
-        else if constexpr (num_args == 1u)
-            continue_flag = test(last);
-        else
-            continue_flag = _nest_while_list_apply_test(test,
-                ret.begin() + i - 1, std::make_index_sequence<num_args>{});
-        for (; i <= max_steps && continue_flag; ++i)
+        do
         {
-            auto temp = f(std::move(last));
-            last = std::move(temp);
-            ret.append(last);
+            WL_THROW_IF_ABORT()
             if constexpr (num_args == 0u)
                 continue_flag = test();
             else if constexpr (num_args == 1u)
                 continue_flag = test(last);
             else
                 continue_flag = _nest_while_list_apply_test(test,
-                    ret.begin() + i, std::make_index_sequence<num_args>{});
-        }
+                    ret.begin() + i - 1, std::make_index_sequence<num_args>{});
+            if (!continue_flag)
+                break;
+            if (i++ > max_steps)
+                break;
+            auto temp = f(std::move(last));
+            last = std::move(temp);
+            ret.append(last);
+        } while (true);
         return ret;
     }
     else
@@ -1049,30 +1049,27 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             ret.append(last);
         }
         bool continue_flag = false;
-        if constexpr (num_args == 0u)
-            continue_flag = test();
-        else if constexpr (false && num_args == 1u)
-            continue_flag = test(last);
-        else
-            continue_flag = _nest_while_list_apply_test(test,
-                ret.template view_begin<1u>() + i - 1,
-                std::make_index_sequence<num_args>{});
-        for (; i <= max_steps && continue_flag; ++i)
+        do
         {
-            auto temp = val(f(std::move(last)));
-            last = std::move(temp);
-            if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            ret.append(last);
+            WL_THROW_IF_ABORT()
             if constexpr (num_args == 0u)
                 continue_flag = test();
             else if constexpr (false && num_args == 1u)
                 continue_flag = test(last);
             else
                 continue_flag = _nest_while_list_apply_test(test,
-                    ret.template view_begin<1u>() + i,
+                    ret.template view_begin<1u>() + i - 1,
                     std::make_index_sequence<num_args>{});
-        }
+            if (!continue_flag)
+                break;
+            if (i++ > max_steps)
+                break;
+            auto temp = val(f(std::move(last)));
+            last = std::move(temp);
+            if (!utils::check_dims(item_dims, last.dims()))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            ret.append(last);
+        } while (true);
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -1379,12 +1376,15 @@ auto all_true(X&& x, Test test, const_int<I>)
     static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<I>();
-    const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         WL_ERROR_PRED_TYPE);
+
     auto ret = true;
-    for (; ret && x_iter != x_end; ++x_iter)
-        ret = ret && test(*x_iter);
+    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
+    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+        for (auto i = _loop_zero; i < _loop_size && ret; ++i, ++x_iter)
+            ret = ret && test(*x_iter);
+    WL_CHECK_ABORT_LOOP_END()
     return boolean(ret);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -1407,12 +1407,15 @@ auto any_true(X&& x, Test test, const_int<I>)
     static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
     const auto& valx = val(std::forward<decltype(x)>(x));
     auto x_iter = valx.template view_begin<I>();
-    const auto x_end = valx.template view_end<I>();
     static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
         WL_ERROR_PRED_TYPE);
+
     auto ret = false;
-    for (; !ret && x_iter != x_end; ++x_iter)
-        ret = ret || test(*x_iter);
+    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
+    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+        for (auto i = _loop_zero; i < _loop_size && !ret; ++i, ++x_iter)
+            ret = ret || test(*x_iter);
+    WL_CHECK_ABORT_LOOP_END()
     return boolean(ret);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

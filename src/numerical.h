@@ -34,29 +34,15 @@ auto n(X&& x)
 {
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
-    constexpr auto x_rank = array_rank_v<XT>;
+    constexpr auto XR = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
-    if constexpr (x_rank == 0u)
-    {
-        if constexpr (is_integral_v<XT>)
-            return double(x);
-        else
-            return x;
-    }
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
+    if constexpr (!is_integral_v<XV>)
+        return std::forward<decltype(x)>(x);
     else
-    {
-        using XV = value_type_t<XT>;
-        if constexpr (is_integral_v<XV>)
-        {
-            ndarray<decltype(n(XV{})), x_rank> ret(x.dims());
-            x.for_each(
-                [](const auto& src, auto& dst) { dst = n(src); },
-                ret.begin());
-            return ret;
-        }
-        else
-            return std::forward<decltype(x)>(x);
-    }
+        return utils::listable_function(
+            [](const auto& a) { return double(a); },
+            std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -66,30 +52,24 @@ auto name(X&& x)                                                        \
 {                                                                       \
     WL_TRY_BEGIN()                                                      \
     using XT = remove_cvref_t<X>;                                       \
-    constexpr auto x_rank = array_rank_v<XT>;                           \
+    constexpr auto XR = array_rank_v<XT>;                               \
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);      \
-    if constexpr (x_rank == 0u)                                         \
-    {                                                                   \
-        if constexpr (is_integral_v<XT>)                                \
-            return x;                                                   \
-        if constexpr (is_float_v<XT>)                                   \
-            return int64_t(std::stdname(x));                            \
-        else if constexpr (is_complex_v<XT>)                            \
-            return XT(name(std::real(x)), name(std::imag(x)));          \
-    }                                                                   \
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;      \
+    if constexpr (is_integral_v<XV>)                                    \
+        return std::forward<decltype(x)>(x);                            \
     else                                                                \
     {                                                                   \
-        using XVT = typename XT::value_type;                            \
-        if constexpr (is_integral_v<XVT>)                               \
-            return std::forward<decltype(x)>(x);                        \
-        else                                                            \
+        auto pure = [](const auto& x)                                   \
         {                                                               \
-            ndarray<decltype(name(XVT{})), x_rank> ret(x.dims());       \
-            x.for_each(                                                 \
-                [](const auto& src, auto& dst) { dst = name(src); },    \
-                ret.begin());                                           \
-            return ret;                                                 \
-        }                                                               \
+            if constexpr (is_float_v<XV>)                               \
+                return int64_t(std::stdname(x));                        \
+            else if constexpr (is_complex_v<XV>)                        \
+                return XV(name(std::real(x)), name(std::imag(x)));      \
+            else                                                        \
+                static_assert(always_false_v<XV>, WL_ERROR_INTERNAL);   \
+        };                                                              \
+        return utils::listable_function(pure,                           \
+            std::forward<decltype(x)>(x));                              \
     }                                                                   \
     WL_TRY_END(__func__, __FILE__, __LINE__)                            \
 }
@@ -104,39 +84,20 @@ auto fractional_part(X&& x)
 {
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
-    constexpr auto x_rank = array_rank_v<XT>;
+    constexpr auto XR = array_rank_v<XT>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
-    if constexpr (x_rank == 0u)
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
+    auto pure = [](const auto& x)
     {
-        if constexpr (is_integral_v<XT>)
+        if constexpr (is_integral_v<XV>)
             return double(0);
-        else if constexpr (is_float_v<XT>)
+        else if constexpr (is_float_v<XV>)
             return x - std::trunc(x);
         else
-            return XT(fractional_part(x.real()), fractional_part(x.imag()));
-    }
-    else
-    {
-        using XV = typename XT::value_type;
-        if constexpr (is_integral_v<XV>)
-        {
-            return ndarray<double, x_rank>(x.dims());
-        }
-        else if constexpr (is_movable_v<X&&>)
-        { // movable
-            ndarray<XV, x_rank> ret(std::move(x));
-            ret.for_each([](auto& src) { src = fractional_part(src); });
-            return ret;
-        }
-        else
-        {
-            ndarray<XV, x_rank> ret(x.dims());
-            x.for_each(
-                [](const auto& src, auto& dst) { dst = fractional_part(src); },
-                ret.begin());
-            return ret;
-        }
-    }
+            return XV(std::real(x) - std::trunc(std::real(x)),
+                std::imag(x) - std::trunc(std::imag(x)));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -149,7 +110,7 @@ auto abs(X&& x)
     using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     if constexpr (std::is_unsigned_v<XV>)
-        return val(std::forward<decltype(x)>(x));
+        return std::forward<decltype(x)>(x);
     else
         return utils::listable_function([](auto x) { return std::abs(x); },
             std::forward<decltype(x)>(x));
@@ -162,15 +123,14 @@ auto ramp(X&& x)
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     constexpr auto XR = array_rank_v<XT>;
-    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;
     if constexpr (std::is_unsigned_v<XV>)
-        return val(std::forward<decltype(x)>(x));
+        return std::forward<decltype(x)>(x);
     else
     {
-        auto pure = [](auto x)
+        auto pure = [](const auto& x)
         {
-            using XV = decltype(x);
             return x >= XV(0) ? x : XV(0);
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
@@ -412,18 +372,13 @@ auto sign(X&& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         if constexpr (is_complex_v<XV>)
-        {
             return x / std::abs(x);
-        }
+        else if (x == XV(0))
+            return Ret(0);
+        else if (x > XV(0))
+            return Ret(1);
         else
-        {
-            if (x == XV(0))
-                return Ret(0);
-            else if (x > XV(0))
-                return Ret(1);
-            else
-                return Ret(-1);
-        }
+            return Ret(-1);
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -718,8 +673,10 @@ auto min(const X& x)
         using XV = value_type_t<value_type_t<X>>;
         const auto pack_size = x.size();
         auto ret = std::numeric_limits<XV>::max();
-        for (size_t i = 0u; i < pack_size; ++i)
-            ret = std::min(ret, min(x.get(i)));
+        WL_CHECK_ABORT_LOOP_BEGIN(x.size())
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+                ret = std::min(ret, min(x.get(i, dim_checked{})));
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     else if constexpr (array_rank_v<X> == 0u)
@@ -793,10 +750,11 @@ auto max(const X& x)
     if constexpr (is_argument_pack_v<X>)
     {
         using XV = value_type_t<value_type_t<X>>;
-        const auto pack_size = x.size();
         auto ret = std::numeric_limits<XV>::min();
-        for (size_t i = 0u; i < pack_size; ++i)
-            ret = std::max(ret, max(x.get(i)));
+        WL_CHECK_ABORT_LOOP_BEGIN(x.size())
+            for (auto i = _loop_begin; i < _loop_end; ++i)
+                ret = std::max(ret, max(x.get(i, dim_checked{})));
+        WL_CHECK_ABORT_LOOP_END()
         return ret;
     }
     else if constexpr (array_rank_v<X> == 0u)
@@ -865,7 +823,7 @@ auto chop(X&& x, const Y& y)
         return std::forward<decltype(x)>(x);
     else
     {
-        auto pure =[lim = cast<value_type_t<XV>>(y)](const auto& x)
+        auto pure = [lim = cast<value_type_t<XV>>(y)](const auto& x)
         {
             if constexpr (is_real_v<XV>)
                 return std::abs(x) < lim ? XV(0) : x;

@@ -20,6 +20,10 @@
 wl::random_engine wl::global_random_engine;
 WolframLibraryData wl::librarylink::lib_data;
 
+volatile bool wl::librarylink::global_abort_in_progress;
+volatile bool wl::librarylink::global_stop_check_abort;
+std::unique_ptr<std::thread> abort_thread;
+
 EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {
     return WolframLibraryVersion;
 }
@@ -32,7 +36,13 @@ EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
     wl::global_random_engine.seed(rd());
 #endif
     wl::librarylink::lib_data = lib_data;
+    wl::librarylink::global_stop_check_abort = false;
     return LIBRARY_NO_ERROR;
+}
+
+EXTERN_C DLLEXPORT void WolframLibrary_uninitialize() {
+    wl::librarylink::stop_check_abort(abort_thread);
+    wl::librarylink::lib_data = nullptr;
 }
 `funcbody`
 
@@ -48,6 +58,7 @@ return LIBRARY_NO_ERROR;
 EXTERN_C DLLEXPORT int `funcid`_func(WolframLibraryData lib_data,
 mint argc, MArgument *argv, MArgument res) {
     try {
+        wl::librarylink::start_check_abort(abort_thread, lib_data->AbortQ);
         auto val = main_function(
             `args`
         );
@@ -55,16 +66,18 @@ mint argc, MArgument *argv, MArgument res) {
     }
     catch (const std::logic_error& error) {
         wl::librarylink::send_error(error.what());
+        wl::librarylink::stop_check_abort(abort_thread);
         return LIBRARY_FUNCTION_ERROR;
     }
     catch (const std::bad_alloc& error) {
         wl::librarylink::send_error(error.what());
+        wl::librarylink::stop_check_abort(abort_thread);
         return LIBRARY_MEMORY_ERROR;
     }
     catch (...) {
         wl::librarylink::send_error(std::string(WL_ERROR_INTERNAL));
+        wl::librarylink::stop_check_abort(abort_thread);
         return LIBRARY_FUNCTION_ERROR;
     }
     return LIBRARY_NO_ERROR;
 }
-

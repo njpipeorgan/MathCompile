@@ -952,7 +952,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           opt["Base"],
           opt["Optimize"][If[TrueQ@OptionValue["Debug"],0,3]],
           opt["Define"][{"WL_USE_MATHLINK",
-            If[TrueQ!OptionValue["MonitorAbort"],"WL_CHECK_ABORT",Nothing],
+            If[TrueQ@OptionValue["MonitorAbort"],"WL_CHECK_ABORT",Nothing],
             If[!TrueQ@OptionValue["Debug"],"NDEBUG",Nothing]}],
           OptionValue["CompileOptions"]
         },

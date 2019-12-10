@@ -34,7 +34,9 @@ struct unit_indexer;   // U
 
 struct step_indexer;   // S
 
-struct list_indexer;   // L
+struct complement_step_indexer;
+
+struct list_indexer;
 
 enum class view_category
 {

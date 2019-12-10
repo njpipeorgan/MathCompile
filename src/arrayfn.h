@@ -2441,4 +2441,101 @@ auto delete_(X&& x, Pos&& pos)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename Spec>
+auto _take_get_spec(const Spec& spec)
+{
+    if constexpr (std::is_same_v<all_type, Spec>)
+    {
+        return const_all;
+    }
+    else if constexpr (is_integral_v<Spec>)
+    {
+        if constexpr (std::is_unsigned_v<Spec>)
+            return make_span(const_all, spec);
+        else if (spec > Spec(0))
+            return make_span(int64_t(1), int64_t(spec));
+        else
+            return make_span(int64_t(spec), int64_t(-1));
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        if (!(1u <= spec_size && spec_size <= 3u))
+            throw std::logic_error(WL_ERROR_TAKE_SPEC_LIST_LENGTH);
+        std::array<value_type_t<Spec>, 3u> spec_data;
+        spec.copy_to(spec_data.data());
+        if (spec_size == 1u)
+            return make_span(
+                spec_data[0], spec_data[0], value_type_t<Spec>(1));
+        else if (spec_size == 2u)
+            return make_span(
+                spec_data[0], spec_data[1], value_type_t<Spec>(1));
+        else
+            return make_span(spec_data[0], spec_data[1], spec_data[2]);
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
+}
+
+template<typename Spec>
+auto _drop_get_spec(const Spec& spec)
+{
+    if constexpr (std::is_same_v<none_type, Spec>)
+    {
+        return const_all;
+    }
+    else if constexpr (is_integral_v<Spec>)
+    {
+        if constexpr (std::is_unsigned_v<Spec>)
+            return make_span(complement_span_tag{}, const_all, spec);
+        else if (spec > Spec(0))
+            return make_span(complement_span_tag{},
+                int64_t(1), int64_t(spec));
+        else
+            return make_span(complement_span_tag{},
+                int64_t(spec), int64_t(-1));
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        if (!(1u <= spec_size && spec_size <= 3u))
+            throw std::logic_error(WL_ERROR_TAKE_SPEC_LIST_LENGTH);
+        std::array<value_type_t<Spec>, 3u> spec_data;
+        spec.copy_to(spec_data.data());
+        if (spec_size == 1u)
+            return make_span(complement_span_tag{},
+                spec_data[0], spec_data[0], value_type_t<Spec>(1));
+        else if (spec_size == 2u)
+            return make_span(complement_span_tag{},
+                spec_data[0], spec_data[1], value_type_t<Spec>(1));
+        else
+            return make_span(complement_span_tag{},
+                spec_data[0], spec_data[1], spec_data[2]);
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
+}
+
+template<typename X, typename... Specs>
+auto take(const X& x, const Specs&... specs)
+{
+    WL_TRY_BEGIN()
+    return val(part(x, _take_get_spec(specs)...));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename... Specs>
+auto drop(const X& x, const Specs&... specs)
+{
+    WL_TRY_BEGIN()
+    return val(part(x, _drop_get_spec(specs)...));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 }

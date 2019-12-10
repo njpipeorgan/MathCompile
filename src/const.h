@@ -26,6 +26,7 @@ namespace wl
 
 constexpr auto const_null  = void_type{};
 constexpr auto const_all   = all_type{};
+constexpr auto const_none  = none_type{};
 constexpr auto const_i     = complex<double>(0.f, 1.f);
 constexpr auto const_true  = boolean(true);
 constexpr auto const_false = boolean(false);

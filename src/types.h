@@ -37,6 +37,10 @@ struct all_type
 {
 };
 
+struct none_type
+{
+};
+
 struct varg_tag
 {
 };
@@ -51,6 +55,10 @@ struct loop_break
 };
 
 struct dim_checked
+{
+};
+
+struct complement_span_tag
 {
 };
 

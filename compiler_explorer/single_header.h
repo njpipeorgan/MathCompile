@@ -190,6 +190,8 @@ namespace wl
 "The arguments should be an integer, a pair of number, or a list of pairs."
 #define WL_ERROR_DIST_PARAMETER_COUNT \
 "The distribution is not specified with a correct number of parameters."
+#define WL_ERROR_TAKE_SPEC_TYPE \
+"The specification should be All, an integer, or a list of integers."
 #define WL_ERROR_CALLBACK \
 "Callback failed."
 #define WL_ERROR_NEGATIVE_DIMS \
@@ -242,6 +244,8 @@ namespace wl
 "There are not enough elements in the list to sample from."
 #define WL_ERROR_RANDOM_SAMPLE_ZERO_WEIGHTS \
 "The total weights of the elements are effectively zero."
+#define WL_ERROR_TAKE_SPEC_LIST_LENGTH \
+"The list as a specification should have between one and three integers."
 }
 namespace wl
 {
@@ -476,6 +480,9 @@ struct void_type
 struct all_type
 {
 };
+struct none_type
+{
+};
 struct varg_tag
 {
 };
@@ -487,6 +494,9 @@ struct loop_break
 {
 };
 struct dim_checked
+{
+};
+struct complement_span_tag
 {
 };
 struct boolean
@@ -535,6 +545,7 @@ namespace wl
 {
 constexpr auto const_null  = void_type{};
 constexpr auto const_all   = all_type{};
+constexpr auto const_none  = none_type{};
 constexpr auto const_i     = complex<double>(0.f, 1.f);
 constexpr auto const_true  = boolean(true);
 constexpr auto const_false = boolean(false);
@@ -558,7 +569,8 @@ struct scalar_indexer; // I
 struct all_indexer;    // A
 struct unit_indexer;   // U
 struct step_indexer;   // S
-struct list_indexer;   // L
+struct complement_step_indexer;
+struct list_indexer;
 enum class view_category
 {
     Scalar, 
@@ -1274,6 +1286,72 @@ struct step_indexer
         return indexer_iter<false>(begin_ + step_ * size_, step_);
     }
 };
+struct complement_step_indexer_iterator
+{
+    size_t next_;
+    size_t step_;
+    size_t remain_;
+    size_t current_;
+    complement_step_indexer_iterator(size_t begin, size_t size, size_t step) :
+        next_{begin}, remain_{size}, step_{step}, current_{0}
+    {
+        seek_if_invalid();
+    }
+    auto operator*() const
+    {
+        return current_;
+    }
+    void seek_if_invalid()
+    {
+        if (current_ == next_)
+        {
+            if (step_ == 1u)
+            {
+                current_ += remain_;
+                remain_ = 0u;
+            }
+            else
+            {
+                ++current_;
+                --remain_;
+                if (remain_ > 0u)
+                    next_ += step_;
+            }
+        }
+    }
+    auto& operator++()
+    {
+        ++current_;
+        seek_if_invalid();
+        return *this;
+    }    
+};
+struct complement_step_indexer
+{
+    size_t begin_;
+    size_t size_;
+    size_t step_;
+    size_t dim_;
+    complement_step_indexer() = default;
+    complement_step_indexer(
+        size_t begin, size_t size, size_t step, size_t dim) :
+        begin_{begin}, size_{size}, step_{step}, dim_{dim}
+    {
+    }
+    size_t offset() const
+    {
+        return 0u;
+    }
+    ptrdiff_t stride() = delete;
+    size_t size() const
+    {
+        return dim_ - size_;
+    }
+    auto iterator() const
+    {
+        return complement_step_indexer_iterator(begin_, size_, step_);
+    }
+};
 struct list_indexer
 {
     std::vector<size_t> indices_;
@@ -1395,6 +1473,28 @@ struct span
     }
 };
 template<typename Begin, typename End, typename Step>
+struct complement_span
+{
+    using normal_span = span<Begin, End, Step>;
+    normal_span normal_span_;
+    complement_span(Begin begin, End end, Step step) :
+        normal_span_(begin, end, step)
+    {
+    }
+    auto to_indexer(size_t dim) const
+    {
+        const auto normal_indexer = normal_span_.to_indexer(dim);
+        const auto begin = normal_indexer.offset();
+        const auto size = normal_indexer.size();
+        const auto step = normal_indexer.stride();
+        if (step > 0)
+            return complement_step_indexer(begin, size, size_t(step), dim);
+        else
+            return complement_step_indexer(
+                begin + step * (size - 1u), size, size_t(-step), dim);
+    }
+};
+template<typename Begin, typename End, typename Step>
 auto make_span(const Begin& begin, const End& end, const Step& step)
 {
     return span<Begin, End, Step>(begin, end, step);
@@ -1405,7 +1505,25 @@ auto make_span(const Begin& begin, const End& end)
     return make_span(begin, end, const_all);
 }
 template<typename Begin, typename End, typename Step>
+auto make_span(complement_span_tag,
+    const Begin& begin, const End& end, const Step& step)
+{
+    return complement_span<Begin, End, Step>(begin, end, step);
+}
+template<typename Begin, typename End>
+auto make_span(complement_span_tag, const Begin& begin, const End& end)
+{
+    return make_span(complement_span_tag{}, begin, end, const_all);
+}
+template<typename Begin, typename End, typename Step>
 auto make_indexer(const span<Begin, End, Step>& s, size_t dim)
+{
+    WL_TRY_BEGIN()
+    return s.to_indexer(dim);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Begin, typename End, typename Step>
+auto make_indexer(const complement_span<Begin, End, Step>& s, size_t dim)
 {
     WL_TRY_BEGIN()
     return s.to_indexer(dim);
@@ -1869,6 +1987,7 @@ struct general_view
         if constexpr (ViewLevel < ViewRank - 1u)
         {
             if constexpr (std::is_same_v<Indexer, list_indexer>)
+            {
                 for (const auto& i : indexer.indices())
                 {
                     _for_each_impl<ViewLevel + 1u>(
@@ -1876,7 +1995,22 @@ struct general_view
                     if (check_break && break_flag)
                         break;
                 }
+            }
+            else if constexpr (
+                std::is_same_v<Indexer, complement_step_indexer>)
+            {
+                const auto dim_size = indexer.size();
+                auto index_iter = indexer.iterator();
+                for (size_t i = 0; i < dim_size; ++i, ++index_iter)
+                {
+                    _for_each_impl<ViewLevel + 1u>(
+                        index + (*index_iter), break_flag, f, iters...);
+                    if (check_break && break_flag)
+                        break;
+                }
+            }
             else
+            {
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
                 {
                     _for_each_impl<ViewLevel + 1u>(
@@ -1884,37 +2018,61 @@ struct general_view
                     if (check_break && break_flag)
                         break;
                 }
+            }
         }
         else
         {
             const auto last_stride = _has_last_stride ? 
                 this->strides_[ViewLevel] : ptrdiff_t(1);
             if constexpr (std::is_same_v<Indexer, list_indexer>)
+            {
                 for (const auto& i : indexer.indices())
                 {
                     if constexpr (check_break)
                     {
-                        if (f(this->data_[(index + i) * last_stride], 
+                        if (f(this->data_[(index + i) * last_stride],
                             (*iters++)...))
                             break;
                     }
                     else
-                        f(this->data_[(index + i) * last_stride], 
+                        f(this->data_[(index + i) * last_stride],
                         (*iters++)...);
                 }
+            }
+            else if constexpr (
+                std::is_same_v<Indexer, complement_step_indexer>)
+            {
+                const auto dim_size = indexer.size();
+                auto index_iter = indexer.iterator();
+                for (size_t i = 0; i < dim_size; ++i, ++index_iter)
+                {
+                    const auto this_index = *index_iter;
+                    if constexpr (check_break)
+                    {
+                        if (f(this->data_[(index + this_index) * last_stride],
+                            (*iters++)...))
+                            break;
+                    }
+                    else
+                        f(this->data_[(index + this_index) * last_stride],
+                        (*iters++)...);
+                }
+            }
             else
+            {
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
                 {
                     if constexpr (check_break)
                     {
-                        if (f(this->data_[(index + i) * last_stride], 
+                        if (f(this->data_[(index + i) * last_stride],
                             (*iters++)...))
                             break;
                     }
                     else
-                        f(this->data_[(index + i) * last_stride], 
+                        f(this->data_[(index + i) * last_stride],
                         (*iters++)...);
                 }
+            }
         }
     }
     template<typename Function, typename... Iters>
@@ -9669,6 +9827,99 @@ auto delete_(X&& x, Pos&& pos)
         static_assert(always_false_v<Pos>, WL_ERROR_INSERT_POS_FORM);
         return val(x);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Spec>
+auto _take_get_spec(const Spec& spec)
+{
+    if constexpr (std::is_same_v<all_type, Spec>)
+    {
+        return const_all;
+    }
+    else if constexpr (is_integral_v<Spec>)
+    {
+        if constexpr (std::is_unsigned_v<Spec>)
+            return make_span(const_all, spec);
+        else if (spec > Spec(0))
+            return make_span(int64_t(1), int64_t(spec));
+        else
+            return make_span(int64_t(spec), int64_t(-1));
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        if (!(1u <= spec_size && spec_size <= 3u))
+            throw std::logic_error(WL_ERROR_TAKE_SPEC_LIST_LENGTH);
+        std::array<value_type_t<Spec>, 3u> spec_data;
+        spec.copy_to(spec_data.data());
+        if (spec_size == 1u)
+            return make_span(
+                spec_data[0], spec_data[0], value_type_t<Spec>(1));
+        else if (spec_size == 2u)
+            return make_span(
+                spec_data[0], spec_data[1], value_type_t<Spec>(1));
+        else
+            return make_span(spec_data[0], spec_data[1], spec_data[2]);
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
+}
+template<typename Spec>
+auto _drop_get_spec(const Spec& spec)
+{
+    if constexpr (std::is_same_v<none_type, Spec>)
+    {
+        return const_all;
+    }
+    else if constexpr (is_integral_v<Spec>)
+    {
+        if constexpr (std::is_unsigned_v<Spec>)
+            return make_span(complement_span_tag{}, const_all, spec);
+        else if (spec > Spec(0))
+            return make_span(complement_span_tag{},
+                int64_t(1), int64_t(spec));
+        else
+            return make_span(complement_span_tag{},
+                int64_t(spec), int64_t(-1));
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        if (!(1u <= spec_size && spec_size <= 3u))
+            throw std::logic_error(WL_ERROR_TAKE_SPEC_LIST_LENGTH);
+        std::array<value_type_t<Spec>, 3u> spec_data;
+        spec.copy_to(spec_data.data());
+        if (spec_size == 1u)
+            return make_span(complement_span_tag{},
+                spec_data[0], spec_data[0], value_type_t<Spec>(1));
+        else if (spec_size == 2u)
+            return make_span(complement_span_tag{},
+                spec_data[0], spec_data[1], value_type_t<Spec>(1));
+        else
+            return make_span(complement_span_tag{},
+                spec_data[0], spec_data[1], spec_data[2]);
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
+}
+template<typename X, typename... Specs>
+auto take(const X& x, const Specs&... specs)
+{
+    WL_TRY_BEGIN()
+    return val(part(x, _take_get_spec(specs)...));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename... Specs>
+auto drop(const X& x, const Specs&... specs)
+{
+    WL_TRY_BEGIN()
+    return val(part(x, _drop_get_spec(specs)...));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }

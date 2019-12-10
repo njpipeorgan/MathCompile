@@ -248,6 +248,9 @@ namespace wl
 #define WL_ERROR_DIST_PARAMETER_COUNT \
 "The distribution is not specified with a correct number of parameters."
 
+#define WL_ERROR_TAKE_SPEC_TYPE \
+"The specification should be All, an integer, or a list of integers."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -327,5 +330,8 @@ namespace wl
 
 #define WL_ERROR_RANDOM_SAMPLE_ZERO_WEIGHTS \
 "The total weights of the elements are effectively zero."
+
+#define WL_ERROR_TAKE_SPEC_LIST_LENGTH \
+"The list as a specification should have between one and three integers."
 
 }

@@ -512,6 +512,8 @@ $builtinfunctions=
   "Last"            ->"last",
   "Most"            ->"most",
   "Rest"            ->"rest",
+  "Take"            ->"take",
+  "Drop"            ->"drop",
   "Join"            ->"join",
   "Transpose"       ->"transpose",
   "ConjugateTranspose"->"conjugate_transpose",

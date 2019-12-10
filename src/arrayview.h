@@ -965,10 +965,7 @@ struct general_view
     using _strides_t = std::array<ptrdiff_t, ViewRank>;
     using _indexers_tuple = IndexersTuple;
 
-    static constexpr auto _has_last_stride = (StrideRank != 0) ||
-        std::is_same_v<
-        std::tuple_element_t<ViewRank - 1u, IndexersTuple>,
-        step_indexer>;
+    static constexpr auto _has_last_stride = (StrideRank != 0);
 
     const void* const identifier_;
     pointer_type data_;
@@ -1006,10 +1003,7 @@ struct general_view
         {
             if constexpr (ViewLevel > 0u)
                 this->strides_[ViewLevel - 1] *= dims[Level];
-            if constexpr (std::is_same_v<remove_cvref_t<Spec1>, step_indexer>)
-                this->strides_[ViewLevel] = spec1.stride();
-            else
-                this->strides_[ViewLevel] = 1;
+            this->strides_[ViewLevel] = 1;
             this->dims_[ViewLevel] = spec1.size();
             this->size_ *= this->dims_[ViewLevel];
             std::get<ViewLevel>(this->indexers_) = 
@@ -1080,6 +1074,17 @@ struct general_view
                         break;
                 }
             }
+            else if constexpr (std::is_same_v<Indexer, step_indexer>)
+            {
+                const auto this_stride = indexer.stride();
+                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
+                {
+                    _for_each_impl<ViewLevel + 1u>(
+                        index + i * this_stride, break_flag, f, iters...);
+                    if (check_break && break_flag)
+                        break;
+                }
+            }
             else
             {
                 for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
@@ -1126,6 +1131,23 @@ struct general_view
                     }
                     else
                         f(this->data_[(index + this_index) * last_stride],
+                        (*iters++)...);
+                }
+            }
+            else if constexpr (std::is_same_v<Indexer, step_indexer>)
+            {
+                const auto this_stride = indexer.stride();
+                for (size_t i = 0; i < this->dims_[ViewLevel]; ++i)
+                {
+                    const auto this_i = i * this_stride;
+                    if constexpr (check_break)
+                    {
+                        if (f(this->data_[(index + this_i) * last_stride],
+                            (*iters++)...))
+                            break;
+                    }
+                    else
+                        f(this->data_[(index + this_i) * last_stride],
                         (*iters++)...);
                 }
             }

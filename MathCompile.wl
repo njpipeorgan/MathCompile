@@ -353,6 +353,7 @@ $builtinfunctions=
     (*"Table"*)
     (*"Sum"*)
     (*"Product"*)
+  "Pause"           ->"pause",
 (* arithmetic *)
   "Plus"            ->"plus",
   "Subtract"        ->"subtract",

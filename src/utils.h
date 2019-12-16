@@ -19,6 +19,7 @@
 
 #include <cstring>
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <type_traits>
 #include <thread>
@@ -464,22 +465,31 @@ WL_INLINE void restrict_copy_n(XIter x_iter, const size_t n, YIter y_iter,
 template<typename X>
 auto pause(const X& x)
 {
+    constexpr uint64_t giga = 1'000'000'000;
+    constexpr uint64_t max_sec = std::numeric_limits<uint64_t>::max() / giga;
     static_assert(is_real_v<X>, WL_ERROR_REAL_TYPE_ARG);
     if (x == X(0))
         return const_null;
     else if (x < X(0))
         throw std::logic_error(WL_ERROR_PAUSE_NEGATIVE);
 
-    auto duration = double(x) * 1000.; // in milliseconds
-    while (duration > WL_CHECK_ABORT_PERIOD)
+    uint64_t nanosec = 0;
+    if constexpr (is_integral_v<X>)
+        nanosec = giga * std::min(uint64_t(x), max_sec);
+    else
+        nanosec = uint64_t(std::min(double(x), double(giga * max_sec)));
+
+    constexpr uint64_t check_abort_nanosec =
+        (WL_CHECK_ABORT_PERIOD * (giga / 1000u));
+    while (nanosec > check_abort_nanosec)
     {
         WL_THROW_IF_ABORT()
         std::this_thread::sleep_for(
-            std::chrono::milliseconds(WL_CHECK_ABORT_PERIOD));
-        duration -= WL_CHECK_ABORT_PERIOD;
+            std::chrono::nanoseconds(check_abort_nanosec));
+        nanosec -= check_abort_nanosec;
     }
     WL_THROW_IF_ABORT()
-    std::this_thread::sleep_for(std::chrono::milliseconds(duration));
+    std::this_thread::sleep_for(std::chrono::nanoseconds(nanosec));
     return const_null;
 }
 

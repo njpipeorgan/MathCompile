@@ -251,6 +251,12 @@ namespace wl
 #define WL_ERROR_TAKE_SPEC_TYPE \
 "The specification should be All, an integer, or a list of integers."
 
+#define WL_ERROR_PARTITION_LEVEL \
+"The level of partition should be between one and the rank of the array."
+
+#define WL_ERROR_PARTITION_SPEC \
+"The lengths and offsets of partition should be integers or lists of integers."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -333,5 +339,17 @@ namespace wl
 
 #define WL_ERROR_TAKE_SPEC_LIST_LENGTH \
 "The list as a specification should have between one and three integers."
+
+#define WL_ERROR_PAUSE_NEGATIVE \
+"The duration should be non-negative."
+
+#define WL_ERROR_PARTITION_SPEC_LENGTH \
+"The lengths and offsets of partition should match the level specification."
+
+#define WL_ERROR_PARTITION_NEGATIVE_SPEC \
+"The lengths and offsets of partition should be positive."
+
+#define WL_ERROR_PARTITION_DEFAULT_LEVEL \
+"Lengths and offsets should match array rank when the level is not specified."
 
 }

@@ -2538,4 +2538,175 @@ auto drop(const X& x, const Specs&... specs)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<size_t I, typename XV, size_t Level, size_t RR>
+void _partition_copy_single(XV*& WL_RESTRICT dst, const XV* WL_RESTRICT src,
+    const std::array<size_t, RR>& ret_dims,
+    const std::array<size_t, Level>& strides)
+{
+    if constexpr (I == 0u)
+    {
+        WL_THROW_IF_ABORT()
+    }
+    if constexpr (I + 1u == Level)
+    {
+        const auto size = strides[Level - 1u];
+        utils::restrict_copy_n(src, size, dst, no_check_abort_tag{});
+        dst += size;
+    }
+    else if constexpr (I + 1u < Level)
+    {
+        const auto size = int64_t(ret_dims[Level + I]);
+        for (int64_t i = 0; i < size; ++i)
+            _partition_copy_single<I + 1u>(
+                dst, src + i * strides[I], ret_dims, strides);
+    }
+    else
+    {
+        static_assert(always_false_v<XV>, WL_ERROR_INTERNAL);
+    }
+}
+
+template<size_t I, typename XV, size_t Level, size_t RR>
+void _partition_copy_batch(XV*& WL_RESTRICT dst, const XV* WL_RESTRICT src,
+    const std::array<size_t, RR>& ret_dims,
+    const std::array<size_t, Level>& strides,
+    const std::array<size_t, Level>& d_strides)
+{
+    const auto size = ret_dims[I];
+    for (size_t i = 0; i < size; ++i)
+    {
+        if constexpr (I + 1u == Level)
+            _partition_copy_single<0u>(
+                dst, src + i * d_strides[I], ret_dims, strides);
+        else if constexpr (I + 1u < Level)
+            _partition_copy_batch<I + 1u>(
+                dst, src + i * d_strides[I], ret_dims, strides, d_strides);
+        else
+            static_assert(always_false_v<XV>, WL_ERROR_INTERNAL);
+    }
+}
+
+template<typename XV, size_t XR, size_t Level>
+auto _partition_impl(const XV* const x_data, std::array<size_t, XR> x_dims,
+    std::array<size_t, Level> n, std::array<size_t, Level> d)
+{
+    // Max[0,Floor[(s+d-n)/d]]
+    static_assert(1u <= Level && Level <= XR, WL_ERROR_INTERNAL);
+    constexpr auto RR = XR + Level;
+    std::array<size_t, RR> ret_dims;
+
+    for (size_t i = 0; i < Level; ++i)
+    {
+        int64_t m = (x_dims[i] + d[i] - n[i]) / d[i];
+        if (m <= 0)
+            m = 0;
+        ret_dims[i] = size_t(m);
+        ret_dims[Level + i] = n[i];
+    }
+    for (size_t i = Level; i < XR; ++i)
+        ret_dims[Level + i] = x_dims[i];
+
+    ndarray<XV, RR> ret(ret_dims);
+    if (ret.size() == 0u)
+        return ret;
+
+    std::array<size_t, Level> strides;
+    std::array<size_t, Level> d_strides;
+
+    size_t stride = 1u;
+    for (int64_t i = XR - 1; i >= int64_t(Level); --i)
+    {
+        stride *= x_dims[i];
+    }
+    for (int64_t i = int64_t(Level) - 1; i >= 0; --i)
+    {
+        strides[i] = stride;
+        d_strides[i] = stride * d[i];
+        stride *= x_dims[i];
+    }
+    strides[Level - 1u] *= ret_dims[2u * Level - 1u];
+    auto* ret_data = ret.data();
+    _partition_copy_batch<0u>(ret_data, x_data, ret_dims, strides, d_strides);
+    return ret;
+}
+
+template<size_t Level, typename Spec>
+auto _partition_get_spec(const Spec& spec)
+{
+    std::array<size_t, Level> spec_array;
+    if constexpr (array_rank_v<Spec> == 1u)
+    {
+        static_assert(is_integral_v<value_type_t<Spec>>,
+            WL_ERROR_PARTITION_SPEC);
+        if (spec.size() != Level)
+            throw std::logic_error(WL_ERROR_PARTITION_SPEC_LENGTH);
+        if (!all_true(spec,
+            [](const auto& a) { return boolean(a > decltype(a)(0)); }))
+            throw std::logic_error(WL_ERROR_PARTITION_NEGATIVE_SPEC);
+        spec.copy_to(spec_array.data());
+    }
+    else
+    {
+        static_assert(array_rank_v<Spec> == 0u && is_integral_v<Spec>,
+            WL_ERROR_PARTITION_SPEC);
+        if (spec <= Spec(0))
+            throw std::logic_error(WL_ERROR_PARTITION_NEGATIVE_SPEC);
+        spec_array.fill(spec);
+    }
+    return spec_array;
+}
+
+template<typename X, int64_t I, typename N, typename D>
+auto partition(const X& x, const_int<I>, const N& n, const D& d)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    constexpr auto Level = size_t(I);
+    static_assert(1u <= I && I <= XR, WL_ERROR_PARTITION_LEVEL);
+
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto n_array = _partition_get_spec<Level>(n);
+    const auto d_array = _partition_get_spec<Level>(d);
+    return _partition_impl(valx.data(), valx.dims(), n_array, d_array);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, int64_t I, typename N>
+auto partition(const X& x, const_int<I>, const N& n)
+{
+    return partition(x, const_int<I>{}, n, n);
+}
+
+template<typename X, typename N, typename D>
+auto partition(const X& x, const N& n, const D& d)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+
+    if constexpr (array_rank_v<N> == 0u && array_rank_v<D> == 0u)
+    {
+        return partition(x, const_int<1>{}, n, d);
+    }
+    else
+    {
+        constexpr auto Level = XR;
+        if constexpr (array_rank_v<N> == 1u)
+            if (n.size() != XR)
+                throw std::logic_error(WL_ERROR_PARTITION_DEFAULT_LEVEL);
+        if constexpr (array_rank_v<D> == 1u)
+            if (d.size() != XR)
+                throw std::logic_error(WL_ERROR_PARTITION_DEFAULT_LEVEL);
+        return partition(x, const_int<int64_t(XR)>{}, n, d);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename N>
+auto partition(const X& x, const N& n)
+{
+    return partition(x, n, n);
+}
+
 }

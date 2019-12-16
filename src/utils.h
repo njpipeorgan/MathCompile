@@ -437,6 +437,50 @@ WL_INLINE void restrict_copy_n(XIter x_iter, const size_t n, YIter y_iter)
     }
 }
 
+template<typename XIter, typename YIter>
+WL_INLINE void restrict_copy_n(XIter x_iter, const size_t n, YIter y_iter,
+    no_check_abort_tag)
+{
+    using XV = remove_cvref_t<decltype(*x_iter)>;
+    using YV = remove_cvref_t<decltype(*y_iter)>;
+    constexpr bool use_memcpy =
+        std::is_same_v<XV, YV> && std::is_trivially_copyable_v<XV> &&
+        std::is_pointer_v<XIter> && std::is_pointer_v<YIter>;
+
+    if constexpr (use_memcpy)
+    {
+        std::memcpy((void*)y_iter, (void*)x_iter, n * sizeof(XV));
+    }
+    else
+    {
+        const auto size = int64_t(n);
+        for (int64_t i = 0; i < size; ++i, ++x_iter, ++y_iter)
+            *y_iter = *x_iter;
+    }
+}
+
+}
+
+template<typename X>
+auto pause(const X& x)
+{
+    static_assert(is_real_v<X>, WL_ERROR_REAL_TYPE_ARG);
+    if (x == X(0))
+        return const_null;
+    else if (x < X(0))
+        throw std::logic_error(WL_ERROR_PAUSE_NEGATIVE);
+
+    auto duration = double(x) * 1000.; // in milliseconds
+    while (duration > WL_CHECK_ABORT_PERIOD)
+    {
+        WL_THROW_IF_ABORT()
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(WL_CHECK_ABORT_PERIOD));
+        duration -= WL_CHECK_ABORT_PERIOD;
+    }
+    WL_THROW_IF_ABORT()
+    std::this_thread::sleep_for(std::chrono::milliseconds(duration));
+    return const_null;
 }
 
 }

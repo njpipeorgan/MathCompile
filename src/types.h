@@ -45,8 +45,8 @@ struct varg_tag
 {
 };
 
-template<size_t>
-struct rank_tag
+template<int64_t>
+struct level_tag
 {
 };
 
@@ -59,6 +59,10 @@ struct dim_checked
 };
 
 struct complement_span_tag
+{
+};
+
+struct no_check_abort_tag
 {
 };
 

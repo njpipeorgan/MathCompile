@@ -12,6 +12,7 @@ CompileToBinary::usage="\!\(\*RowBox[{\"CompileToBinary\", \"[\", StyleBox[\"fun
 
 CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"]]&@compile[Hold[Function[func]]]
 CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
+LevelTag[i_Integer]:=Sequence[];
 
 
 $CppSource="";
@@ -499,6 +500,7 @@ $builtinfunctions=
   "Length"          ->"length",
   "ArrayDepth"      ->"array_depth",
   "Part"            ->"part",
+  "Partition"       ->"partition",
   "VectorQ"         ->"vector_q",
   "MatrixQ"         ->"matrix_q",
   "Span"            ->"make_span",
@@ -683,7 +685,8 @@ functionmacro[code_]:=code//.{
     id["FreeQ",p_][any_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>
       native["free_q",p][any,vargtag,func,const[i]],
     id["FreeQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["free_q",p][any,patt,const[i]],
-    id["Tr",p_][array_,f_,literal[i_Integer,_]]:>native["tr",p][array,f,const[i]]
+    id["Tr",p_][array_,f_,literal[i_Integer,_]]:>native["tr",p][array,f,const[i]],
+    id["Partition",p_][array_,id["LevelTag",_][literal[i_Integer,_]],n_,d_]:>native["partition",p][array,const[i],n,d]
   }
 
 arithmeticmacro[code_]:=code//.{

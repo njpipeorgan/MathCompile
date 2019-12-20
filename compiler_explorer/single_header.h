@@ -3041,7 +3041,7 @@ auto name(X&& x)                                                        \
     using XT = remove_cvref_t<X>;                                       \
     constexpr auto XR = array_rank_v<XT>;                               \
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);      \
-    using XV = std::conditional_t<XR == 0u, XT, value_type_t<XT>>;      \
+    using XV = std::conditional_t<(XR == 0u), XT, value_type_t<XT>>;    \
     if constexpr (is_integral_v<XV>)                                    \
         return std::forward<decltype(x)>(x);                            \
     else                                                                \
@@ -3050,10 +3050,10 @@ auto name(X&& x)                                                        \
         {                                                               \
             if constexpr (is_float_v<XV>)                               \
                 return int64_t(std::stdname(x));                        \
-            else if constexpr (is_complex_v<XV>)                        \
-                return XV(name(std::real(x)), name(std::imag(x)));      \
             else                                                        \
-                static_assert(always_false_v<XV>, WL_ERROR_INTERNAL);   \
+                return complex<value_type_t<XV>>(                       \
+                    std::stdname(std::real(x)),                         \
+                    std::stdname(std::imag(x)));                        \
         };                                                              \
         return utils::listable_function(pure,                           \
             std::forward<decltype(x)>(x));                              \
@@ -9004,7 +9004,7 @@ auto prepend(X&& x, Y&& y)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename XV, size_t XR, typename Y>
-auto append_to(ndarray<XV, XR>& x, Y&& y)
+auto append_to(ndarray<XV, XR>& x, Y&& y) -> const auto&
 {
     WL_TRY_BEGIN()
     using YT = remove_cvref_t<Y>;
@@ -9013,10 +9013,11 @@ auto append_to(ndarray<XV, XR>& x, Y&& y)
     static_assert(XR == YR + 1u, WL_ERROR_APPEND_RANK);
     static_assert(is_convertible_v<YV, XV>, WL_ERROR_JOIN_VALUE_TYPE);
     x.append(std::forward<decltype(y)>(y));
+    return x;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename XV, size_t XR, typename Y>
-auto prepend_to(ndarray<XV, XR>& x, Y&& y)
+auto prepend_to(ndarray<XV, XR>& x, Y&& y) -> const auto&
 {
     WL_TRY_BEGIN()
     using YT = remove_cvref_t<Y>;

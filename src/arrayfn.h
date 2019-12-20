@@ -1473,7 +1473,7 @@ auto prepend(X&& x, Y&& y)
 }
 
 template<typename XV, size_t XR, typename Y>
-auto append_to(ndarray<XV, XR>& x, Y&& y)
+auto append_to(ndarray<XV, XR>& x, Y&& y) -> const auto&
 {
     WL_TRY_BEGIN()
 
@@ -1483,11 +1483,12 @@ auto append_to(ndarray<XV, XR>& x, Y&& y)
     static_assert(XR == YR + 1u, WL_ERROR_APPEND_RANK);
     static_assert(is_convertible_v<YV, XV>, WL_ERROR_JOIN_VALUE_TYPE);
     x.append(std::forward<decltype(y)>(y));
+    return x;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename XV, size_t XR, typename Y>
-auto prepend_to(ndarray<XV, XR>& x, Y&& y)
+auto prepend_to(ndarray<XV, XR>& x, Y&& y) -> const auto&
 {
     WL_TRY_BEGIN()
     using YT = remove_cvref_t<Y>;

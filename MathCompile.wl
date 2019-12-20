@@ -622,6 +622,7 @@ functionmacro[code_]:=code//.{
     id["Clip",p_][any_,list[_][min_,max_]]:>native["clip",p][any,vargtag,min,max],
     id["Clip",p_][any_,list[_][min_,max_],list[_][vmin_,vmax_]]:>native["clip",p][any,vargtag,min,max,vmin,vmax],
     id["Map",p_][func_,array_,list[_][literal[i_Integer,_]]]:>native["map",p][func,array,const[i]],
+    id["Scan",p_][func_,array_,list[_][literal[i_Integer,_]]]:>native["scan",p][func,array,const[i]],
     id["Reverse",p_][array_,literal[i_Integer,_]]:>native["reverse",p][array,const[i]],
     id["ArrayReshape",p_][array_,dims_]:>native["array_reshape",p][array,vargtag,listtoseq[dims]],
     id["ArrayReshape",p_][array_,dims_,padding_]:>native["array_reshape",p][array,padding,vargtag,listtoseq[dims]],

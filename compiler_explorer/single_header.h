@@ -4319,7 +4319,9 @@ struct variadic
     {
         return nf_(std::forward<decltype(args)>(args)...);
     }
-    template<typename Arg>
+    template<typename Arg, typename = std::enable_if_t<
+        std::is_invocable_v<Variadic, Arg&&> ||
+        !is_argument_pack_v<remove_cvref_t<Arg>>>>
     auto operator()(Arg&& arg) const -> decltype(auto)
     {
         if constexpr (is_argument_pack_v<remove_cvref_t<Arg>>)

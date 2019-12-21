@@ -1476,7 +1476,6 @@ template<typename XV, size_t XR, typename Y>
 auto append_to(ndarray<XV, XR>& x, Y&& y) -> const auto&
 {
     WL_TRY_BEGIN()
-
     using YT = remove_cvref_t<Y>;
     constexpr auto YR = array_rank_v<YT>;
     using YV = std::conditional_t<YR == 0u, YT, value_type_t<YT>>;

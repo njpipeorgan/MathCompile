@@ -578,14 +578,14 @@ variablerename[code_]:=
         ],
       function[p0_][ids_,types_,expr_]:>
         Module[{vars},
-          vars=If[MatchQ[#,id[_,pack[_]]],newvarpack,newvar]&/@ids;
+          vars=If[MatchQ[#,arg[_,pack[_]]],newvarpack,newvar]&/@ids;
           (*AppendTo[$variabletable,AssociationThread[vars->ids]];*)
           function[p0][vars,types,
             expr/.MapThread[#1->If[
               (Length[#]==1&&Count[headerseries[expr,#[[1]]],function]==0)&@
                 Position[expr,#1],movvar,var][#2]&,{ids/.id[n_]:>id[n,_],vars}],
-            Sequence@@If[MemberQ[ids,id[_,pack[_]]],
-              With[{var=newvar},{variadic[{var},{nil},expr/.{id[_,i_]:>argv[var,i]}]}],
+            Sequence@@If[MemberQ[ids,arg[_,pack[_]]],
+              With[{var=newvar},{variadic[{var},{nil},expr/.{arg[_,i_]:>argv[var,i]}]}],
               {}]
           ]
         ],

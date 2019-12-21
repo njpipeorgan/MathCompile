@@ -15,11 +15,13 @@ test[name_String,f_,pairs_]:=(
     If[FileExistsQ[#],DeleteFile[#]]&/@file;
   ])
 
+cleartests[]:=($MathCompileTests={};)
+
 runtests[]:=
   Block[{$FailedMathCompileTests={},i=0,n=Length@$MathCompileTests},
     PrintTemporary[Column[{ProgressIndicator[Dynamic[i/n]],Dynamic@$CurrentMathCompileTest}]];
     Do[$MathCompileTests[[i]][],{i,1,n}];<|"FailedTests"->$FailedMathCompileTests|>
-  ];
+  ]
 
 
 $MathCompileTests={};
@@ -66,3 +68,32 @@ registertest[test["pre_increment",            Function[{},Module[{x={1,2,3}},(++
 registertest[test["pre_decrement",            Function[{},Module[{x={1.+1.I,2.+2.I,3.+3.I}},(--x)-x]],{{}}]&];
 registertest[test["append_to",                Function[{},Module[{x={1.+1.I,2.+2.I,3.+3.I}},AppendTo[x,5]]],{{}->{1.+1.I,2.+2.I,3.+3.I,5.+0.I}}]&];
 registertest[test["prepend_to",               Function[{},Module[{x={{1,2},{3,4},{5,6}}},PrependTo[x,{7,8}]]],{}]&];
+
+registertest[test["add:scalar",               Function[{},1+4],{{}}]&];
+registertest[test["add:list1",                Function[{},Range[1000]+4.5],{{}}]&];
+registertest[test["add:list2",                Function[{},Range[1000]+Range[1001,2000]],{{}}]&];
+registertest[test["add:varg",                 Function[{},3+4+Range[10]+(5+6I)+Range[11,20]+7.8],{{}}]&];
+registertest[test["add:empty",                Function[{},Plus[]],{{}}]&];
+registertest[test["times:scalar",             Function[{},(-2)*4],{{}}]&];
+registertest[test["times:varg",               Function[{},3*4*Range[10]*(5+6I)*Range[11,20]*7.8],{{}}]&];
+registertest[test["times:empty",              Function[{},Times[]],{{}}]&];
+registertest[test["subtract:scalar",          Function[{},Subtract[5,8]],{{}}]&];
+registertest[test["subtract:list",            Function[{},5.5-Range[1000]],{{}}]&];
+registertest[test["divide:scalar",            Function[{},5/2],{{}->2.5}]&];
+registertest[test["divide:list",              Function[{},5.5/Range[1000]],{{}}]&];
+
+registertest[test["function:named",           Function[{Typed[x,Integer]},Function[u,3+u][x]],{{3}}]&];
+registertest[test["function:anonymous",       Function[{Typed[x,Integer]},Function[3+#][x]],{{3}}]&];
+registertest[test["function:2args",           Function[{Typed[x,Integer]},Function[{u,v},u*u+v*v*v][x,x]],{{3}}]&];
+registertest[test["function:0args",           Function[{Typed[x,Integer]},Module[{f=1.I&},f[x,x,x]]],{{3}}]&];
+registertest[test["function:nargs",           Function[{},Module[{f=List[##1,#4,##2,#3]&},f[1,2,3,4,5]]],{{}}]&];
+registertest[test["function:ignore",          Function[{},Module[{f=#1&},f[1,2,3]]],{{}}]&];
+registertest[test["function:generic",         Function[{},Module[{f={1,2,3}+#&},f[{4,5,6}]*f[7]]],{{}}]&];
+registertest[test["function:recursive",       Function[{},Module[{f=Typed[{Integer}->Integer]},f=If[#==1,1,# f[#-1]]&;f[10]]],{{}}]&];
+
+registertest[test["apply:default",            Function[{Typed[x,{Integer,4}]},Apply[Plus,x]],{{RandomInteger[10,{9,10,11,12}]}}]&];
+registertest[test["apply:level0",             Function[{Typed[x,{Integer,4}]},Apply[Times,x,{0}]],{{RandomInteger[10,{9,10,11,12}]}}]&];
+registertest[test["apply:level1",             Function[{Typed[x,{Integer,4}]},Apply[Plus,x,{1}]],{{RandomInteger[10,{9,10,11,12}]}}]&];
+registertest[test["apply:level3",             Function[{Typed[x,{Integer,4}]},Apply[Times,x,{3}]],{{RandomInteger[10,{9,10,11,12}]}}]&];
+registertest[test["apply:fix",                Function[{Typed[x,{Real,2}]},Apply[Subtract[#1,#2]&,x,{1}]],{{RandomReal[10,{10,2}]}}]&];
+

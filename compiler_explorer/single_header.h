@@ -4693,7 +4693,7 @@ auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
         const auto ret_size = utils::size_of_dims(map_dims);
         auto ret_iter = ret.template view_begin<R>();
         first_item.copy_to(ret_iter.begin());
-        (++iters, ...);
+        [[maybe_unused]] const auto& _1 = (++iters, ...);
         ++ret_iter;
         for (size_t i = 1; i < ret_size; ++i, ++ret_iter, (++iters, ...))
         {
@@ -9271,7 +9271,8 @@ auto join(const_int<I>, First&& first, Rest&&... rest)
         {
             auto ret_iter = ret.data();
             _join_copy_level1(ret_iter, first);
-            (_join_copy_level1(ret_iter, rest), ...);
+            [[maybe_unused]] const auto& _1 = (
+                _join_copy_level1(ret_iter, rest), ..., 0);
         }
         else
         {
@@ -9279,7 +9280,8 @@ auto join(const_int<I>, First&& first, Rest&&... rest)
             auto stride = utils::size_of_dims(
                 utils::dims_take<Level, rank>(ret_dims));
             _join_copy_leveln<Level, rank>(ret_iter, stride, first);
-            (_join_copy_leveln<Level, rank>(ret_iter, stride, rest), ...);
+            [[maybe_unused]] const auto& _1 = (
+                _join_copy_leveln<Level, rank>(ret_iter, stride, rest), ..., 0);
         }
         return ret;
     }

@@ -454,7 +454,7 @@ auto print(const X& x)
     librarylink::mathlink_t link;
     link.put("EvaluatePacket", 1).
         put("Print", 1);
-    if constexpr (is_array_v<>)
+    if constexpr (is_array_v<X>)
         link.put_array(x.dims(), x.data());
     else
         link.put(x);

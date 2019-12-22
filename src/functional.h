@@ -524,7 +524,7 @@ auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
         const auto ret_size = utils::size_of_dims(map_dims);
         auto ret_iter = ret.template view_begin<R>();
         first_item.copy_to(ret_iter.begin());
-        (++iters, ...);
+        [[maybe_unused]] const auto& _1 = (++iters, ...);
         ++ret_iter;
         for (size_t i = 1; i < ret_size; ++i, ++ret_iter, (++iters, ...))
         {

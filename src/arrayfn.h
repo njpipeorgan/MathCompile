@@ -1670,7 +1670,8 @@ auto join(const_int<I>, First&& first, Rest&&... rest)
         {
             auto ret_iter = ret.data();
             _join_copy_level1(ret_iter, first);
-            (_join_copy_level1(ret_iter, rest), ...);
+            [[maybe_unused]] const auto& _1 = (
+                _join_copy_level1(ret_iter, rest), ..., 0);
         }
         else
         {
@@ -1678,7 +1679,8 @@ auto join(const_int<I>, First&& first, Rest&&... rest)
             auto stride = utils::size_of_dims(
                 utils::dims_take<Level, rank>(ret_dims));
             _join_copy_leveln<Level, rank>(ret_iter, stride, first);
-            (_join_copy_leveln<Level, rank>(ret_iter, stride, rest), ...);
+            [[maybe_unused]] const auto& _1 = (
+                _join_copy_leveln<Level, rank>(ret_iter, stride, rest), ..., 0);
         }
         return ret;
     }

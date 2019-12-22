@@ -2712,7 +2712,7 @@ struct ndarray
             using XV = value_type_t<remove_cvref_t<X>>;
             this->dims_ = utils::dims_join(
                 std::array<size_t, 1u>{1u}, x.dims());
-            if (is_movable_v<X&&> && std::is_same_v<XV, T>)
+            if constexpr (is_movable_v<X&&> && std::is_same_v<XV, T>)
                 this->data_ = std::move(std::move(x).data_vector());
             else
             {

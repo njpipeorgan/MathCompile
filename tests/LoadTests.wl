@@ -70,7 +70,7 @@ registertest[test["decrement",                Function[{},Module[{x={1.+1.I,2.+2
 registertest[test["pre_increment",            Function[{},Module[{x={1,2,3}},(++x)*x]],{{}}]&];
 registertest[test["pre_decrement",            Function[{},Module[{x={1.+1.I,2.+2.I,3.+3.I}},(--x)-x]],{{}}]&];
 registertest[test["append_to",                Function[{},Module[{x={1.+1.I,2.+2.I,3.+3.I}},AppendTo[x,5]]],{{}->{1.+1.I,2.+2.I,3.+3.I,5.+0.I}}]&];
-registertest[test["prepend_to",               Function[{},Module[{x={{1,2},{3,4},{5,6}}},PrependTo[x,{7,8}]]],{}]&];
+registertest[test["prepend_to",               Function[{},Module[{x={{1,2},{3,4},{5,6}}},PrependTo[x,{7,8}]]],{{}}]&];
 
 registertest[test["add:scalar",               Function[{},1+4],{{}}]&];
 registertest[test["add:list1",                Function[{},Range[1000]+4.5],{{}}]&];

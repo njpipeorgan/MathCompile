@@ -352,4 +352,10 @@ namespace wl
 #define WL_ERROR_PARTITION_DEFAULT_LEVEL \
 "Lengths and offsets should match array rank when the level is not specified."
 
+#define WL_ERROR_NEST_WHILE_OFFSET \
+"There are not sufficient results from NestWhile for the specified offset."
+
+#define WL_ERROR_NEST_WHILE_LIST_OFFSET \
+"There are not sufficient results from NestWhileList for the specified offset."
+
 }

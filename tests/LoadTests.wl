@@ -5,10 +5,13 @@ registertest[test_]:=(AppendTo[$MathCompileTests,test];)
 test[name_String,f_,pairs_]:=(
   Module[{mf,file},
     $CurrentMathCompileTest=name;
+    If[Length[pairs]==0,
+      Echo[name<>" contains zero groups of arguments."];Abort[]];
     mf=CompileToBinary[f];
     file=DeleteMissing@{Information[mf]["File"]};
     If[mf===$Failed||(Or@@(!TrueQ[
-        If[Head[#]===Rule,(mf@@#[[1]])===#[[2]],(mf@@#)===(f@@#)]]&/@pairs)),
+        If[Head[#]===Rule,($LastReturn=mf@@#[[1]])===#[[2]],
+          ($LastReturn=mf@@#)===(f@@#)]]&/@pairs)),
       AppendTo[$FailedMathCompileTests,name];
     ];
     Quiet@LibraryFunctionUnload[mf];
@@ -96,4 +99,34 @@ registertest[test["apply:level0",             Function[{Typed[x,{Integer,4}]},Ap
 registertest[test["apply:level1",             Function[{Typed[x,{Integer,4}]},Apply[Plus,x,{1}]],{{RandomInteger[10,{9,10,11,12}]}}]&];
 registertest[test["apply:level3",             Function[{Typed[x,{Integer,4}]},Apply[Times,x,{3}]],{{RandomInteger[10,{9,10,11,12}]}}]&];
 registertest[test["apply:fix",                Function[{Typed[x,{Real,2}]},Apply[Subtract[#1,#2]&,x,{1}]],{{RandomReal[10,{10,2}]}}]&];
+registertest[test["map:simple",               Function[{Typed[x,{Integer,1}]},#+1&/@x],{{RandomInteger[10,1000]}}]&];
+registertest[test["map:level3",               Function[{Typed[x,{Integer,4}]},Map[#[[1]]&,x,{3}]],{{RandomInteger[10,{10,10,10,10}]}}]&];
+registertest[test["map:array1",               Function[{Typed[x,{Integer,3}]},Map[Reverse,x,{1}]],{{RandomInteger[10,{10,10,10}]}}]&];
+registertest[test["map:array2",               Function[{Typed[x,{Integer,1}]},Map[Range,x,{1}]],{{{5,5,5,5}}}]&];
+registertest[test["mapthread:fixed",          Function[{Typed[x,{Integer,1}]},MapThread[#1+#2*#3&,{x,x,x,x}]],{{RandomInteger[10,{100}]}}]&];
+registertest[test["mapthread:func",           Function[{Typed[x,{Integer,2}]},MapThread[#1+#2*#3&,x]],{{RandomInteger[10,{4,100}]}}]&];
+registertest[test["mapthread:times",          Function[{Typed[x,{Integer,2}]},MapThread[Times,x]],{{RandomInteger[10,{4,100}]}}]&];
+registertest[test["mapthread:list",           Function[{Typed[x,{Integer,2}]},MapThread[List,x]],{{RandomInteger[10,{4,100}]}}]&];
+registertest[test["mapthread:mixed",          Function[{Typed[x,{Real,2}],Typed[y,{Integer,1}]},MapThread[Part,{x,y}]],{{RandomReal[10,{55,100}],RandomInteger[{1,100},55]}}]&];
+registertest[test["mapthread:level2fixed",    Function[{Typed[x,{Integer,3}],Typed[y,{Integer,3}]},MapThread[Join,{x,y,y},2]],{{RandomInteger[10,{6,3,5}],RandomInteger[10,{6,3,3}]}}]&];
+registertest[test["mapthread:level3",         Function[{Typed[x,{Integer,4}]},MapThread[List,x,3]],{{RandomInteger[10,{6,3,5,5}]}}]&];
+registertest[test["select:basic",             Function[{Typed[x,{Integer,1}]},Select[x,EvenQ]],{{RandomInteger[10,{100}]}}]&];
+registertest[test["select:func",              Function[{Typed[x,{Integer,1}]},Select[x,#>5.5&]],{{RandomInteger[10,{100}]}}]&];
+registertest[test["select:array",             Function[{Typed[x,{Integer,2}]},Select[x,MemberQ[#,3]&]],{{RandomInteger[10,{20,10}]}}]&];
+registertest[test["count:match",              Function[{Typed[x,{Integer,1}]},Count[x,4]],{{RandomInteger[10,{100}]}}]&];
+registertest[test["count:matchlevel2",        Function[{Typed[x,{Integer,3}]},Count[x,{2,1},{2}]],{{RandomInteger[3,{10,10,2}]}}]&];
+registertest[test["count:pattern",            Function[{Typed[x,{Integer,2}]},Count[x,_?(#[[2]]==4&)]],{{RandomInteger[10,{100,2}]}}]&];
+registertest[test["count:patternlevel2",      Function[{Typed[x,{Integer,3}]},Count[x,_?(#[[2]]==4&),{2}]],{{RandomInteger[10,{10,10,2}]}}]&];
+registertest[test["nest:basic",               Function[{},Nest[#+1&,3.5,200]],{{}}]&];
+registertest[test["nest:array",               Function[{},Nest[Most,Range[10],5]],{{}}]&];
+registertest[test["nest_list:basic",          Function[{},NestList[#+1&,3.5,200]],{{}}]&];
+registertest[test["nest_list:array",          Function[{},NestList[RotateRight,Range[10],10]],{{}}]&];
+registertest[test["nest_while:basic",         Function[{},NestWhile[#/2&,123456,EvenQ]],{{}->1929.}]&];
+registertest[test["nest_while:list",          Function[{},NestWhile[2#&,Range[10],Last[#]>1000&]],{{}}]&];
+registertest[test["nest_while:nargs",         Function[{},NestWhile[Floor[#/2]&,10,UnsameQ,2]],{{}}]&];
+registertest[test["nest_while:limits",        Function[{Typed[max,Integer],Typed[n,Integer]},NestWhile[#+1&,0,#1<9&,5,max,n]],Flatten[Table[{i,j},{i,{0,1,4,5,6,8,9,10,13,14,15}},{j,Max[-i,-13],5,2}],1]]&];
+registertest[test["nest_while_list:basic",    Function[{},NestWhileList[Log,100.,#>0&]],{{}}]&];
+registertest[test["nest_while_list:list",     Function[{},NestWhileList[2#&,Range[10],Last[#]<1000&]],{{}}]&];
+registertest[test["nest_while_list:nargs",    Function[{},NestWhileList[Floor[#/2]&,10,UnsameQ,2]],{{}}]&];
+registertest[test["nest_while_list:limits",   Function[{Typed[max,Integer],Typed[n,Integer]},NestWhileList[#+1&,0,#1<9&,5,max,n]],Flatten[Table[{i,j},{i,{0,1,4,5,6,8,9,10,13,14,15}},{j,Max[-i,-13],5,2}],1]]&];
 

@@ -453,7 +453,12 @@ auto print(const X& x)
     WL_TRY_BEGIN()
     librarylink::mathlink_t link;
     link.put("EvaluatePacket", 1).
-        put("Print", 1).put(x).eof();
+        put("Print", 1);
+    if constexpr (is_array_v<>)
+        link.put_array(x.dims(), x.data());
+    else
+        link.put(x);
+    link.eof();
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -464,8 +469,13 @@ auto echo(X&& x)
     librarylink::mathlink_t link;
     link.put("EvaluatePacket", 1).
         put("CompoundExpression", 2).
-        put("Echo", 1).put(x).
-        put("Null").eof();
+        put("Echo", 1);
+    if constexpr (is_array_v<X>)
+        link.put_array(x.dims(), x.data());
+    else
+        link.put(x);
+    link.put("Null").
+        eof();
     return std::forward<decltype(x)>(x);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

@@ -258,6 +258,10 @@ namespace wl
 "The lengths and offsets of partition should be positive."
 #define WL_ERROR_PARTITION_DEFAULT_LEVEL \
 "Lengths and offsets should match array rank when the level is not specified."
+#define WL_ERROR_NEST_WHILE_OFFSET \
+"There are not sufficient results from NestWhile for the specified offset."
+#define WL_ERROR_NEST_WHILE_LIST_OFFSET \
+"There are not sufficient results from NestWhileList for the specified offset."
 }
 namespace wl
 {
@@ -2705,10 +2709,16 @@ struct ndarray
     {
         if (this->size() == 0u)
         {
+            using XV = value_type_t<remove_cvref_t<X>>;
             this->dims_ = utils::dims_join(
                 std::array<size_t, 1u>{1u}, x.dims());
-            this->data_ = cast<ndarray<T, R - 1u>>(
-                std::forward<decltype(x)>(x)).data_vector();
+            if (is_movable_v<X&&> && std::is_same_v<XV, T>)
+                this->data_ = std::move(std::move(x).data_vector());
+            else
+            {
+                this->data_.resize(x.size());
+                x.copy_to(this->data_.data());
+            }
         }
         else
         {
@@ -4924,10 +4934,11 @@ struct _nest_while_queue
     static constexpr auto _is_scalar = (R == 0u);
     using _elem_t = std::conditional_t<_is_scalar, T, ndarray<T, R>>;
     const size_t size_;
+    size_t elements_count_;
     size_t current_;
     std::vector<_elem_t> queue_;
     _nest_while_queue(size_t size) :
-        size_{size}, current_ {0u}, queue_(size)
+        size_{size}, elements_count_{0u}, current_{0u}, queue_(size)
     {
     }
     template<typename X>
@@ -4936,13 +4947,14 @@ struct _nest_while_queue
         using XT = remove_cvref_t<X>;
         static_assert(array_rank_v<XT> == R, WL_ERROR_NEST_TYPE);
         ++current_;
+        ++elements_count_;
         if (current_ == size_)
             current_ = 0u;
         auto& dst = queue_[current_];
         if constexpr (_is_scalar)
         {
             static_assert(is_convertible_v<XT, T>, WL_ERROR_NEST_TYPE);
-            dst = std::forward<decltype(x)>(x);
+            dst = cast<_elem_t>(std::forward<decltype(x)>(x));
         }
         else
         {
@@ -4971,21 +4983,24 @@ struct _nest_while_queue
     }
     auto get(size_t i) && -> auto&&
     {
+        if (i >= elements_count_)
+            throw std::logic_error(WL_ERROR_NEST_WHILE_OFFSET);
         return std::move(
             queue_.at(current_ - i + (i > current_ ? size_ : size_t(0))));
     }
-    template<typename Fn, size_t... Is>
+    template<size_t N, typename Fn, size_t... Is>
     auto _apply_test_impl(Fn&& fn, std::index_sequence<Is...>) const
     {
         auto res = std::forward<decltype(fn)>(fn)(
-            queue_[current_ - Is + (Is > current_ ? size_ : size_t(0))]...);
+            queue_[current_ - (N - Is - 1u) +
+                ((N - Is - 1u) > current_ ? size_ : size_t(0))]...);
         static_assert(is_boolean_v<decltype(res)>, WL_ERROR_PRED_TYPE);
         return res;
     }
     template<size_t N, typename Fn>
     auto apply_test(Fn&& fn) const
     {
-        return _apply_test_impl(std::forward<decltype(fn)>(fn),
+        return _apply_test_impl<N>(std::forward<decltype(fn)>(fn),
             std::make_index_sequence<N>{});
     }
 };
@@ -4996,20 +5011,23 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
 {
     WL_TRY_BEGIN()
     static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
-    const auto history_size = size_t(std::max(N, -offset + 1));
-    const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
+    constexpr auto effective_num_args = std::max(num_args, size_t(1));
+    const auto history_size = size_t(std::max(int64_t(num_args), -offset + 1));
+    const auto max_steps = std::max(input_max, int64_t(0));
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
         WL_ERROR_NEST_TYPE);
     constexpr auto XR = array_rank_v<XT0>;
-    if (max_steps < num_args)
+    if (max_steps < int64_t(effective_num_args))
     {
-        return nest(f, std::forward<decltype(x)>(x), max_steps);
+        if (int64_t(max_steps + offset) < 0)
+            throw std::logic_error(WL_ERROR_NEST_WHILE_OFFSET);
+        return nest(f, std::forward<decltype(x)>(x), max_steps + offset);
     }
-    else if (num_args <= 1u && offset == 0u)
+    else if (effective_num_args == 1u && offset >= 0)
     {
         auto ret = cast<XT2>(std::forward<decltype(x)>(x));
         bool continue_flag = false;
@@ -5017,23 +5035,32 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             continue_flag = test();
         else if constexpr (num_args == 1u)
             continue_flag = test(ret);
-        WL_CHECK_ABORT_LOOP_BEGIN(max_steps)
-            for (auto i = _loop_zero; i < _loop_size && continue_flag; ++i)
-            {
-                if constexpr (XR == 0u)
-                    ret = cast<XT2>(f(ret));
-                else
+        if (continue_flag)
+        {
+            WL_CHECK_ABORT_LOOP_BEGIN(max_steps)
+                for (auto i = _loop_zero; i < _loop_size; ++i)
                 {
-                    auto temp = val(f(std::move(ret)));
-                    set(ret, std::move(temp));
+                    if constexpr (XR == 0u)
+                        ret = cast<XT2>(f(ret));
+                    else
+                    {
+                        auto temp = val(f(std::move(ret)));
+                        set(ret, std::move(temp));
+                    }
+                    if constexpr (num_args == 0u)
+                        continue_flag = test();
+                    else if constexpr (num_args == 1u)
+                        continue_flag = test(ret);
+                    if (!continue_flag)
+                        goto nest_while_exit_no_queue;
                 }
-                if constexpr (num_args == 0u)
-                    continue_flag = test();
-                else if constexpr (num_args == 1u)
-                    continue_flag = test(ret);
-            }
-        WL_CHECK_ABORT_LOOP_END()
-        return ret;
+            WL_CHECK_ABORT_LOOP_END()
+        }
+nest_while_exit_no_queue:
+        if (offset == 0u)
+            return ret;
+        else
+            return nest(f, ret, offset);
     }
     else
     {
@@ -5046,13 +5073,20 @@ auto nest_while(Function f, X&& x, Test test, const_int<N>,
             queue.push(f(queue.last()));
         }
         bool continue_flag = queue.template apply_test<num_args>(test);
-        WL_CHECK_ABORT_LOOP_BEGIN(max_steps - num_args + 1)
-            for (auto i = _loop_zero; i <= _loop_size && continue_flag; ++i)
-            {
-                queue.push(f(queue.last()));
-                continue_flag = queue.template apply_test<num_args>(test);
-            }
-        WL_CHECK_ABORT_LOOP_END()
+        if (continue_flag)
+        {
+            WL_CHECK_ABORT_LOOP_BEGIN(max_steps - effective_num_args + 1)
+                for (auto i = _loop_zero; i < _loop_size; ++i)
+                {
+                    queue.push(f(queue.last()));
+                    continue_flag = queue.template apply_test<num_args>(test);
+                    if (!continue_flag)
+                        goto nest_while_exit_queue;
+                }
+            WL_CHECK_ABORT_LOOP_END()
+        }
+nest_while_exit_queue:
+        const auto reverse_offset = int64_t(effective_num_args) - 1 - offset;
         if (offset <= 0)
             return std::move(queue).get(size_t(-offset));
         else
@@ -5076,21 +5110,25 @@ auto _nest_while_list_apply_test(Test test, Iter iter,
 }
 template<typename Function, typename X, typename Test, int64_t N>
 auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
-    const int64_t input_max = const_int_infinity)
+    const int64_t input_max = const_int_infinity,
+    const int64_t offset = 0u)
 {
     WL_TRY_BEGIN()
     static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
     const auto max_steps = std::max(input_max, int64_t(0));
     constexpr auto num_args = size_t(N);
+    constexpr auto effective_num_args = std::max(num_args, size_t(1));
     using XT0 = remove_cvref_t<decltype(val(x))>;
     using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
     using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
     static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
         WL_ERROR_NEST_TYPE);
     constexpr auto XR = array_rank_v<XT0>;
-    if (max_steps < num_args)
+    if (max_steps < int64_t(effective_num_args))
     {
-        return nest_list(f, std::forward<decltype(x)>(x), max_steps);
+        if (int64_t(max_steps + offset) < 0)
+            throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
+        return nest_list(f, std::forward<decltype(x)>(x), max_steps + offset);
     }
     else if constexpr (XR == 0u)
     {
@@ -5123,6 +5161,23 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
             last = std::move(temp);
             ret.append(last);
         } while (true);
+        if (offset > 0)
+        {
+            for (int64_t i = 0; i < offset; ++i)
+            {
+                auto temp = f(std::move(last));
+                last = std::move(temp);
+                ret.append(last);
+            }
+        }
+        else if (offset < 0)
+        {
+            const auto new_dim0 = int64_t(offset + ret.dims()[0]);
+            if (new_dim0 <= 0)
+                throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
+            ret.uninitialized_resize(
+                std::array<size_t, 1u>{size_t(new_dim0)}, new_dim0);
+        }
         return ret;
     }
     else
@@ -5163,6 +5218,26 @@ auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
                 throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
             ret.append(last);
         } while (true);
+        if (offset > 0)
+        {
+            for (int64_t i = 0; i < offset; ++i)
+            {
+                auto temp = val(f(std::move(last)));
+                last = std::move(temp);
+                if (!utils::check_dims(item_dims, last.dims()))
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+                ret.append(last);
+            }
+        }
+        else if (offset < 0)
+        {
+            const auto new_dim0 = int64_t(offset + ret.dims()[0]);
+            if (new_dim0 <= 0)
+                throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
+            auto new_dims = ret.dims();
+            new_dims[0] = size_t(new_dim0);
+            ret.uninitialized_resize(new_dims, size_t(new_dim0) * last.size());
+        }
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)

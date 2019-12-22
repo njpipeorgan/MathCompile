@@ -501,10 +501,16 @@ struct ndarray
     {
         if (this->size() == 0u)
         {
+            using XV = value_type_t<remove_cvref_t<X>>;
             this->dims_ = utils::dims_join(
                 std::array<size_t, 1u>{1u}, x.dims());
-            this->data_ = cast<ndarray<T, R - 1u>>(
-                std::forward<decltype(x)>(x)).data_vector();
+            if (is_movable_v<X&&> && std::is_same_v<XV, T>)
+                this->data_ = std::move(std::move(x).data_vector());
+            else
+            {
+                this->data_.resize(x.size());
+                x.copy_to(this->data_.data());
+            }
         }
         else
         {

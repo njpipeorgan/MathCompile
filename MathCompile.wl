@@ -652,8 +652,8 @@ functionmacro[code_]:=code//.{
           array,Sequence@@(consts@@@out)],
         (Message[semantics::bad,tostring@id["Flatten",p][array,l]];Throw["semantics"])]
       ],
-    id["Composition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
-    id["RightComposition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
+    id["Composition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
+    id["RightComposition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
     id["Composition",p_][]:>native["identity",p],
     id["RightComposition",p_][]:>native["identity",p],
     id["NestWhile",p_][func_,expr_,test_,literal[i_Integer,_],id["Infinity",_],any___]:>

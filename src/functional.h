@@ -1149,23 +1149,23 @@ auto _fold_impl1(Function f, Y&& y)
     {
         if constexpr (FoldL)
             return _fold_list_impl(f, *valy.template view_begin<1u>(),
-                valy.template view_begin<1u>(),
-                [](auto& iter) { ++iter; }, n);
+                valy.template view_begin<1u>() + 1,
+                [](auto& iter) { ++iter; }, n - 1u);
         else
-            return _fold_list_impl(f, *(--(valy.template view_end<1u>())),
-                --(valy.template view_end<1u>()),
-                [](auto& iter) { --iter; }, n);
+            return _fold_list_impl(f, *(valy.template view_end<1u>() - 1),
+                valy.template view_end<1u>() - 2,
+                [](auto& iter) { --iter; }, n - 1u);
     }
     else
     {
         if constexpr (FoldL)
             return _fold_single_impl(f, *valy.template view_begin<1u>(),
-                valy.template view_begin<1u>(),
-                [](auto& iter) { ++iter; }, n);
+                valy.template view_begin<1u>() + 1,
+                [](auto& iter) { ++iter; }, n - 1u);
         else
-            return _fold_single_impl(f, *(--(valy.template view_end<1u>())),
-                --(valy.template view_end<1u>()),
-                [](auto& iter) { --iter; }, n);
+            return _fold_single_impl(f, *(valy.template view_end<1u>() - 1),
+                valy.template view_end<1u>() - 2,
+                [](auto& iter) { --iter; }, n - 1u);
     }
 }
 
@@ -1184,7 +1184,7 @@ auto _fold_impl1(Function f, X&& x, Y&& y)
                 [](auto& iter) { ++iter; }, n);
         else
             return _fold_list_impl(f, std::forward<decltype(x)>(x),
-                --(valy.template view_end<1u>()),
+                valy.template view_end<1u>() - 1,
                 [](auto& iter) { --iter; }, n);
     }
     else
@@ -1195,7 +1195,7 @@ auto _fold_impl1(Function f, X&& x, Y&& y)
                 [](auto& iter) { ++iter; }, n);
         else
             return _fold_single_impl(f, std::forward<decltype(x)>(x),
-                --(valy.template view_end<1u>()),
+                valy.template view_end<1u>() - 1,
                 [](auto& iter) { --iter; }, n);
     }
 }
@@ -1320,7 +1320,7 @@ template<typename Arg>
 auto identity(Arg&& arg) -> decltype(auto)
 {
     WL_TRY_BEGIN()
-    return std::forward<decltype(arg)>(arg);
+    return val(arg);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

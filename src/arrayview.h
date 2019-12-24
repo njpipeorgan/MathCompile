@@ -799,7 +799,7 @@ struct regular_view_iterator
 
     auto operator-(const _my_type& other) const
     {
-        return ptrdiff_t(other.pointer_ - this->pointer_) / this->stride_;
+        return ptrdiff_t(this->pointer_ - other.pointer_) / this->stride_;
     }
 };
 

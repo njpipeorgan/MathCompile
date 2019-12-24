@@ -1,7 +1,7 @@
 The package `LoadTests.wl` includes many tests for MathCompile. The tests are performed by calling `CompileToBinary` on *Wolfram Language* functions and compare the results evaluated by the compiled functions to those by native functions. 
 
 As for now, the tests cover
- - loading and returning objects of various types, and
+ - loading and returning objects of various types
  - procedual programming functions
  - functional programming functions
  - arithmetic functions

@@ -3,7 +3,7 @@ The package `LoadTests.wl` includes many tests for MathCompile. The tests are pe
 As for now, the tests cover
  - loading and returning objects of various types, and
  - procedual programming functions
- - part of functional programming functions
+ - functional programming functions
  - arithmetic functions
 
 To use the testing package, load both `MathCompile` package and this package, set the C++ compiler if needed, and call `runtests`:

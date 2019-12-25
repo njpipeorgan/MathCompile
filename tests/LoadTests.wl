@@ -2,16 +2,16 @@
 
 registertest[test_]:=(AppendTo[$MathCompileTests,test];)
 
-test[name_String,f_,pairs_]:=(
+test[name_String,f_,pairs_,cmp_:SameQ]:=(
   Module[{mf,file},
     $CurrentMathCompileTest=name;
-    If[Length[pairs]==0,
+    If[!TrueQ@MatchQ[pairs,{(({___})|({___}->_))..}],
       Echo[name<>" contains zero groups of arguments."];Abort[]];
     mf=CompileToBinary[f];
     file=DeleteMissing@{Information[mf]["File"]};
     If[mf===$Failed||(Or@@(!TrueQ[
-        If[Head[#]===Rule,($LastReturn=mf@@#[[1]])===#[[2]],
-          ($LastReturn=mf@@#)===(f@@#)]]&/@pairs)),
+        If[Head[#]===Rule,($LastReturn=(mf@@#[[1]]))~cmp~#[[2]],
+          ($LastReturn=(mf@@#))~cmp~(f@@#)]]&/@pairs)),
       AppendTo[$FailedMathCompileTests,name];
     ];
     Quiet@LibraryFunctionUnload[mf];
@@ -157,4 +157,27 @@ registertest[test["all_true:level3",          Function[{Typed[x,{Integer,4}]},Al
 registertest[test["any_true:level1",          Function[{Typed[x,{Integer,1}]},AnyTrue[x,Positive]],{{{-1,-2,3,-4,-5}},{{-1,-2,-3,-4,-5}}}]&];
 registertest[test["any_true:level3",          Function[{Typed[x,{Integer,4}]},AnyTrue[x,#[[1]]>0&,3]],{{RandomInteger[{-10,-1},{5,6,7,8}]},{RandomInteger[{-10,10},{5,6,7,8}]}}]&];
 registertest[test["none_true:level1",         Function[{Typed[x,{Integer,1}]},NoneTrue[x,Positive,1]],{{{-1,-2,3,-4,-5}},{{-1,-2,-3,-4,-5}}}]&];
+
+registertest[test["exp,log:real",             Function[{Typed[x,Real]},{Exp[x],Log[x],Log10[x],Log2[x]}],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
+registertest[test["exp,log:complex",          Function[{Typed[x,Complex]},{Exp[x],Log[x],Log10[x],Log2[x]}],{{-1.5+1.5I},{0.-2.2I},{1.5-0.5I},{5.3+1.1I}},Equal]&]
+registertest[test["power:real",               Function[{Typed[x,Real],Typed[y,Real]},x^y],{{2.5,2.5},{2.5,-2.5}},Equal]&]
+registertest[test["power:complex",            Function[{Typed[x,Complex],Typed[y,Complex]},x^y],{{2.5+1.5I,2.5-1.5I},{2.5-1.5I,-2.5+1.5I}},Equal]&]
+registertest[test["sqrt:real",                Function[{Typed[x,Real]},Sqrt[x]],{{0.0},{0.01},{1.3},{135.7}},Equal]&]
+registertest[test["sqrt:complex",             Function[{Typed[x,Complex]},Sqrt[x]],{{1.5I},{2.5-1.5I},{2.5-1.5I},{-2.5+1.5I}},Equal]&]
+registertest[test["logistic_sigmoid",         Function[{Typed[x,Complex]},LogisticSigmoid[x]],{{1.5I},{2.5-1.5I},{2.5-1.5I},{-2.5+1.5I}},Equal]&]
+registertest[test["trig:real",                Function[{Typed[x,Real]},{Sin[x],Cos[x],Tan[x],Cot[x],Sec[x],Csc[x]}],{{0.3},{0.5},{0.8}},Equal]&]
+registertest[test["trig:complex",             Function[{Typed[x,Complex]},{Sin[x],Cos[x],Tan[x],Cot[x],Sec[x],Csc[x]}],{{0.3+0.1I},{0.5+0.1I},{0.8+0.1I}},Equal]&]
+registertest[test["triginv:real",             Function[{Typed[x,Real]},{ArcSin[x],ArcCos[x],ArcTan[x],ArcCot[x],ArcSec[1.+x],ArcCsc[1.+x]}],{{0.3},{0.5},{0.8}},Equal]&]
+registertest[test["triginv:complex",          Function[{Typed[x,Complex]},{ArcSin[x],ArcCos[x],ArcTan[x],ArcCot[x],ArcSec[x],ArcCsc[x]}],{{0.3+0.1I},{0.5+0.1I},{0.8+0.1I}},Equal]&]
+registertest[test["hyp:real",                 Function[{Typed[x,Real]},{Sinh[x],Cosh[x],Tanh[x],Coth[x],Sech[x],Csch[x]}],{{0.3},{0.5},{0.8}},Equal]&]
+registertest[test["hyp:complex",              Function[{Typed[x,Complex]},{Sinh[x],Cosh[x],Tanh[x],Coth[x],Sech[x],Csch[x]}],{{0.3+0.1I},{0.5+0.1I},{0.8+0.1I}},Equal]&]
+registertest[test["hypinv:real",              Function[{Typed[x,Real]},{ArcSinh[x],ArcCosh[1.+x],ArcTanh[x],ArcCoth[1.+x],ArcSech[x],ArcCsch[x]}],{{0.3},{0.5},{0.8}},Equal]&]
+registertest[test["hypinv:complex",           Function[{Typed[x,Complex]},{ArcSinh[x],ArcCosh[x],ArcTanh[x],ArcCoth[x],ArcSech[x],ArcCsch[x]}],{{0.3+0.1I},{0.5+0.1I},{0.8+0.1I}},Equal]&]
+registertest[test["trigderived:real",         Function[{Typed[x,Real]},{Haversine[x],InverseHaversine[x],Gudermannian[x],InverseGudermannian[x],Sinc[x]}],{{0.3},{0.5},{0.8}},Equal]&]
+registertest[test["trigderived:complex",      Function[{Typed[x,Complex]},{Haversine[x],InverseHaversine[x],Gudermannian[x],InverseGudermannian[x],Sinc[x]}],{{0.3+0.1I},{0.5+0.1I},{0.8+0.1I}},Equal]&]
+
+registertest[test["gamma,log_gamma",          Function[{Typed[x,Real]},{Gamma[x],LogGamma[x]}],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
+registertest[test["erf,erfc",                 Function[{Typed[x,Real]},{Erf[x],Erfc[x]}],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
+registertest[test["beta",                     Function[{Typed[x,Real],Typed[y,Real]},Beta[x,y]],{{5.0,4.0},{2.3,3.2}},Equal]&]
+registertest[test["zeta",                     Function[{Typed[x,Real]},Zeta[x]],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
 

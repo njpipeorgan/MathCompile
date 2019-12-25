@@ -67,19 +67,26 @@ WL_INLINE auto _scalar_square(const X x)
     return X(x * x);
 }
 
-template<typename X>
-WL_INLINE auto _scalar_power(const X& x, int64_t y)
+template<typename X, typename Y>
+WL_INLINE auto _scalar_power(const X& x, const Y& y)
 {
-    auto tmp = x;
-    auto count = y < 0 ? uint64_t(0) - uint64_t(y) :  uint64_t(y);
-
-    auto ret = X(1);
-    for (;; tmp *= tmp)
+    if constexpr (is_integral_v<Y>)
     {
-        if ((count & uint64_t(1)) != 0u)
-            ret *= tmp;
-        if ((count >>= 1) == 0u)
-            return y < 0 ? X(1) / ret : ret;
+        auto tmp = x;
+        auto count = y < 0 ? uint64_t(0) - uint64_t(y) :  uint64_t(y);
+
+        auto ret = X(1);
+        for (;; tmp *= tmp)
+        {
+            if ((count & uint64_t(1)) != 0u)
+                ret *= tmp;
+            if ((count >>= 1) == 0u)
+                return y < 0 ? X(1) / ret : ret;
+        }
+    }
+    else
+    {
+        return std::pow(x, y);
     }
 }
 

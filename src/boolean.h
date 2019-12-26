@@ -171,62 +171,62 @@ auto bit_length(X&& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename X, typename Y>
-auto bit_and(X&& x, Y&& y)
-{
-    WL_TRY_BEGIN()
-    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_and)
-    {
-        using XV = remove_cvref_t<X>;
-        using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>,
-            WL_ERROR_INTEGRAL_TYPE_ARG);
-        using C = common_type_t<XV, YV>;
-        return C(C(x) & C(y));
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
+#define WL_DEFINE_BITWISE_OPERATION(name, expr)                             \
+template<typename X, typename Y>                                            \
+auto name(X&& x, Y&& y)                                                     \
+{                                                                           \
+    WL_TRY_BEGIN()                                                          \
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_and)                 \
+    {                                                                       \
+        auto pure = [](const auto& x, const auto& y)                        \
+        {                                                                   \
+            using XV = remove_cvref_t<decltype(x)>;                         \
+            using YV = remove_cvref_t<decltype(y)>;                         \
+            static_assert(is_integral_v<XV> && is_integral_v<YV>,           \
+                WL_ERROR_INTEGRAL_TYPE_ARG);                                \
+            using C = common_type_t<XV, YV>;                                \
+            return expr;                                                    \
+        };                                                                  \
+        return utils::listable_function(pure,                               \
+            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));    \
+    }                                                                       \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
+}                                                                           \
+template<typename X, typename Y>                                            \
+void _##name##_assignment(X& x, const Y& y)                                 \
+{                                                                           \
+    x = X(name(x, y));                                                      \
+}                                                                           \
+template<typename XV, typename YV, size_t R>                                \
+void _##name##_assignment(ndarray<XV, R>& x, const ndarray<YV, R>& y)       \
+{                                                                           \
+    assert(x.dims() == y.dims());                                           \
+    x.for_each(                                                             \
+        [](auto& a, const auto& b) { _##name##_assignment(a, b); },         \
+        y.data());                                                          \
+}                                                                           \
+template<typename Iter, bool HasStride>                                     \
+auto _variadic_##name(const argument_pack<Iter, HasStride>& args)           \
+{                                                                           \
+    auto ret = val(args.get(0));                                            \
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)                             \
+        for (auto i = _loop_begin; i < _loop_end; ++i)                      \
+            _##name##_assignment(ret, args.get(i + 1, dim_checked{}));      \
+    WL_CHECK_ABORT_LOOP_END()                                               \
+    return ret;                                                             \
 }
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_and)
+
+WL_DEFINE_BITWISE_OPERATION(bit_and, C(C(x) & C(y)))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_and, int64_t(-1))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_and)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_and)
 
-template<typename X, typename Y>
-auto bit_or(X&& x, Y&& y)
-{
-    WL_TRY_BEGIN()
-    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_or)
-    {
-        using XV = remove_cvref_t<X>;
-        using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>,
-            WL_ERROR_INTEGRAL_TYPE_ARG);
-        using C = common_type_t<XV, YV>;
-        return C(C(x) | C(y));
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_or)
+WL_DEFINE_BITWISE_OPERATION(bit_or, C(C(x) | C(y)))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_or, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_or)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_or)
 
-template<typename X, typename Y>
-auto bit_xor(X&& x, Y&& y)
-{
-    WL_TRY_BEGIN()
-    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_xor)
-    {
-        using XV = remove_cvref_t<X>;
-        using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>,
-            WL_ERROR_INTEGRAL_TYPE_ARG);
-        using C = common_type_t<XV, YV>;
-        return C(C(x) ^ C(y));
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_xor)
+WL_DEFINE_BITWISE_OPERATION(bit_xor, C(C(x) ^ C(y)))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_xor, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_xor)

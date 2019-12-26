@@ -2959,7 +2959,8 @@ auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
     auto ret = val(args.get(0));                                    \
     WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)                     \
         for (auto i = _loop_begin; i < _loop_end; ++i)              \
-            ret = name(std::move(ret), args.get(i, dim_checked{})); \
+            ret = name(std::move(ret),                              \
+                args.get(i + 1, dim_checked{}));                    \
     WL_CHECK_ABORT_LOOP_END()                                       \
     return ret;                                                     \
 }
@@ -3388,7 +3389,7 @@ auto integer_digits(const X& x, const Y& y, const N& n)
             ++ret_iter;
             if (ux == 0u)
             {
-                for (; ret_iter != ret_end; ++ret_iter)
+                for (; ret_iter < ret_end; ++ret_iter)
                     *ret_iter = Ret(0);
                 break;
             }
@@ -6028,16 +6029,18 @@ auto arg(X&& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         if constexpr (is_complex_v<XV>)
+        {
             return std::arg(x);
+        }
         else if constexpr (is_integral_v<XV>)
         {
             if constexpr (std::is_unsigned_v<XV>)
                 return double(0);
             else
-                return x >= X(0) ? double(0) : const_pi;
+                return x >= XV(0) ? double(0) : const_pi;
         }
         else
-            return x >= X(0) ? X(0) : X(const_pi);
+            return x >= XV(0) ? XV(0) : XV(const_pi);
     };
     return utils::listable_function(scalar_arg, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -6065,21 +6068,23 @@ auto re_im(X&& x)
 {
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
-    static_assert(is_numerical_type_v<XT>,
-        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     constexpr auto rank = array_rank_v<XT>;
     if constexpr (rank == 0)
     {
-        ndarray<XT, 1u> ret(std::array<size_t, 1u>{2});
-        ret[0] = re(x);
-        ret[1] = im(x);
+        using XV = value_type_t<XT>;
+        ndarray<XV, 1u> ret(std::array<size_t, 1u>{2});
+        auto iter = ret.data();
+        iter[0] = re(x);
+        iter[1] = im(x);
+        return ret;
     }
     else
     {
-        using XV = typename XT::value_type;
+        using XV = value_type_t<value_type_t<XT>>;
         auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
         ndarray<XV, rank + 1u> ret(dims);
-        auto iter = ret.begin();
+        auto iter = ret.data();
         x.for_each([&](const auto& a)
             { *iter++ = re(a), *iter++ = im(a); });
         return ret;
@@ -6096,20 +6101,21 @@ auto abs_arg(X&& x)
     constexpr auto rank = array_rank_v<XT>;
     if constexpr (rank == 0)
     {
-        using T = decltype(arg(XT{}));
-        ndarray<T, 1u> ret(std::array<size_t, 1u>{2});
-        ret[0] = T(abs(x));
-        ret[1] = T(arg(x));
+        using XV = value_type_t<XT>;
+        ndarray<XV, 1u> ret(std::array<size_t, 1u>{2});
+        auto iter = ret.data();
+        iter[0] = XV(abs(x));
+        iter[1] = XV(arg(x));
+        return ret;
     }
     else
     {
-        using XV = typename XT::value_type;
-        using T = decltype(arg(XV{}));
+        using XV = promote_integral_t<value_type_t<value_type_t<XT>>>;
         auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
-        ndarray<T, rank + 1u> ret(dims);
+        ndarray<XV, rank + 1u> ret(dims);
         auto iter = ret.begin();
         x.for_each([&](const auto& a)
-            { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
+            { *iter++ = XV(abs(a)), *iter++ = XV(arg(a)); });
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -6414,7 +6420,7 @@ auto fibonacci(X&& x)
                 return XV(_fibonacci(x));
             else if (x >= XV(0))
                 return XV(_fibonacci(x));
-            else
+            else // x < 0
             {
                 auto val = XV(_fibonacci(-x));
                 return (x & XV(1)) ? val : -val;
@@ -6441,11 +6447,13 @@ auto lucas_l(X&& x)
         using XV = remove_cvref_t<decltype(x)>;
         if constexpr (is_integral_v<XV>)
         {
-            if constexpr (std::is_unsigned_v<XV>)
+            if (x == XV(0))
+                return XV(2);
+            else if constexpr (std::is_unsigned_v<XV>)
                 return XV(_lucas_l(x));
-            else if (x >= XV(0))
+            else if (x > XV(0))
                 return XV(_lucas_l(x));
-            else
+            else // x < 0
             {
                 auto val = XV(_lucas_l(-x));
                 return (x & XV(1)) ? -val : val;
@@ -6599,60 +6607,59 @@ auto bit_length(X&& x)
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-template<typename X, typename Y>
-auto bit_and(X&& x, Y&& y)
-{
-    WL_TRY_BEGIN()
-    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_and)
-    {
-        using XV = remove_cvref_t<X>;
-        using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>,
-            WL_ERROR_INTEGRAL_TYPE_ARG);
-        using C = common_type_t<XV, YV>;
-        return C(C(x) & C(y));
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
+#define WL_DEFINE_BITWISE_OPERATION(name, expr)                             \
+template<typename X, typename Y>                                            \
+auto name(X&& x, Y&& y)                                                     \
+{                                                                           \
+    WL_TRY_BEGIN()                                                          \
+    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_and)                 \
+    {                                                                       \
+        auto pure = [](const auto& x, const auto& y)                        \
+        {                                                                   \
+            using XV = remove_cvref_t<decltype(x)>;                         \
+            using YV = remove_cvref_t<decltype(y)>;                         \
+            static_assert(is_integral_v<XV> && is_integral_v<YV>,           \
+                WL_ERROR_INTEGRAL_TYPE_ARG);                                \
+            using C = common_type_t<XV, YV>;                                \
+            return expr;                                                    \
+        };                                                                  \
+        return utils::listable_function(pure,                               \
+            std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));    \
+    }                                                                       \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
+}                                                                           \
+template<typename X, typename Y>                                            \
+void _##name##_assignment(X& x, const Y& y)                                 \
+{                                                                           \
+    x = X(name(x, y));                                                      \
+}                                                                           \
+template<typename XV, typename YV, size_t R>                                \
+void _##name##_assignment(ndarray<XV, R>& x, const ndarray<YV, R>& y)       \
+{                                                                           \
+    assert(x.dims() == y.dims());                                           \
+    x.for_each(                                                             \
+        [](auto& a, const auto& b) { _##name##_assignment(a, b); },         \
+        y.data());                                                          \
+}                                                                           \
+template<typename Iter, bool HasStride>                                     \
+auto _variadic_##name(const argument_pack<Iter, HasStride>& args)           \
+{                                                                           \
+    auto ret = val(args.get(0));                                            \
+    WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)                             \
+        for (auto i = _loop_begin; i < _loop_end; ++i)                      \
+            _##name##_assignment(ret, args.get(i + 1, dim_checked{}));      \
+    WL_CHECK_ABORT_LOOP_END()                                               \
+    return ret;                                                             \
 }
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_and)
+WL_DEFINE_BITWISE_OPERATION(bit_and, C(C(x) & C(y)))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_and, int64_t(-1))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_and)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_and)
-template<typename X, typename Y>
-auto bit_or(X&& x, Y&& y)
-{
-    WL_TRY_BEGIN()
-    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_or)
-    {
-        using XV = remove_cvref_t<X>;
-        using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>,
-            WL_ERROR_INTEGRAL_TYPE_ARG);
-        using C = common_type_t<XV, YV>;
-        return C(C(x) | C(y));
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_or)
+WL_DEFINE_BITWISE_OPERATION(bit_or, C(C(x) | C(y)))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_or, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_or)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_or)
-template<typename X, typename Y>
-auto bit_xor(X&& x, Y&& y)
-{
-    WL_TRY_BEGIN()
-    WL_VARIADIC_FUNCTION_DEFAULT_IF_PARAMETER_PACK(bit_xor)
-    {
-        using XV = remove_cvref_t<X>;
-        using YV = remove_cvref_t<Y>;
-        static_assert(is_integral_v<XV> && is_integral_v<YV>,
-            WL_ERROR_INTEGRAL_TYPE_ARG);
-        using C = common_type_t<XV, YV>;
-        return C(C(x) ^ C(y));
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_VARIADIC(bit_xor)
+WL_DEFINE_BITWISE_OPERATION(bit_xor, C(C(x) ^ C(y)))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NULLARY(bit_xor, int64_t(0))
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_UNARY(bit_xor)
 WL_VARIADIC_FUNCTION_DEFINE_DEFAULT_NARY(bit_xor)
@@ -6781,8 +6788,14 @@ void adjust_bounds(T& min, T& max)
 template<typename T>
 void adjust_bounds(complex<T>& min, complex<T>& max)
 {
-    adjust_bounds(min.real(), max.real());
-    adjust_bounds(min.imag(), max.imag());
+    auto min_real = min.real();
+    auto min_imag = min.imag();
+    auto max_real = max.real();
+    auto max_imag = max.imag();
+    adjust_bounds(min_real, max_real);
+    adjust_bounds(min_imag, max_imag);
+    min = complex<T>(min_real, min_imag);
+    max = complex<T>(max_real, max_imag);
 }
 template<typename T, bool Multiple = false>
 struct uniform

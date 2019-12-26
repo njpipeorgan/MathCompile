@@ -123,8 +123,14 @@ void adjust_bounds(T& min, T& max)
 template<typename T>
 void adjust_bounds(complex<T>& min, complex<T>& max)
 {
-    adjust_bounds(min.real(), max.real());
-    adjust_bounds(min.imag(), max.imag());
+    auto min_real = min.real();
+    auto min_imag = min.imag();
+    auto max_real = max.real();
+    auto max_imag = max.imag();
+    adjust_bounds(min_real, max_real);
+    adjust_bounds(min_imag, max_imag);
+    min = complex<T>(min_real, min_imag);
+    max = complex<T>(max_real, max_imag);
 }
 
 template<typename T, bool Multiple = false>

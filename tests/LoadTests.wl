@@ -181,3 +181,43 @@ registertest[test["erf,erfc",                 Function[{Typed[x,Real]},{Erf[x],E
 registertest[test["beta",                     Function[{Typed[x,Real],Typed[y,Real]},Beta[x,y]],{{5.0,4.0},{2.3,3.2}},Equal]&]
 registertest[test["zeta",                     Function[{Typed[x,Real]},Zeta[x]],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
 
+registertest[test["not",                      Function[{Typed[x,Boolean]},Not[x]],{{True},{False}}]&];
+registertest[test["and",                      Function[{Typed[x,{Integer,1}]},And@@Map[#>0&,x]],List/@Tuples[{0,1},5]]&];
+registertest[test["or",                       Function[{Typed[x,{Integer,1}]},Or@@Map[#>0&,x]],List/@Tuples[{0,1},5]]&];
+registertest[test["xor",                      Function[{Typed[x,{Integer,1}]},Xor@@Map[#>0&,x]],List/@Tuples[{0,1},5]]&];
+registertest[test["nand",                     Function[{Typed[x,{Integer,1}]},Nand@@Map[#>0&,x]],List/@Tuples[{0,1},5]]&];
+registertest[test["nor",                      Function[{Typed[x,{Integer,1}]},Nor@@Map[#>0&,x]],List/@Tuples[{0,1},5]]&];
+registertest[test["xnor",                     Function[{Typed[x,{Integer,1}]},Xnor@@Map[#>0&,x]],List/@Tuples[{0,1},5]]&];
+registertest[test["implies",                  Function[{Typed[x,Boolean],Typed[y,Boolean]},Implies[x,y]],{{True,True},{True,False},{False,True},{False,False}}]&];
+registertest[test["boole",                    Function[{Typed[x,Boolean]},Boole[x]],{{True},{False}}]&];
+registertest[test["bit_not",                  Function[{Typed[x,{Integer,1}]},BitNot[x]],{{RandomInteger[{-1000000,1000000},20]}}]&];
+registertest[test["bit_and",                  Function[{Typed[x,{Integer,2}]},BitAnd@@x],{{RandomInteger[{-1*^8,1*^8},{5,5}]}}]&];
+registertest[test["bit_or",                   Function[{Typed[x,{Integer,2}]},BitOr@@x],{{RandomInteger[{-1*^8,1*^8},{5,5}]}}]&];
+registertest[test["bit_xor",                  Function[{Typed[x,{Integer,2}]},BitXor@@x],{{RandomInteger[{-1*^8,1*^8},{5,5}]}}]&];
+registertest[test["bit_length",               Function[{Typed[x,{Integer,1}]},BitLength[x]],{{RandomInteger[{-1000000,1000000},20]}}]&];
+
+registertest[test["even_q:int",               Function[{Typed[x,Integer]},EvenQ[x]],List/@Range[-10,10]]&];
+registertest[test["even_q:real",              Function[{Typed[x,Real]},EvenQ[x]],({#}->EvenQ@Rationalize[#])&/@N@Range[0,5,0.25]]&];
+registertest[test["odd_q:int",                Function[{Typed[x,Integer]},OddQ[x]],List/@Range[-10,10]]&];
+registertest[test["odd_q:real",               Function[{Typed[x,Real]},OddQ[x]],({#}->OddQ@Rationalize[#])&/@N@Range[0,5,0.25]]&];
+registertest[test["divisible",                Function[{Typed[x,Integer],Typed[y,Integer]},Divisible[x,y]],DeleteCases[RandomInteger[{-20,20},{400,2}],{_,0}]]&];
+registertest[test["fibonacci",                Function[{Typed[x,Integer]},Fibonacci[x]],List/@Range[-90,90]]&];
+registertest[test["lucas_l",                  Function[{Typed[x,{Integer,1}]},LucasL[x]],{{Range[-90,90]}}]&];
+registertest[test["integer_digits:1args",     Function[{Typed[x,Integer]},IntegerDigits[x]],{{-58127},{0},{58127}}]&];
+registertest[test["integer_digits:2args",     Function[{Typed[x,Integer],Typed[y,Integer]},IntegerDigits[x,y]],{{-58127,2},{0,2},{12345,8},{58127,17}}]&];
+registertest[test["integer_digits:3args",     Function[{Typed[x,Integer],Typed[y,Integer],Typed[n,Integer]},IntegerDigits[x,y,n]],{{58127,2,10},{0,2,5},{12345,8,0},{58127,17,10}}]&];
+
+registertest[test["complex",                  Function[{Typed[x,Real],Typed[y,Real]},Complex[x,y]],RandomReal[{-10,10},{100,2}]]&];
+registertest[test["re:real",                  Function[{Typed[x,{Real,1}]},Re[x]],{{RandomReal[{-10,10},100]}}]&];
+registertest[test["re:complex",               Function[{Typed[x,{Complex,1}]},Re[x]],{{RandomComplex[{-10-10I,10+10I},100]}}]&];
+registertest[test["im:real",                  Function[{Typed[x,{Real,1}]},Im[x]],{{RandomReal[{-10,10},100]}->ConstantArray[0.,100]}]&];
+registertest[test["im:complex",               Function[{Typed[x,{Complex,1}]},Im[x]],{{RandomComplex[{-10-10I,10+10I},100]}}]&];
+registertest[test["arg:real",                 Function[{Typed[x,{Real,1}]},Arg[x]],{{#}->N@Arg[#]&@RandomReal[{-10,10},100]}]&];
+registertest[test["arg:complex",              Function[{Typed[x,{Complex,1}]},Arg[x]],{{RandomComplex[{-10-10I,10+10I},100]}}]&];
+registertest[test["conjugate:real",           Function[{Typed[x,{Real,1}]},Conjugate[x]],{{RandomReal[{-10,10},100]}}]&];
+registertest[test["conjugate:complex",        Function[{Typed[x,{Complex,1}]},Conjugate[x]],{{RandomComplex[{-10-10I,10+10I},100]}}]&];
+registertest[test["re_im:real",               Function[{Typed[x,{Real,1}]},ReIm[x]],{{#}->N@ReIm[#]&@RandomReal[{-10,10},100]}]&];
+registertest[test["re_im:complex",            Function[{Typed[x,{Complex,1}]},ReIm[x]],{{RandomComplex[{-10-10I,10+10I},100]}}]&];
+registertest[test["abs_arg:real",             Function[{Typed[x,{Real,1}]},AbsArg[x]],{{#}->N@AbsArg[#]&@RandomReal[{-10,10},100]}]&];
+registertest[test["abs_arg:complex",          Function[{Typed[x,{Complex,1}]},AbsArg[x]],{{RandomComplex[{-10-10I,10+10I},100]}}]&];
+

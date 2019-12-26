@@ -5,6 +5,10 @@ As for now, the tests cover
  - procedual programming functions
  - functional programming functions
  - arithmetic functions
+ - special functions
+ - logical and bitwise functions
+ - complex number functions
+ - integer functions
 
 To use the testing package, load both `MathCompile` package and this package, set the C++ compiler if needed, and call `runtests`:
 ```

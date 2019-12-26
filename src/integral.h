@@ -174,7 +174,7 @@ auto fibonacci(X&& x)
                 return XV(_fibonacci(x));
             else if (x >= XV(0))
                 return XV(_fibonacci(x));
-            else
+            else // x < 0
             {
                 auto val = XV(_fibonacci(-x));
                 return (x & XV(1)) ? val : -val;
@@ -202,11 +202,13 @@ auto lucas_l(X&& x)
         using XV = remove_cvref_t<decltype(x)>;
         if constexpr (is_integral_v<XV>)
         {
-            if constexpr (std::is_unsigned_v<XV>)
+            if (x == XV(0))
+                return XV(2);
+            else if constexpr (std::is_unsigned_v<XV>)
                 return XV(_lucas_l(x));
-            else if (x >= XV(0))
+            else if (x > XV(0))
                 return XV(_lucas_l(x));
-            else
+            else // x < 0
             {
                 auto val = XV(_lucas_l(-x));
                 return (x & XV(1)) ? -val : val;

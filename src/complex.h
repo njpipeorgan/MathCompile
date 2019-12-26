@@ -85,16 +85,18 @@ auto arg(X&& x)
     {
         using XV = remove_cvref_t<decltype(x)>;
         if constexpr (is_complex_v<XV>)
+        {
             return std::arg(x);
+        }
         else if constexpr (is_integral_v<XV>)
         {
             if constexpr (std::is_unsigned_v<XV>)
                 return double(0);
             else
-                return x >= X(0) ? double(0) : const_pi;
+                return x >= XV(0) ? double(0) : const_pi;
         }
         else
-            return x >= X(0) ? X(0) : X(const_pi);
+            return x >= XV(0) ? XV(0) : XV(const_pi);
     };
     return utils::listable_function(scalar_arg, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -124,21 +126,23 @@ auto re_im(X&& x)
 {
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
-    static_assert(is_numerical_type_v<XT>,
-        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     constexpr auto rank = array_rank_v<XT>;
     if constexpr (rank == 0)
     {
-        ndarray<XT, 1u> ret(std::array<size_t, 1u>{2});
-        ret[0] = re(x);
-        ret[1] = im(x);
+        using XV = value_type_t<XT>;
+        ndarray<XV, 1u> ret(std::array<size_t, 1u>{2});
+        auto iter = ret.data();
+        iter[0] = re(x);
+        iter[1] = im(x);
+        return ret;
     }
     else
     {
-        using XV = typename XT::value_type;
+        using XV = value_type_t<value_type_t<XT>>;
         auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
         ndarray<XV, rank + 1u> ret(dims);
-        auto iter = ret.begin();
+        auto iter = ret.data();
         x.for_each([&](const auto& a)
             { *iter++ = re(a), *iter++ = im(a); });
         return ret;
@@ -156,20 +160,21 @@ auto abs_arg(X&& x)
     constexpr auto rank = array_rank_v<XT>;
     if constexpr (rank == 0)
     {
-        using T = decltype(arg(XT{}));
-        ndarray<T, 1u> ret(std::array<size_t, 1u>{2});
-        ret[0] = T(abs(x));
-        ret[1] = T(arg(x));
+        using XV = value_type_t<XT>;
+        ndarray<XV, 1u> ret(std::array<size_t, 1u>{2});
+        auto iter = ret.data();
+        iter[0] = XV(abs(x));
+        iter[1] = XV(arg(x));
+        return ret;
     }
     else
     {
-        using XV = typename XT::value_type;
-        using T = decltype(arg(XV{}));
+        using XV = promote_integral_t<value_type_t<value_type_t<XT>>>;
         auto dims = utils::dims_join(x.dims(), std::array<size_t, 1u>{2});
-        ndarray<T, rank + 1u> ret(dims);
+        ndarray<XV, rank + 1u> ret(dims);
         auto iter = ret.begin();
         x.for_each([&](const auto& a)
-            { *iter++ = T(abs(a)), *iter++ = T(arg(a)); });
+            { *iter++ = XV(abs(a)), *iter++ = XV(arg(a)); });
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)

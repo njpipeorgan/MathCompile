@@ -3,3 +3,4 @@
 main.cpp
 *.out
 *.data
+src/math_base.h

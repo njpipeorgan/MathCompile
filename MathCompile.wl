@@ -427,6 +427,8 @@ $builtinfunctions=
   "BitOr"           ->"bit_or",
   "BitXor"          ->"bit_xor",
   "BitLength"       ->"bit_length",
+  "BitShiftLeft"    ->"bit_shift_left",
+  "BitShiftRight"   ->"bit_shift_right",
 (* elementary functions *)
   "Log"             ->"log",
   "Log10"           ->"log10",

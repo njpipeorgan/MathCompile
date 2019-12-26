@@ -412,7 +412,7 @@ auto integer_digits(const X& x, const Y& y, const N& n)
             ++ret_iter;
             if (ux == 0u)
             {
-                for (; ret_iter != ret_end; ++ret_iter)
+                for (; ret_iter < ret_end; ++ret_iter)
                     *ret_iter = Ret(0);
                 break;
             }

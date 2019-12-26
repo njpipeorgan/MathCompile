@@ -170,7 +170,8 @@ auto _variadic_##name(const argument_pack<Iter, HasStride>& args)   \
     auto ret = val(args.get(0));                                    \
     WL_CHECK_ABORT_LOOP_BEGIN(args.size() - 1u)                     \
         for (auto i = _loop_begin; i < _loop_end; ++i)              \
-            ret = name(std::move(ret), args.get(i, dim_checked{})); \
+            ret = name(std::move(ret),                              \
+                args.get(i + 1, dim_checked{}));                    \
     WL_CHECK_ABORT_LOOP_END()                                       \
     return ret;                                                     \
 }

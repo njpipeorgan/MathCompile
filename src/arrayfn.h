@@ -85,7 +85,7 @@ auto set(Dst&& dst, Src&& src) -> decltype(auto)
             {
                 if constexpr (SrcType::category != view_category::General)
                     dst.copy_from(src.begin());
-                else if (DstType::category != view_category::General)
+                else if constexpr (DstType::category != view_category::General)
                     src.copy_to(dst.begin());
                 else // general_view -> general_view
                     indirect_view_copy(dst, src);

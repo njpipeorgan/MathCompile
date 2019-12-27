@@ -2231,6 +2231,10 @@ struct scalar_view_iterator
     {
         return *this;
     }
+    constexpr auto operator++(int) const
+    {
+        return *this;
+    }
     auto operator==(const _my_type&) = delete;
     constexpr const T& operator[](ptrdiff_t) const
     {
@@ -3800,6 +3804,7 @@ template<typename T, bool HasVariable>
 struct step_iterator
 {
     static constexpr bool has_variable = HasVariable;
+    using value_type = T;
     T begin_;
     T step_;
     size_t length_;
@@ -3813,7 +3818,7 @@ struct step_iterator
     }
     auto operator[](size_t i) const
     {
-        return begin_ + step_ * T(i);
+        return T(begin_ + step_ * i);
     }
 };
 template<typename Array>
@@ -3822,6 +3827,7 @@ struct list_iterator
     static constexpr bool has_variable = true;
     using Iter = remove_cvref_t<decltype(
         std::declval<Array>().template view_begin<1u>())>;
+    using value_type = decltype(*std::declval<Iter>());
     Array values_;
     Iter iter_;
     list_iterator(Array&& values) :
@@ -5789,11 +5795,34 @@ auto loop_while(Test test, Body body)
 }
 namespace wl
 {
+template<typename Fn, typename First, typename... Rest>
+auto _iterator_apply_first(Fn fn, const First& first, const Rest&... rest)
+{
+    if constexpr (sizeof...(Rest) == 0u)
+    {
+        if constexpr (First::has_variable)
+            return val(fn(first[0]));
+        else
+            return val(fn());
+    }
+    else
+    {
+        if constexpr (First::has_variable)
+        {
+            const auto& arg1 = first[0];
+            return _iterator_apply_first(
+                [&](const auto&... args) { return fn(arg1, args...); },
+                rest...);
+        }
+        else
+            return _iterator_apply_first(fn, rest...);
+    }
+}
 template<typename Skip, typename Fn, typename First, typename... Rest>
 auto _clause_impl(Skip& skip_flag,
     Fn fn, const First& first, const Rest&... rest)
 {
-    if constexpr (sizeof...(Rest) == 0)
+    if constexpr (sizeof...(Rest) == 0u)
     {
         WL_CHECK_ABORT_LOOP_BEGIN(first.length())
             for (auto i = _loop_begin; i < _loop_end; ++i)
@@ -5849,7 +5878,8 @@ auto clause_table(Fn fn, const Iters&... iters)
     WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
-    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    using InnerType = remove_cvref_t<
+        decltype(_iterator_apply_first(fn, iters...))>;
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
     if (outer_size == 0u)
@@ -5878,7 +5908,7 @@ auto clause_table(Fn fn, const Iters&... iters)
         {
             using ValueType = typename InnerType::value_type;
             constexpr auto inner_rank = array_rank_v<InnerType>;
-            auto first_item = fn(iters[0]...);
+            auto first_item = _iterator_apply_first(fn, iters...);
             auto inner_dims = first_item.dims();
             auto all_dims = utils::dims_join(outer_dims, inner_dims);
             ndarray<ValueType, outer_rank + inner_rank> ret(all_dims);
@@ -5907,7 +5937,8 @@ auto clause_sum(Fn fn, const Iters&... iters)
     WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
-    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    using InnerType = remove_cvref_t<
+        decltype(_iterator_apply_first(fn, iters...))>;
     static_assert(is_numerical_type_v<InnerType>, WL_ERROR_SUM_ELEMENT);
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
@@ -5920,7 +5951,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
     }
     else
     {
-        auto ret = fn(iters[0]...);
+        auto ret = _iterator_apply_first(fn, iters...);
         bool skip_flag = true;      // skip flag is not used
         if constexpr (array_rank_v<InnerType> >= 1u)
         {
@@ -5947,7 +5978,8 @@ auto clause_product(Fn fn, const Iters&... iters)
     WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
-    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    using InnerType = remove_cvref_t<
+        decltype(_iterator_apply_first(fn, iters...))>;
     static_assert(is_numerical_type_v<InnerType>, WL_ERROR_SUM_ELEMENT);
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
@@ -5960,7 +5992,7 @@ auto clause_product(Fn fn, const Iters&... iters)
     }
     else
     {
-        auto ret = fn(iters[0]...);
+        auto ret = _iterator_apply_first(fn, iters...);
         bool skip_flag = true;      // skip flag is not used
         _clause_impl(skip_flag,
             [&](const auto&... args)
@@ -7803,7 +7835,7 @@ auto set(Dst&& dst, Src&& src) -> decltype(auto)
             {
                 if constexpr (SrcType::category != view_category::General)
                     dst.copy_from(src.begin());
-                else if (DstType::category != view_category::General)
+                else if constexpr (DstType::category != view_category::General)
                     src.copy_to(dst.begin());
                 else // general_view -> general_view
                     indirect_view_copy(dst, src);

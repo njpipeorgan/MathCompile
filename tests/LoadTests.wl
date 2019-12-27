@@ -221,3 +221,32 @@ registertest[test["re_im:complex",            Function[{Typed[x,{Complex,1}]},Re
 registertest[test["abs_arg:real",             Function[{Typed[x,{Real,1}]},AbsArg[x]],{{#}->N@AbsArg[#]&@RandomReal[{-10,10},100]}]&];
 registertest[test["abs_arg:complex",          Function[{Typed[x,{Complex,1}]},AbsArg[x]],{{RandomComplex[{-10-10I,10+10I},100]}}]&];
 
+registertest[test["list:basic",               Function[{Typed[x,Integer]},{x,x,x,x,x}],{{3},{-5}}]&];
+registertest[test["list:inline",              Function[{},{1,2,3,4,5,6,7}],{{}}]&];
+registertest[test["list:level2",              Function[{},{Range[5],Range[5]+1,Range[5]-8}],{{}}]&];
+registertest[test["list:mixed",               Function[{},{Range[5],{7,6,5,4,3},Range[5]-8}],{{}}]&];
+registertest[test["list:nested",              Function[{},{{{1,2,3,4},{5,6,7,8},{9,10,11,12}}}],{{}}]&];
+registertest[test["dimensions:scalar",        Function[{},Dimensions[All]],{{}}]&];
+registertest[test["dimensions:array",         Function[{Typed[x,{Integer,4}]},Dimensions[x]],{{RandomInteger[10,{4,5,6,7}]}}]&];
+registertest[test["length:scalar",            Function[{},Length[5+6I]],{{}}]&];
+registertest[test["length:array",             Function[{Typed[x,{Integer,4}]},Length[x]],{{RandomInteger[10,{4,5,6,7}]}}]&];
+registertest[test["array_depth:scalar",       Function[{},ArrayDepth[5+6I]],{{}}]&];
+registertest[test["array_depth:array",        Function[{Typed[x,{Integer,4}]},ArrayDepth[x]],{{RandomInteger[10,{4,5,6,7}]}}]&];
+registertest[test["vector_q:basic",           Function[{},Boole@{VectorQ[{1,2,3,4,5}],VectorQ[{{1,2},{3,4}}]}],{{}}]&];
+registertest[test["vector_q:test,level1",     Function[{Typed[x,{Integer,1}]},VectorQ[x,#>0&]],List/@RandomInteger[{0,5},{20,5}]]&];
+registertest[test["vector_q:test,level2",     Function[{Typed[x,{Integer,2}]},VectorQ[x,#[[1]]>0&]],List/@RandomInteger[{0,5},{20,5,5}]]&];
+registertest[test["matrix_q:basic",           Function[{},Boole@{MatrixQ[{1,2,3,4,5}],MatrixQ[{{1,2},{3,4}}],MatrixQ[{{{1,2},{3,4}}}]}],{{}}]&];
+registertest[test["matrix_q:test,level2",     Function[{Typed[x,{Integer,2}]},MatrixQ[x,#>0&]],List/@RandomInteger[{0,25},{20,5,5}]]&];
+registertest[test["matrix_q:test,level3",     Function[{Typed[x,{Integer,3}]},MatrixQ[x,#[[1]]>0&]],List/@RandomInteger[{0,5},{20,2,2,5}]]&];
+registertest[test["table:basic",              Function[{},Table[i+j+k+l,{i,4},{j,7,9},2,{k,0.5,1.5,0.5},{l,{-1,108,3412}}]],{{}}]&];
+registertest[test["table:list",               Function[{},Table[{Range[j+k+l,j+k+l+4]},{j,7,9},2,{k,0.5,1.5,0.5},{l,{-1,108,3412}}]],{{}}]&];
+registertest[test["constant_array",           Function[{},ConstantArray[Sin[1.2],{4,5,6,7}]],{{}}]&];
+registertest[test["range:1arg",               Function[{Typed[x,Integer]},Range[x]],{{1},{10},{100},{0},{-10}}]&];
+registertest[test["range:2args",              Function[{Typed[x,Real],Typed[y,Real]},Range[x,y]],{{1.0,5.0},{-10.5,10.5},{3.1,3.5},{5.0,5.0},{5.0,4.9}}]&];
+registertest[test["range:3args",              Function[{Typed[x,Real],Typed[y,Real],Typed[z,Real]},Range[x,y,z]],{{1.2,2.2,0.15},{10.0,1.0,-1.0},{0.,1.,0.11}}]&];
+registertest[test["part:element",             Function[{},Module[{x=ArrayReshape[Range[6*7*8*9],{6,7,8,9}]},x[[1,2,-3,-4]]=-1;x[[-1,-2,3,4]]=-2;x]],{{}}]&];
+registertest[test["part:simple",              Function[{},Module[{x=ArrayReshape[Range[6*7*8*9],{6,7,8,9}]},x[[3,4,1,;;4]]=-1;x[[3,4,4;;5,;;]]=-2;x[[1,-2,All,All]]=-3;x]],{{}}]&];
+registertest[test["part:regular",             Function[{},Module[{x=ArrayReshape[Range[6*7*8*9],{6,7,8,9}]},x[[1,4,2,;;;;3]]=-1;x[[1,;;,;;,5]]=-2;x]],{{}}]&];
+registertest[test["part:general",             Function[{},Module[{x=ArrayReshape[Range[6*7*8*9],{6,7,8,9}]},x[[1,4,{1,2,-8,3,-1,-2,-1},;;;;3]]=-1;x[[6,;;;;2,;;;;2,9;;2;;-2]]=-2;x]],{{}}]&];
+registertest[test["part:alias",               Function[{},Module[{x=ArrayReshape[Range[6*7*8*9],{6,7,8,9}]},x[[1;;5,1;;5]]=x[[2;;6,3;;7]];x[[1,2,3;;8,;;]]=x[[1,2,1;;6,;;]];x[[3,1;;4,;;,2]]=x[[3,2;;5,;;,3]];x[[3,;;5,;;5,1]]=x[[3,2;;6,4,2;;6]];x]],{{}}]&];
+

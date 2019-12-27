@@ -845,7 +845,7 @@ codegen[loopwhile[p_][test_,body_],___]:=
 codegen[break[]]:="throw wl::loop_break{}"
 
 codegen[list[p_][any___],___]:=codegen[native["list",p][any]]
-codegen[regularlist[p_][t_,dims_,array_]]:={
+codegen[regularlist[p_][t_,dims_,array_],___]:={
   annotatebegin[p],
   codegen[type[totypespec@ndarray[ToString@t,Length@dims]]],"(",
   StringRiffle[ToString@*CForm/@dims,{"{",", ","}"}],", ",

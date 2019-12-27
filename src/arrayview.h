@@ -1247,6 +1247,11 @@ struct scalar_view_iterator
         return *this;
     }
 
+    constexpr auto operator++(int) const
+    {
+        return *this;
+    }
+
     auto operator==(const _my_type&) = delete;
 
     constexpr const T& operator[](ptrdiff_t) const

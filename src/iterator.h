@@ -29,6 +29,7 @@ template<typename T, bool HasVariable>
 struct step_iterator
 {
     static constexpr bool has_variable = HasVariable;
+    using value_type = T;
 
     T begin_;
     T step_;
@@ -46,7 +47,7 @@ struct step_iterator
 
     auto operator[](size_t i) const
     {
-        return begin_ + step_ * T(i);
+        return T(begin_ + step_ * i);
     }
 };
 
@@ -56,6 +57,7 @@ struct list_iterator
     static constexpr bool has_variable = true;
     using Iter = remove_cvref_t<decltype(
         std::declval<Array>().template view_begin<1u>())>;
+    using value_type = decltype(*std::declval<Iter>());
 
     Array values_;
     Iter iter_;

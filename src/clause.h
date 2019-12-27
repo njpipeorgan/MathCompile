@@ -26,11 +26,35 @@
 namespace wl
 {
 
+template<typename Fn, typename First, typename... Rest>
+auto _iterator_apply_first(Fn fn, const First& first, const Rest&... rest)
+{
+    if constexpr (sizeof...(Rest) == 0u)
+    {
+        if constexpr (First::has_variable)
+            return val(fn(first[0]));
+        else
+            return val(fn());
+    }
+    else
+    {
+        if constexpr (First::has_variable)
+        {
+            const auto& arg1 = first[0];
+            return _iterator_apply_first(
+                [&](const auto&... args) { return fn(arg1, args...); },
+                rest...);
+        }
+        else
+            return _iterator_apply_first(fn, rest...);
+    }
+}
+
 template<typename Skip, typename Fn, typename First, typename... Rest>
 auto _clause_impl(Skip& skip_flag,
     Fn fn, const First& first, const Rest&... rest)
 {
-    if constexpr (sizeof...(Rest) == 0)
+    if constexpr (sizeof...(Rest) == 0u)
     {
         WL_CHECK_ABORT_LOOP_BEGIN(first.length())
             for (auto i = _loop_begin; i < _loop_end; ++i)
@@ -88,7 +112,8 @@ auto clause_table(Fn fn, const Iters&... iters)
     WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
-    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    using InnerType = remove_cvref_t<
+        decltype(_iterator_apply_first(fn, iters...))>;
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
 
@@ -118,7 +143,7 @@ auto clause_table(Fn fn, const Iters&... iters)
         {
             using ValueType = typename InnerType::value_type;
             constexpr auto inner_rank = array_rank_v<InnerType>;
-            auto first_item = fn(iters[0]...);
+            auto first_item = _iterator_apply_first(fn, iters...);
             auto inner_dims = first_item.dims();
             auto all_dims = utils::dims_join(outer_dims, inner_dims);
             ndarray<ValueType, outer_rank + inner_rank> ret(all_dims);
@@ -150,7 +175,8 @@ auto clause_sum(Fn fn, const Iters&... iters)
     WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
-    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    using InnerType = remove_cvref_t<
+        decltype(_iterator_apply_first(fn, iters...))>;
     static_assert(is_numerical_type_v<InnerType>, WL_ERROR_SUM_ELEMENT);
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
@@ -164,7 +190,7 @@ auto clause_sum(Fn fn, const Iters&... iters)
     }
     else
     {
-        auto ret = fn(iters[0]...);
+        auto ret = _iterator_apply_first(fn, iters...);
         bool skip_flag = true;      // skip flag is not used
         if constexpr (array_rank_v<InnerType> >= 1u)
         {
@@ -192,7 +218,8 @@ auto clause_product(Fn fn, const Iters&... iters)
     WL_TRY_BEGIN()
     constexpr auto outer_rank = sizeof...(iters);
     static_assert(outer_rank >= 1u, WL_ERROR_INTERNAL);
-    using InnerType = remove_cvref_t<decltype(fn(iters[0]...))>;
+    using InnerType = remove_cvref_t<
+        decltype(_iterator_apply_first(fn, iters...))>;
     static_assert(is_numerical_type_v<InnerType>, WL_ERROR_SUM_ELEMENT);
     auto outer_dims = std::array<size_t, outer_rank>{iters.length()...};
     auto outer_size = utils::size_of_dims(outer_dims);
@@ -206,8 +233,7 @@ auto clause_product(Fn fn, const Iters&... iters)
     }
     else
     {
-        auto ret = fn(iters[0]...);
-
+        auto ret = _iterator_apply_first(fn, iters...);
         bool skip_flag = true;      // skip flag is not used
         _clause_impl(skip_flag,
             [&](const auto&... args)

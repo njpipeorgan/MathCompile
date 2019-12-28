@@ -619,6 +619,7 @@ functionmacro[code_]:=code//.{
     id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_],list[_][literal[i_Integer,_]]]:>native["count",p][array,vargtag,func,const[i]],
     id["Count",p_][array_,patt_,list[_][literal[i_Integer,_]]]:>native["count",p][array,patt,const[i]],
     id["Total",p_][array_,literal[i_Integer,_]]:>native["total",p][array,const[i]],
+    id["Total",p_][array_,id["Infinity",_]]:>native["total",p][array,const[1],const[-1]],
     id["Total",p_][array_,list[_][literal[i_Integer,_]]]:>native["total",p][array,const[i],const[i]],
     id["Total",p_][array_,list[_][literal[i1_Integer,_],literal[i2_Integer,_]]]:>native["total",p][array,const[i1],const[i2]],
     id["Clip",p_][any_,list[_][min_,max_]]:>native["clip",p][any,vargtag,min,max],

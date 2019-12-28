@@ -58,7 +58,7 @@ template<typename... Ts>
 using _get_first_type_t = typename _get_first_type<Ts...>::type;
 
 template<typename A, typename B>
-auto branch_if(const boolean cond, A&& a, B&& b)
+WL_INLINE auto branch_if(const boolean cond, A&& a, B&& b)
 {
     WL_TRY_BEGIN()
     using AT = decltype(val(std::declval<A&&>()()));

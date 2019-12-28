@@ -5644,7 +5644,7 @@ struct _get_first_type
 template<typename... Ts>
 using _get_first_type_t = typename _get_first_type<Ts...>::type;
 template<typename A, typename B>
-auto branch_if(const boolean cond, A&& a, B&& b)
+WL_INLINE auto branch_if(const boolean cond, A&& a, B&& b)
 {
     WL_TRY_BEGIN()
     using AT = decltype(val(std::declval<A&&>()()));
@@ -8098,28 +8098,38 @@ auto last(Array&& a)
     return part(a, int64_t(-1));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-template<typename Array>
-auto most(Array&& a)
+template<typename X>
+auto most(X&& x)
 {
     WL_TRY_BEGIN()
-    using AT = remove_cvref_t<Array>;
-    static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto size = a.dims()[0];
-    if (size <= 1u)
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<XT>;
+    const auto length = x.dims()[0];
+    if (length == 0u)
         throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
-    return part(a, make_span(const_all, int64_t(-2)));
+    else if (length == 1u)
+        return ndarray<XV, XR>{};
+    else
+        return val(part(x, make_span(const_all, int64_t(-2))));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-template<typename Array>
-auto rest(Array&& a)
+template<typename X>
+auto rest(X&& x)
 {
     WL_TRY_BEGIN()
-    using AT = remove_cvref_t<Array>;
-    static_assert(array_rank_v<AT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto size = a.dims()[0];
-    if (size <= 1u)
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<XT>;
+    const auto length = x.dims()[0];
+    if (length == 0u)
         throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
-    return part(a, make_span(int64_t(2), const_all));
+    else if (length == 1u)
+        return ndarray<XV, XR>{};
+    else
+        return val(part(x, make_span(int64_t(2), const_all)));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Begin, typename End, typename Step>
@@ -8203,7 +8213,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
     WL_TRY_BEGIN()
     constexpr auto rank = array_rank_v<Array>;
     static_assert(rank >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    using ValueType = value_type_t<Array>;
+    using XV = value_type_t<Array>;
     constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + int64_t(rank) + 1;
     constexpr int64_t L2 = I2 >= 0 ? I2 : I2 + int64_t(rank) + 1;
     static_assert(1 <= L1 && L1 <= L2 && L2 <= int64_t(rank),
@@ -8219,7 +8229,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
             {
                 const auto inter_size = a.size();
                 auto a_iter = a.begin();
-                auto ret = ValueType{};
+                auto ret = XV{};
                 for (size_t j = 0; j < inter_size; ++j, ++a_iter)
                     ret += *a_iter;
                 return ret;
@@ -8227,7 +8237,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
             else
             {
                 auto ret_dims = utils::dims_take<L2 + 1, rank>(a.dims());
-                ndarray<ValueType, rank - L2> ret(ret_dims);
+                ndarray<XV, rank - L2> ret(ret_dims, XV{});
                 const auto inter_size = utils::size_of_dims(
                     utils::dims_take<L1, L2>(a.dims()));
                 const auto inner_size = ret.size();
@@ -8244,7 +8254,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
             if constexpr (L2 == rank)
             {
                 auto ret_dims = utils::dims_take<1, L1 - 1>(a.dims());
-                ndarray<ValueType, L1 - 1> ret(ret_dims);
+                ndarray<XV, L1 - 1> ret(ret_dims);
                 const auto outer_size = ret.size();
                 const auto inter_size = utils::size_of_dims(
                     utils::dims_take<L1, L2>(a.dims()));
@@ -8252,7 +8262,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
                 auto ret_iter = ret.begin();
                 for (size_t i = 0; i < outer_size; ++i, ++ret_iter)
                 {
-                    auto sum = ValueType{};
+                    auto sum = XV{};
                     for (size_t j = 0; j < inter_size; ++j, ++a_iter)
                         sum += *a_iter;
                     *ret_iter = sum;
@@ -8265,7 +8275,7 @@ auto total(const Array& a, const_int<I1>, const_int<I2>)
                 auto inter_dims = utils::dims_take<L1, L2>(a.dims());
                 auto inner_dims = utils::dims_take<L2 + 1, rank>(a.dims());
                 auto ret_dims = utils::dims_join(outer_dims, inner_dims);
-                ndarray<ValueType, rank - (L2 - L1 + 1)> ret(ret_dims);
+                ndarray<XV, rank - (L2 - L1 + 1)> ret(ret_dims, XV{});
                 auto a_iter = a.begin();
                 auto ret_iter = ret.begin();
                 const auto outer_size = utils::size_of_dims(outer_dims);
@@ -9845,8 +9855,12 @@ auto _insert_impl1(X&& x, const Y& y, ndarray<int64_t, 1u> pos)
             a = int64_t(convert_index(a, d0)); });
         auto* pos_begin = pos.data();
         auto* pos_end = pos_begin + pos.size();
-        auto* pos_sort_from = std::is_sorted_until(pos_begin, pos_end);
-        std::sort(pos_sort_from, pos_end);
+        auto* pos_mid = std::is_sorted_until(pos_begin, pos_end);
+        if (pos_mid != pos_end)
+        {
+            std::sort(pos_mid, pos_end);
+            std::inplace_merge(pos_begin, pos_mid, pos_end);
+        }
         const auto& valx = allows<view_category::Simple>(x);
         auto ret_dims = valx.dims();
         ret_dims[0] += pos_size;
@@ -9960,35 +9974,52 @@ void _delete_impl2(const X* WL_RESTRICT src_ptr, X* WL_RESTRICT dst_ptr,
 template<typename X>
 auto _delete_impl1(X&& x, ndarray<int64_t, 1u> pos)
 {
-    const auto pos_size = pos.size();
-    if (pos_size == 1u)
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    bool delete_single = false;
+    size_t pos_unique_size = 0;
+    if (pos.size() == 1u)
+    {
+        delete_single = true;
+    }
+    else
+    {
+        pos.for_each([d0 = x.dims()[0]](auto& a){
+            a = int64_t(convert_index(a, d0)); });
+        auto* pos_begin = pos.data();
+        auto* pos_end = pos_begin + pos.size();
+        auto* pos_mid = std::is_sorted_until(pos_begin, pos_end);
+        if (pos_mid != pos_end)
+        {
+            std::sort(pos_mid, pos_end);
+            std::inplace_merge(pos_begin, pos_mid, pos_end);
+        }
+        auto* pos_unique_end = std::unique(pos_begin, pos_end);
+        if (pos_unique_end == pos_begin + 1)
+            delete_single = true;
+        else
+            pos_unique_size = pos_unique_end - pos_begin;
+    }
+    if (delete_single)
     {
         return _delete_impl1(std::forward<decltype(x)>(x), *(pos.data()));
     }
     else
     {
-        using XT = remove_cvref_t<X>;
-        using XV = value_type_t<XT>;
-        constexpr auto XR = array_rank_v<XT>;
-        pos.for_each([d0 = x.dims()[0]](auto& a){
-            a = int64_t(convert_index(a, d0)); });
-        auto* pos_begin = pos.data();
-        auto* pos_end = pos_begin + pos.size();
-        auto* pos_sort_from = std::is_sorted_until(pos_begin, pos_end);
-        std::sort(pos_sort_from, pos_end);
         const auto& valx = allows<view_category::Simple>(x);
         auto ret_dims = valx.dims();
-        ret_dims[0] -= pos_size;
+        ret_dims[0] -= pos_unique_size;
         auto ret = ndarray<XV, XR>(ret_dims);
         WL_THROW_IF_ABORT()
         if constexpr (XR == 1u)
             _delete_impl2<true>(valx.data(), ret.data(), pos.data(),
-                valx.size(), 1u, pos.size());
+                valx.size(), 1u, pos_unique_size);
         else
             _delete_impl2<false>(
                 valx.data(), ret.data(), pos.data(), valx.size(),
                 utils::size_of_dims<XR - 1u>(x.dims().data() + 1u),
-                pos.size());
+                pos_unique_size);
         return ret;
     }
 }
@@ -10028,11 +10059,11 @@ auto delete_(X&& x, Pos&& pos)
             return val(x);
         else
         {
-            auto ins_pos = ndarray<int64_t, 1u>(
+            auto del_pos = ndarray<int64_t, 1u>(
                 std::array<size_t, 1>{pos.size()});
-            pos.copy_to(ins_pos.data());
+            pos.copy_to(del_pos.data());
             return _delete_impl1(
-                std::forward<decltype(x)>(x), std::move(ins_pos));
+                std::forward<decltype(x)>(x), std::move(del_pos));
         }
     }
     else if constexpr (is_integral_v<PosT>)

@@ -59,7 +59,7 @@
 #  if __clang_major__ < 5
 #    pragma message ("error: cxx::compilerver")
 #  endif
-#  define WL_INLINE __attribute__((always_inline))
+#  define WL_INLINE __attribute__((always_inline)) inline
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
@@ -69,7 +69,7 @@
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")
 #  endif
-#  define WL_INLINE __attribute__((always_inline))
+#  define WL_INLINE __attribute__((always_inline)) inline
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
@@ -7383,7 +7383,7 @@ auto _random_choice_batch_impl(Random&& random, const X& x,
     }
 }
 template<typename Random, typename X>
-auto random_choice_single_impl(const Random& random, const X& x)
+auto _random_choice_single_impl(const Random& random, const X& x)
 {
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -7472,9 +7472,10 @@ auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
             throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
         normalize += prob;
     }
+    const double factor = double(x_length) / normalize;
     for (uint64_t i = 0; i < n; ++i)
     {
-        const double prob = p[i] * normalize;
+        const double prob = p[i] * factor;
         push(prob <= 1. ? small : large, alias_t{prob, i});
     }
     while (small > small_base && large > large_base)
@@ -7525,7 +7526,7 @@ auto random_choice(const X& x, varg_tag, const Dims&... dims)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename W, typename X>
-auto random_choice(const W& w, const X& x)
+auto random_choice(const W& w, const X& x, varg_tag)
 {
     WL_TRY_BEGIN()
     static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -7567,10 +7568,11 @@ inline auto _random_sample_prepare_uniform(const size_t x_length)
         auto* const idx = idx_vec.data();
         const auto this_idx = std::uniform_int_distribution<size_t>(
             0u, remain - 1u)(global_random_engine);
+        const auto picked_idx = idx[this_idx];
         if (this_idx + 1u < remain) // did not pick the last element
             idx[this_idx] = idx[remain - 1u];
         --remain;
-        return this_idx;
+        return picked_idx;
     };
 }
 inline auto _random_sample_prepare_short_uniform(const size_t x_length)
@@ -7580,11 +7582,16 @@ inline auto _random_sample_prepare_short_uniform(const size_t x_length)
     return [idx_vec = ndarray<size_t, 1u>{}, x_length]() mutable
     {
         const auto n_taken = idx_vec.size();
-        auto* const idx = idx_vec.data();
+        auto* const idx_begin = idx_vec.data();
+        auto* const idx_end = idx_begin + n_taken;
         if (x_length == n_taken)
             throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
         if (n_taken >= 2u)
-            std::push_heap(idx, idx + n_taken, std::greater<>{});
+        { // move the last element to its place
+            auto* ins = std::lower_bound(
+                idx_begin, idx_end - 1, idx_end[-1]);
+            std::rotate(ins, idx_end - 1, idx_end);
+        }
         auto this_idx = std::uniform_int_distribution<size_t>(
             0u, x_length - n_taken - 1u)(global_random_engine);
         idx_vec.for_each([&](const auto& taken)
@@ -8302,6 +8309,9 @@ template<typename Array>
 auto total(const Array& a)
 {
     WL_TRY_BEGIN()
+    if constexpr (array_rank_v<Array> == 0u)
+        return a;
+    else
     return total(a, const_int<1>{}, const_int<1>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -8738,20 +8748,33 @@ auto flatten(X&& x)
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-inline int64_t _order_scalar(const boolean& x, const boolean& y)
+template<typename X>
+WL_INLINE int64_t _order_scalar(const X& x, const X& y)
+{
+    return x == y ? int64_t(0) : x < y ? int64_t(1) : int64_t(-1);
+}
+WL_INLINE int64_t _order_scalar(const boolean& x, const boolean& y)
 {
     return x == y ? int64_t(0) : x ? int64_t(-1) : int64_t(1);
 }
 template<typename X>
-int64_t _order_scalar(const complex<X>& x, const complex<X>& y)
+WL_INLINE int64_t _order_scalar(const complex<X>& x, const complex<X>& y)
 {
-    return x.real() == y.real() ? _order_scalar(x.imag(), y.imag()) :
-        (x.real() < y.real() ? int64_t(1) : int64_t(-1));
-}
-template<typename X>
-int64_t _order_scalar(const X& x, const X& y)
-{
-    return x == y ? int64_t(0) : x < y ? int64_t(1) : int64_t(-1);
+    const auto x_real = x.real();
+    const auto y_real = y.real();
+    if (x_real == y_real)
+    {
+        const auto x_imag = x.imag();
+        const auto y_imag = y.imag();
+        const auto abs_x_imag = wl::abs(x_imag);
+        const auto abs_y_imag = wl::abs(y_imag);
+        return abs_x_imag == abs_y_imag ? _order_scalar(x_imag, y_imag) :
+            abs_x_imag < abs_y_imag ? int64_t(1) : int64_t(-1);
+    }
+    else
+    {
+        return x_real < y_real ? int64_t(1) : int64_t(-1);
+    }
 }
 template<typename X, typename Y>
 int64_t _order_array(const X& x, const Y& y, dim_checked)
@@ -9220,7 +9243,8 @@ auto _join_dims_by_args_impl(
 template<size_t Level, size_t Rank, typename... Args>
 void _join_dims_by_args(std::array<size_t, Rank>& dims, const Args&... args)
 {
-    dims[Level - 1] += (_join_dims_by_args_impl<Level>(dims, args) + ...);
+    dims[Level - 1] += (size_t(0) + ... +
+        _join_dims_by_args_impl<Level>(dims, args));
 }
 template<size_t Level, size_t Rank, typename Iter, typename Arg>
 void _join_copy_leveln(Iter& ret_base, size_t stride, const Arg& arg)
@@ -9361,17 +9385,13 @@ template<typename First, typename... Rest>
 auto set_union(const First& first, const Rest&... rest)
 {
     WL_TRY_BEGIN()
-    constexpr auto R = array_rank_v<First>;
-    static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    static_assert(((R == array_rank_v<Rest>) && ...), WL_ERROR_OPERAND_RANK);
-    using T = value_type_t<First>;
-    static_assert((std::is_same_v<T, value_type_t<Rest>> && ...),
-        WL_ERROR_OPERAND_TYPE);
     auto scalar_less = [](const auto& x, const auto& y)
     {
         return _order_scalar(x, y) == int64_t(1);
     };
     auto copy = join(first, rest...);
+    using T = value_type_t<decltype(copy)>;
+    constexpr auto R = array_rank_v<decltype(copy)>;
     const auto copy_length = copy.dims()[0];
     const auto copy_data = copy.data();
     if constexpr (R == 1u)
@@ -9800,7 +9820,7 @@ auto free_q(const X& x, const Y& y, const_int<I>)
     return !member_q(x, y, const_int<I>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-template<typename X, typename Y, int64_t I>
+template<typename X, typename Y>
 auto free_q(const X& x, const Y& y)
 {
     WL_TRY_BEGIN()

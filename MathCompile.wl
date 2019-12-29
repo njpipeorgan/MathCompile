@@ -613,6 +613,7 @@ functionmacro[code_]:=code//.{
     id["RandomVariate",p_][dist_,dims_]:>native["random_variate",p][dist,vargtag,listtoseq[dims]],
     id["RandomVariate",p_][dist_]:>native["random_variate",p][dist,vargtag],
     id["RandomChoice",p_][id["Rule",_][weights_,array_],dims_]:>native["random_choice",p][weights,array,vargtag,listtoseq[dims]],
+    id["RandomChoice",p_][id["Rule",_][weights_,array_]]:>native["random_choice",p][weights,array,vargtag],
     id["RandomChoice",p_][array_,dims_]:>native["random_choice",p][array,vargtag,listtoseq[dims]],
     id["RandomSample",p_][id["Rule",_][weights_,array_],dims_]:>native["random_sample",p][weights,array,vargtag,dims],
     id["Count",p_][array_,id["PatternTest",_][id["Blank",_][],func_]]:>native["count",p][array,vargtag,func],
@@ -638,7 +639,7 @@ functionmacro[code_]:=code//.{
     id["MapThread",p_][func_,list[_][arrays__]]:>native["map_thread",p][func,vargtag,arrays],
     id["MapThread",p_][func_,list[_][arrays__],literal[i_Integer,_]]:>native["map_thread",p][func,const[i],vargtag,arrays],
     id["MapThread",p_][func_,array_,literal[i_Integer,_]]:>native["map_thread",p][func,array,const[i]],
-    id["Part",p_][array_,specs___]:>id["Part",p][array,
+    id["Part",p_][array_,specs___]:>native["part",p][array,
       Sequence@@Replace[{specs},literal[i_Integer/;i>0]:>native["cidx",0][literal[i-1,0]],{1}]],
     id["Transpose",p_][array_,list[_][l:(literal[_Integer,_]..)]]:>native["transpose",p][array,Sequence@@(const/@{l}[[;;,1]])],
     id["Flatten",p_][array_,literal[i_Integer,_]]:>

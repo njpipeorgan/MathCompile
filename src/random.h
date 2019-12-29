@@ -759,7 +759,7 @@ auto _random_choice_batch_impl(Random&& random, const X& x,
 }
 
 template<typename Random, typename X>
-auto random_choice_single_impl(const Random& random, const X& x)
+auto _random_choice_single_impl(const Random& random, const X& x)
 {
     constexpr auto XR = array_rank_v<X>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -858,9 +858,10 @@ auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
             throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
         normalize += prob;
     }
+    const double factor = double(x_length) / normalize;
     for (uint64_t i = 0; i < n; ++i)
     {
-        const double prob = p[i] * normalize;
+        const double prob = p[i] * factor;
         push(prob <= 1. ? small : large, alias_t{prob, i});
     }
     while (small > small_base && large > large_base)
@@ -915,7 +916,7 @@ auto random_choice(const X& x, varg_tag, const Dims&... dims)
 }
 
 template<typename W, typename X>
-auto random_choice(const W& w, const X& x)
+auto random_choice(const W& w, const X& x, varg_tag)
 {
     WL_TRY_BEGIN()
     static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
@@ -960,10 +961,11 @@ inline auto _random_sample_prepare_uniform(const size_t x_length)
         auto* const idx = idx_vec.data();
         const auto this_idx = std::uniform_int_distribution<size_t>(
             0u, remain - 1u)(global_random_engine);
+        const auto picked_idx = idx[this_idx];
         if (this_idx + 1u < remain) // did not pick the last element
             idx[this_idx] = idx[remain - 1u];
         --remain;
-        return this_idx;
+        return picked_idx;
     };
 }
 
@@ -975,11 +977,16 @@ inline auto _random_sample_prepare_short_uniform(const size_t x_length)
     return [idx_vec = ndarray<size_t, 1u>{}, x_length]() mutable
     {
         const auto n_taken = idx_vec.size();
-        auto* const idx = idx_vec.data();
+        auto* const idx_begin = idx_vec.data();
+        auto* const idx_end = idx_begin + n_taken;
         if (x_length == n_taken)
             throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
         if (n_taken >= 2u)
-            std::push_heap(idx, idx + n_taken, std::greater<>{});
+        { // move the last element to its place
+            auto* ins = std::lower_bound(
+                idx_begin, idx_end - 1, idx_end[-1]);
+            std::rotate(ins, idx_end - 1, idx_end);
+        }
         auto this_idx = std::uniform_int_distribution<size_t>(
             0u, x_length - n_taken - 1u)(global_random_engine);
         idx_vec.for_each([&](const auto& taken)

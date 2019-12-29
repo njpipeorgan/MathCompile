@@ -579,6 +579,9 @@ template<typename Array>
 auto total(const Array& a)
 {
     WL_TRY_BEGIN()
+    if constexpr (array_rank_v<Array> == 0u)
+        return a;
+    else
     return total(a, const_int<1>{}, const_int<1>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -1056,22 +1059,35 @@ auto flatten(X&& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-inline int64_t _order_scalar(const boolean& x, const boolean& y)
+template<typename X>
+WL_INLINE int64_t _order_scalar(const X& x, const X& y)
+{
+    return x == y ? int64_t(0) : x < y ? int64_t(1) : int64_t(-1);
+}
+
+WL_INLINE int64_t _order_scalar(const boolean& x, const boolean& y)
 {
     return x == y ? int64_t(0) : x ? int64_t(-1) : int64_t(1);
 }
 
 template<typename X>
-int64_t _order_scalar(const complex<X>& x, const complex<X>& y)
+WL_INLINE int64_t _order_scalar(const complex<X>& x, const complex<X>& y)
 {
-    return x.real() == y.real() ? _order_scalar(x.imag(), y.imag()) :
-        (x.real() < y.real() ? int64_t(1) : int64_t(-1));
-}
-
-template<typename X>
-int64_t _order_scalar(const X& x, const X& y)
-{
-    return x == y ? int64_t(0) : x < y ? int64_t(1) : int64_t(-1);
+    const auto x_real = x.real();
+    const auto y_real = y.real();
+    if (x_real == y_real)
+    {
+        const auto x_imag = x.imag();
+        const auto y_imag = y.imag();
+        const auto abs_x_imag = wl::abs(x_imag);
+        const auto abs_y_imag = wl::abs(y_imag);
+        return abs_x_imag == abs_y_imag ? _order_scalar(x_imag, y_imag) :
+            abs_x_imag < abs_y_imag ? int64_t(1) : int64_t(-1);
+    }
+    else
+    {
+        return x_real < y_real ? int64_t(1) : int64_t(-1);
+    }
 }
 
 template<typename X, typename Y>
@@ -1564,7 +1580,8 @@ auto _join_dims_by_args_impl(
 template<size_t Level, size_t Rank, typename... Args>
 void _join_dims_by_args(std::array<size_t, Rank>& dims, const Args&... args)
 {
-    dims[Level - 1] += (_join_dims_by_args_impl<Level>(dims, args) + ...);
+    dims[Level - 1] += (size_t(0) + ... +
+        _join_dims_by_args_impl<Level>(dims, args));
 }
 
 template<size_t Level, size_t Rank, typename Iter, typename Arg>
@@ -1710,18 +1727,13 @@ template<typename First, typename... Rest>
 auto set_union(const First& first, const Rest&... rest)
 {
     WL_TRY_BEGIN()
-    constexpr auto R = array_rank_v<First>;
-    static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    static_assert(((R == array_rank_v<Rest>) && ...), WL_ERROR_OPERAND_RANK);
-    using T = value_type_t<First>;
-    static_assert((std::is_same_v<T, value_type_t<Rest>> && ...),
-        WL_ERROR_OPERAND_TYPE);
-
     auto scalar_less = [](const auto& x, const auto& y)
     {
         return _order_scalar(x, y) == int64_t(1);
     };
     auto copy = join(first, rest...);
+    using T = value_type_t<decltype(copy)>;
+    constexpr auto R = array_rank_v<decltype(copy)>;
     const auto copy_length = copy.dims()[0];
     const auto copy_data = copy.data();
     if constexpr (R == 1u)
@@ -2179,7 +2191,7 @@ auto free_q(const X& x, const Y& y, const_int<I>)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename X, typename Y, int64_t I>
+template<typename X, typename Y>
 auto free_q(const X& x, const Y& y)
 {
     WL_TRY_BEGIN()

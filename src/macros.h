@@ -55,7 +55,7 @@
 #  if __clang_major__ < 5
 #    pragma message ("error: cxx::compilerver")
 #  endif
-#  define WL_INLINE __attribute__((always_inline))
+#  define WL_INLINE __attribute__((always_inline)) inline
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
@@ -65,7 +65,7 @@
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")
 #  endif
-#  define WL_INLINE __attribute__((always_inline))
+#  define WL_INLINE __attribute__((always_inline)) inline
 #  define WL_IGNORE_DEPENDENCIES _Pragma("ivdep")
 #  define WL_RESTRICT __restrict__
 #  define WL_FUNCSIG __PRETTY_FUNCTION__

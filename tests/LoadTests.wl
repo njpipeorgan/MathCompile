@@ -382,3 +382,7 @@ registertest[test["geometric_dist",           Function[{},RandomVariate[Geometri
 registertest[test["binomial_dist",            Function[{},RandomVariate[BinomialDistribution[30,0.3],10000]],{{}},Abs[Mean@N[#]-9.0]<0.08&&Abs[StandardDeviation@N[#]-2.509]<0.06&]&];
 registertest[test["negative_binomial_dist",   Function[{},RandomVariate[NegativeBinomialDistribution[30,0.3],10000]],{{}},Abs[Mean@N[#]-70.0]<0.5&&Abs[StandardDeviation@N[#]-15.28]<0.4&]&];
 
+registertest[test["mandelbrot",               Function[{},Table[Module[{g=0.I,n=0},While[n<50&&Abs@g<2,++n;g=g*g+(i+j I)];Boole[Abs@g<2]],{i,-1.5,0.5,0.01},{j,-1.,1.,0.01}]],{{}}]&];
+registertest[test["fannkuch-redux",           Function[{Typed[x,{Integer,1}]},Module[{n=0},NestWhile[Module[{y=#,i=#[[1]]},++n;y[[;;i]]=Reverse@y[[;;i]];y]&,x,#[[1]]!=1&];n]],List/@RandomSample[Permutations[Range[8]],1000]]&];
+registertest[test["collatz-sequence",         Function[{Typed[x,Integer]},Ordering[Table[Module[{n=1,g=i},While[g>1,++n;g=If[OddQ[g],3g+1,Quotient[g,2]];];n],{i,x}],-1]],{{10000}}]&];
+

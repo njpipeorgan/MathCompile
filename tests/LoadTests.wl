@@ -4,7 +4,7 @@ registertest[test_]:=(AppendTo[$MathCompileTests,test];)
 
 test[name_String,f_,pairs_,cmp_:SameQ]:=(
   Module[{mf,file},
-    $CurrentMathCompileTest=Echo@name;
+    $CurrentMathCompileTest=name;
     If[!TrueQ@MatchQ[pairs,{(({___})|({___}->_))..}],
       Echo[name<>" contains zero groups of arguments."];Abort[]];
     mf=CompileToBinary[f];

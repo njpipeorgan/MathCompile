@@ -7046,7 +7046,7 @@ struct bernoulli
     void generate(RT* res)
     {
         double rand = std::uniform_real_distribution<>()(global_random_engine);
-        *res = boolean(rand < double(p_));
+        *res = RT(rand < double(p_));
     }
 };
 }
@@ -7176,13 +7176,14 @@ auto exponential_distribution(const Lambda& lambda)
     return distribution::exponential<
         promote_integral_t<Lambda>, Lambda>(lambda);
 }
-template<typename P>
+template<typename Ret = int64_t, typename P>
 auto bernoulli_distribution(const P& p)
 {
     static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
     if (!(P(0) <= p && p <= P(1)))
         throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::bernoulli<boolean, P>(p);
+    return distribution::bernoulli<Ret, P>(p);
 }
 template<typename Alpha, typename Beta>
 auto gamma_distribution(const Alpha& alpha, const Beta& beta)
@@ -7210,6 +7211,10 @@ auto extreme_value_distribution(const Alpha& alpha, const Beta& beta)
     if (!(beta > Beta(0)))
         throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
     return distribution::extreme_value<P, Alpha, Beta>(alpha, beta);
+}
+inline auto extreme_value_distribution()
+{
+    return extreme_value_distribution(0., 1.);
 }
 template<typename P>
 auto geometric_distribution(const P& p)

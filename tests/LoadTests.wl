@@ -4,7 +4,7 @@ registertest[test_]:=(AppendTo[$MathCompileTests,test];)
 
 test[name_String,f_,pairs_,cmp_:SameQ]:=(
   Module[{mf,file},
-    $CurrentMathCompileTest=name;
+    $CurrentMathCompileTest=Echo@name;
     If[!TrueQ@MatchQ[pairs,{(({___})|({___}->_))..}],
       Echo[name<>" contains zero groups of arguments."];Abort[]];
     mf=CompileToBinary[f];
@@ -342,7 +342,6 @@ registertest[test["delete_cases:list",        Function[{Typed[x,{Integer,2}]},De
 registertest[test["delete_cases:pattern",     Function[{Typed[x,{Integer,2}]},DeleteCases[x,_?(Total[#]>50&)]],{{RandomInteger[10,{50,10}]}}]&];
 registertest[test["free_q:scalar",            Function[{Typed[x,{Integer,2}]},Boole[FreeQ[#,5]&/@x]],{{RandomInteger[10,{100,10}]}}]&];
 registertest[test["free_q:list",              Function[{Typed[x,{Integer,3}]},Boole[FreeQ[#,{0,1,2}]&/@x]],{{RandomInteger[2,{100,20,3}]}}]&];
-registertest[test["free_q:pattern",           Function[{Typed[x,{Integer,3}]},Boole[FreeQ[#,_?(#[[2]]==8&),{1}]&/@x]],{{RandomInteger[20,{100,20,3}]}}]&];
 registertest[test["member_q:scalar",          Function[{Typed[x,{Integer,2}]},Boole[MemberQ[#,5]&/@x]],{{RandomInteger[10,{100,10}]}}]&];
 registertest[test["member_q:list",            Function[{Typed[x,{Integer,3}]},Boole[MemberQ[#,{0,1,2}]&/@x]],{{RandomInteger[2,{100,20,3}]}}]&];
 registertest[test["member_q:pattern",         Function[{Typed[x,{Integer,3}]},Boole[MemberQ[#,_?(#[[2]]==8&),{1}]&/@x]],{{RandomInteger[20,{100,20,3}]}}]&];
@@ -361,4 +360,25 @@ registertest[test["random_sample:short",      Function[{},Table[RandomSample[Ran
 registertest[test["random_sample:long",       Function[{},Table[RandomSample[Range[1,1000],500],100]],{{}},1<=Min[#]&&Max[#]<=1000&&AllTrue[#,DuplicateFreeQ]&]&];
 registertest[test["random_sample:w,short",    Function[{},Table[RandomSample[Range[10]->Range[10],5],10000]],{{}},Max@Abs[Mean@N[#]-{7.003,6.859,6.695,6.486,6.224}]<0.27&&AllTrue[#,DuplicateFreeQ]&]&];
 registertest[test["random_sample:w,long",     Function[{},Table[RandomSample[Range[40]*Range[40]->Range[40],8],10000]],{{}},Max@Abs[Mean@N[#]-{30.37,30.21,30.04,29.84,29.66,29.44,29.23,29.01}]<0.8&&AllTrue[#,DuplicateFreeQ]&]&];
+registertest[test["uniform_dist:0args",       Function[{},RandomVariate[UniformDistribution[],10000]],{{}},Abs[Mean@N[#]-0.5]<0.01&&Abs[StandardDeviation@N[#]-0.2886]<0.004&]&];
+registertest[test["uniform_dist:n",           Function[{},RandomVariate[UniformDistribution[10],1000]],{{}},0.<=Min[#]&&Max[#]<=1.&]&];
+registertest[test["uniform_dist:n",           Function[{},RandomVariate[UniformDistribution[Transpose@{Range[0,9],Range[1,10]}],1000]],{{}},And@@Table[AllTrue[#[[;;,n]],Between[{n-1,n}]],{n,10}]&]&];
+registertest[test["chi_square_dist",          Function[{},RandomVariate[ChiSquareDistribution[3.5],10000]],{{}},Abs[Mean@N[#]-3.5]<0.08&&Abs[StandardDeviation@N[#]-2.647]<0.10&]&];
+registertest[test["normal_dist:0args",        Function[{},RandomVariate[NormalDistribution[],10000]],{{}},Abs[Mean@N[#]-0.0]<0.03&&Abs[StandardDeviation@N[#]-1.0]<0.02&]&];
+registertest[test["normal_dist:2args",        Function[{},RandomVariate[NormalDistribution[3.1,5.2],10000]],{{}},Abs[Mean@N[#]-3.1]<0.15&&Abs[StandardDeviation@N[#]-5.2]<0.12&]&];
+registertest[test["log_normal_dist",          Function[{},RandomVariate[LogNormalDistribution[3.1,5.2],10000]],{{}},Abs[Median@N[#]-22.3]<6.0&&Abs[MedianDeviation@N[#]-22.2]<6.0&]&];
+registertest[test["cauchy_dist",              Function[{},RandomVariate[CauchyDistribution[1.1,3.2],10000]],{{}},Abs[Median@N[#]-1.1]<0.15&&Abs[MedianDeviation@N[#]-3.2]<0.15&]&];
+registertest[test["student_t_dist:1arg",      Function[{},RandomVariate[StudentTDistribution[3.5],10000]],{{}},Abs[Mean@N[#]-0.0]<0.05&&Abs[StandardDeviation@N[#]-1.53]<0.2&]&];
+registertest[test["student_t_dist:3args",     Function[{},RandomVariate[StudentTDistribution[3.1,5.2,3.7],10000]],{{}},Abs[Mean@N[#]-3.1]<0.3&&Abs[StandardDeviation@N[#]-7.65]<0.6&]&];
+registertest[test["f_ratio_dist",             Function[{},RandomVariate[FRatioDistribution[9.5,5.5],10000]],{{}},Abs[Median@N[#]-1.055]<0.03&&Abs[MedianDeviation@N[#]-0.518]<0.03&]&];
+registertest[test["exponential_dist",         Function[{},RandomVariate[ExponentialDistribution[0.7],10000]],{{}},Abs[Median@N[#]-0.990]<0.05&&Abs[MedianDeviation@N[#]-0.687]<0.03&]&];
+registertest[test["poisson_dist",             Function[{},RandomVariate[PoissonDistribution[35],10000]],{{}},Abs[Median@N[#]-35]<0.001&&Abs[MedianDeviation@N[#]-4]<0.001&]&];
+registertest[test["bernoulli_dist",           Function[{},RandomVariate[BernoulliDistribution[0.7],10000]],{{}},Abs[Mean@N[#]-0.7]<0.016&&Abs[StandardDeviation@N[#]-0.4583]<0.008&]&];
+registertest[test["gamma_dist",               Function[{},RandomVariate[GammaDistribution[4.5,2.5],10000]],{{}},Abs[Median@N[#]-10.43]<0.25&&Abs[MedianDeviation@N[#]-3.36]<0.12&]&];
+registertest[test["weibull_dist",             Function[{},RandomVariate[WeibullDistribution[3.5,5.5],10000]],{{}},Abs[Mean@N[#]-4.948]<0.05&&Abs[StandardDeviation@N[#]-1.566]<0.03&]&];
+registertest[test["extreme_value_dist:0args", Function[{},RandomVariate[ExtremeValueDistribution[],10000]],{{}},Abs[Mean@N[#]-0.578]<0.04&&Abs[StandardDeviation@N[#]-1.282]<0.05&]&];
+registertest[test["extreme_value_dist:2args", Function[{},RandomVariate[ExtremeValueDistribution[3.5,2.5],10000]],{{}},Abs[Mean@N[#]-4.932]<0.1&&Abs[StandardDeviation@N[#]-3.206]<0.1&]&];
+registertest[test["geometric_dist",           Function[{},RandomVariate[GeometricDistribution[0.118],10000]],{{}},Abs[Median@N[#]-5]<0.001&&Abs[MedianDeviation@N[#]-4]<0.001&]&];
+registertest[test["binomial_dist",            Function[{},RandomVariate[BinomialDistribution[30,0.3],10000]],{{}},Abs[Mean@N[#]-9.0]<0.08&&Abs[StandardDeviation@N[#]-2.509]<0.06&]&];
+registertest[test["negative_binomial_dist",   Function[{},RandomVariate[NegativeBinomialDistribution[30,0.3],10000]],{{}},Abs[Mean@N[#]-70.0]<0.5&&Abs[StandardDeviation@N[#]-15.28]<0.4&]&];
 

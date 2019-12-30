@@ -104,7 +104,7 @@ struct mathlink_t
     template<typename T>
     mathlink_t& put(const T& val)
     {
-        int noerror = 0;
+        int noerror = 1;
         if constexpr (std::is_same_v<T, void_type>)
             noerror = MLPutSymbol(link_, "Null");
         else if constexpr (std::is_same_v<T, all_type>)

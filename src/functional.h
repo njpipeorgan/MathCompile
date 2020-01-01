@@ -316,15 +316,13 @@ auto select(X&& x, Function f)
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(array_rank_v<XT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<XT>;
     if constexpr (array_rank_v<XT> == 1u)
     {
-        std::vector<value_type_t<XT>> ret;
-        x.for_each([&](const auto& a)
-            {
-                auto out = f(a);
-                static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
-                if (out) ret.push_back(a);
-            });
+        std::vector<XV> ret;
+        using RT = remove_cvref_t<decltype(f(XV{}))>;
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        x.for_each([&](const auto& a) { if (f(a)) ret.push_back(a); });
         return ndarray<value_type_t<XT>, 1u>(
             std::array<size_t, 1u>{ret.size()}, std::move(ret));
     }

@@ -915,7 +915,7 @@ loadfunction[libpath_String,funcid_String,args_]:=
   ]
 
 
-$template=Import[$packagepath<>"/src/src_template.cpp","Text"];
+$template=Import[$packagepath<>"/SourceFiles/src_template.cpp","Text"];
 
 Options[compilelink]={
   "LibraryDirectory"->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],
@@ -952,7 +952,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           {"            ",",\n            ",""}],
         "funcid"->funcid
         |>];
-    If[FileExistsQ[$packagepath<>"/src/math_compile.h"]=!=True,
+    If[FileExistsQ[$packagepath<>"/IncludeFiles/math_compile.h"]=!=True,
       Message[link::noheader];Return[$Failed]];
     mldir=$InstallationDirectory<>
       "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
@@ -970,7 +970,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           OptionValue["CompileOptions"]
         },
       "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
-      "IncludeDirectories"->{mldir,$packagepath<>"/src"},
+      "IncludeDirectories"->{mldir,$packagepath<>"/IncludeFiles"},
       "LibraryDirectories"->{mldir};
       "Libraries"->{"ML64i4"},
       "WorkingDirectory"->workdir,

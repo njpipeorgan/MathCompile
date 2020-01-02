@@ -412,6 +412,8 @@ $builtinfunctions=
   "Divisible"       ->"divisible",
   "Fibonacci"       ->"fibonacci",
   "LucasL"          ->"lucas_l",
+  "Factorial"       ->"factorial",
+  "Factorial2"      ->"factorial2",
 (* boolean functions *)
   "Boole"           ->"boole",
   "Not"             ->"bool_not",

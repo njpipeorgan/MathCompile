@@ -262,6 +262,10 @@ namespace wl
 "There are not sufficient results from NestWhile for the specified offset."
 #define WL_ERROR_NEST_WHILE_LIST_OFFSET \
 "There are not sufficient results from NestWhileList for the specified offset."
+#define WL_ERROR_FACTORIAL_NEGATIVE \
+"Factorial of a negative integer equals infinity."
+#define WL_ERROR_FACTORIAL2_DOMAIN \
+"Factorial2 of the argument cannot be represented by an integer."
 }
 namespace wl
 {
@@ -4505,15 +4509,13 @@ auto select(X&& x, Function f)
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(array_rank_v<XT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<XT>;
     if constexpr (array_rank_v<XT> == 1u)
     {
-        std::vector<value_type_t<XT>> ret;
-        x.for_each([&](const auto& a)
-            {
-                auto out = f(a);
-                static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
-                if (out) ret.push_back(a);
-            });
+        std::vector<XV> ret;
+        using RT = remove_cvref_t<decltype(f(XV{}))>;
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        x.for_each([&](const auto& a) { if (f(a)) ret.push_back(a); });
         return ndarray<value_type_t<XT>, 1u>(
             std::array<size_t, 1u>{ret.size()}, std::move(ret));
     }
@@ -6246,21 +6248,36 @@ WL_INLINE auto power(X&& x, const_int<I>)
         }, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-template<typename X, typename Y>
-WL_INLINE auto power(X&& x, Y&& y)
+template<typename X>
+WL_INLINE X _scalar_gamma(const X& x)
 {
-    WL_TRY_BEGIN()
-    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
-        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
-    return utils::listable_function([](auto x, auto y)
-        {
-            using PX = promote_integral_t<decltype(x)>;
-            using PY = promote_integral_t<decltype(y)>;
-            using PC = promote_integral_t<
-                common_type_t<decltype(x), decltype(y)>>;
-            return _scalar_power(PC(x), y);
-        }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
+    static_assert(is_float_v<X>, WL_ERROR_INTERNAL);
+    return X(std::tgamma(x));
+}
+template<typename X>
+complex<X> _scalar_gamma(const complex<X>& x)
+{
+    constexpr size_t data_size = 9;
+    static const std::array<double, data_size> data ={
+        0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+        771.32342877765313, -176.61502916214059, 12.507343278686905,
+        -0.13857109526572012, 9.9843695780195716e-6,
+        1.5056327351493116e-7};
+    if (std::real(x) < X(0.5))
+    {
+        return X(const_pi) / (
+            std::sin(X(const_pi) * x) * _scalar_gamma(X(1) - x));
+    }
+    else
+    {
+        complex<X> z = x - X(1);
+        complex<X> y = data[0];
+        for (size_t i = 1; i < data_size; ++i)
+            y += data[i] / (z + X(i));
+        complex<X> t = z + X(7.5);
+        return std::sqrt(X(2 * const_pi)) *
+            std::pow(t, z + X(0.5)) * std::exp(-t) * y;
+    }
 }
 WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
 WL_DEFINE_BINARY_MATH_FUNCTION(log, std::log(PC(y)) / std::log(PC(x)))
@@ -6268,6 +6285,7 @@ WL_DEFINE_UNARY_MATH_FUNCTION(log2, PX(1.4426950408889634074) * std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log10, PX(0.43429448190325182765) * std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(power, _scalar_power(PC(x), y))
 WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(tan, std::tan(x))
@@ -6304,7 +6322,7 @@ WL_DEFINE_UNARY_MATH_FUNCTION(inverse_gudermannian,
     std::log(std::tan(PX(0.5) * x + PX(0.78539816339744830962))))
 WL_DEFINE_UNARY_MATH_FUNCTION(logistic_sigmoid,
     PX(1) / (PX(1) + std::exp(-PX(x))))
-WL_DEFINE_UNARY_MATH_FUNCTION(gamma, std::tgamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(gamma, _scalar_gamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
@@ -6496,6 +6514,134 @@ auto lucas_l(X&& x)
             XV phi_x = std::pow(XV(1.6180339887498948482), x);
             XV cos_pi_x = std::cos(XV(const_pi) * x);
             return phi_x + cos_pi_x / phi_x;
+        }
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+inline uint64_t _factorial(uint64_t n)
+{
+    constexpr size_t data_size = 66;
+    static const std::array<uint64_t, data_size> data ={
+        1,1,2,6,24,120,720,5040,40320,362880,3628800,39916800,479001600,
+        6227020800,87178291200,1307674368000,20922789888000,355687428096000,
+        6402373705728000,121645100408832000,2432902008176640000,
+        14197454024290336768,17196083355034583040,8128291617894825984,
+        10611558092380307456,7034535277573963776,16877220553537093632,
+        12963097176472289280,12478583540742619136,11390785281054474240,
+        9682165104862298112,4999213071378415616,12400865694432886784,
+        3400198294675128320,4926277576697053184,6399018521010896896,
+        9003737871877668864,1096907932701818880,4789013295250014208,
+        2304077777655037952,18376134811363311616,15551764317513711616,
+        7538058755741581312,10541877243825618944,2673996885588443136,
+        9649395409222631424,1150331055211806720,17172071447535812608,
+        12602690238498734080,8789267254022766592,15188249005818642432,
+        18284192274659147776,9994050523088551936,13175843659825807360,
+        10519282829630636032,6711489344688881664,6908521828386340864,
+        6404118670120845312,2504001392817995776,162129586585337856,
+        9727775195120271360,3098476543630901248,7638104968020361216,
+        1585267068834414592,9223372036854775808,9223372036854775808};
+    if (n < data_size)
+        return data[n];
+    else
+        return uint64_t(0);
+}
+inline uint64_t _factorial2(uint64_t n)
+{
+    constexpr size_t data_size = 66;
+    static const std::array<uint64_t, data_size> data ={
+        1,1,2,3,8,15,48,105,384,945,3840,10395,46080,135135,645120,2027025,
+        10321920,34459425,185794560,654729075,3715891200,13749310575,
+        81749606400,316234143225,1961990553600,7905853580625,51011754393600,
+        213458046676875,1428329123020800,6190283353629375,42849873690624000,
+        191898783962510625,1371195958099968000,6332659870762850625,
+        9727174427979808768,282166592185152483,18136886080501186560,
+        10440163910850641871,6672140331791679488,1338022901564897417,
+        8631196239733456896,17965450816741690865,12022104668323708928,
+        16197878097801090939,12463771342375747584,9481495526376579231,
+        1484415464288288768,2908431970669985073,15911710064709206016,
+        13385958046862407265,2375508065949581312,154329662729360723,
+        12845954987120918528,8179472124656118319,11152038577276190720,
+        7149109087057268761,15771605895051476992,1670848340654183825,
+        10862682301217636352,6346331730049087595,6124895493223874560,
+        18191354058803310975,10808639105689190400,2357173134616391233,
+        9223372036854775808,5642301160389017217};
+    if (n < data_size)
+        return data[n];
+    else if (n % 2u == 0u)
+        return uint64_t(0);
+    else
+    {
+        uint64_t res = 1u;
+        for (;;)
+        {
+            res *= n;
+            n -= 2u;
+            if (n < data_size)
+                return uint64_t(res * data[n]);
+        }
+    }
+}
+template<typename X>
+auto factorial(X&& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_integral_v<XV>)
+        {
+            if constexpr (std::is_unsigned_v<XV>)
+                return XV(_factorial(x));
+            else if (x >= XV(0))
+                return XV(_factorial(x));
+            else // x < 0
+                throw std::logic_error(WL_ERROR_FACTORIAL_NEGATIVE);
+        }
+        else
+        {
+            return XV(wl::gamma(XV(1) + x));
+        }
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto factorial2(X&& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    auto pure = [](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        if constexpr (is_integral_v<XV>)
+        {
+            if constexpr (std::is_unsigned_v<XV>)
+                return XV(_factorial2(x));
+            else if (x >= XV(0))
+                return XV(_factorial2(x));
+            else // x < 0
+            {
+                if (x == XV(-1))
+                    return XV(1);
+                else if (x == XV(-3))
+                    return XV(-1);
+                else
+                    throw std::logic_error(WL_ERROR_FACTORIAL2_DOMAIN);
+            }
+        }
+        else
+        {
+            // x!!:=exp((log(2)/2)*x+(log(pi/2)/4)*(cos(pi*x)-1))*gamma(1+x/2)
+            const auto log_2_2 = XV(0.34657359027997265471);
+            const auto log_pi_2_4 = XV(0.11289567632236371618);
+            XV t1 = log_2_2 * x;
+            XV t2 = log_pi_2_4 * (std::cos(XV(const_pi) * x) - XV(1));
+            XV t3 = wl::gamma(XV(1) + XV(0.5) * x);
+            return XV(std::exp(t1 + t2) * t3);
         }
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));

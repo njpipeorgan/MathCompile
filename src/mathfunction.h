@@ -127,21 +127,38 @@ WL_INLINE auto power(X&& x, const_int<I>)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename X, typename Y>
-WL_INLINE auto power(X&& x, Y&& y)
+template<typename X>
+WL_INLINE X _scalar_gamma(const X& x)
 {
-    WL_TRY_BEGIN()
-    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&
-        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
-    return utils::listable_function([](auto x, auto y)
-        {
-            using PX = promote_integral_t<decltype(x)>;
-            using PY = promote_integral_t<decltype(y)>;
-            using PC = promote_integral_t<
-                common_type_t<decltype(x), decltype(y)>>;
-            return _scalar_power(PC(x), y);
-        }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
+    static_assert(is_float_v<X>, WL_ERROR_INTERNAL);
+    return X(std::tgamma(x));
+}
+
+template<typename X>
+complex<X> _scalar_gamma(const complex<X>& x)
+{
+    constexpr size_t data_size = 9;
+    static const std::array<double, data_size> data ={
+        0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+        771.32342877765313, -176.61502916214059, 12.507343278686905,
+        -0.13857109526572012, 9.9843695780195716e-6,
+        1.5056327351493116e-7};
+
+    if (std::real(x) < X(0.5))
+    {
+        return X(const_pi) / (
+            std::sin(X(const_pi) * x) * _scalar_gamma(X(1) - x));
+    }
+    else
+    {
+        complex<X> z = x - X(1);
+        complex<X> y = data[0];
+        for (size_t i = 1; i < data_size; ++i)
+            y += data[i] / (z + X(i));
+        complex<X> t = z + X(7.5);
+        return std::sqrt(X(2 * const_pi)) *
+            std::pow(t, z + X(0.5)) * std::exp(-t) * y;
+    }
 }
 
 WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
@@ -150,6 +167,7 @@ WL_DEFINE_UNARY_MATH_FUNCTION(log2, PX(1.4426950408889634074) * std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log10, PX(0.43429448190325182765) * std::log(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(power, _scalar_power(PC(x), y))
 
 WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
@@ -192,7 +210,7 @@ WL_DEFINE_UNARY_MATH_FUNCTION(inverse_gudermannian,
 WL_DEFINE_UNARY_MATH_FUNCTION(logistic_sigmoid,
     PX(1) / (PX(1) + std::exp(-PX(x))))
 
-WL_DEFINE_UNARY_MATH_FUNCTION(gamma, std::tgamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(gamma, _scalar_gamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))

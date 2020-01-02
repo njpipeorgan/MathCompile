@@ -358,4 +358,10 @@ namespace wl
 #define WL_ERROR_NEST_WHILE_LIST_OFFSET \
 "There are not sufficient results from NestWhileList for the specified offset."
 
+#define WL_ERROR_FACTORIAL_NEGATIVE \
+"Factorial of a negative integer equals infinity."
+
+#define WL_ERROR_FACTORIAL2_DOMAIN \
+"Factorial2 of the argument cannot be represented by an integer."
+
 }

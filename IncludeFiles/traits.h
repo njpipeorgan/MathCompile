@@ -31,6 +31,8 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray;
 
+union u8string;
+
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
 struct simple_view;
 
@@ -43,7 +45,7 @@ struct general_view;
 template<typename T>
 using complex = std::complex<T>;
 
-using string = std::string;
+using string = u8string;
 
 struct void_type;
 

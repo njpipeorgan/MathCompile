@@ -176,10 +176,11 @@ registertest[test["hypinv:complex",           Function[{Typed[x,Complex]},{ArcSi
 registertest[test["trigderived:real",         Function[{Typed[x,Real]},{Haversine[x],InverseHaversine[x],Gudermannian[x],InverseGudermannian[x],Sinc[x]}],{{0.3},{0.5},{0.8}},Equal]&]
 registertest[test["trigderived:complex",      Function[{Typed[x,Complex]},{Haversine[x],InverseHaversine[x],Gudermannian[x],InverseGudermannian[x],Sinc[x]}],{{0.3+0.1I},{0.5+0.1I},{0.8+0.1I}},Equal]&]
 
-registertest[test["gamma,log_gamma",          Function[{Typed[x,Real]},{Gamma[x],LogGamma[x]}],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
-registertest[test["erf,erfc",                 Function[{Typed[x,Real]},{Erf[x],Erfc[x]}],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
-registertest[test["beta",                     Function[{Typed[x,Real],Typed[y,Real]},Beta[x,y]],{{5.0,4.0},{2.3,3.2}},Equal]&]
-registertest[test["zeta",                     Function[{Typed[x,Real]},Zeta[x]],{{0.001},{0.08},{1.5},{5.3}},Equal]&]
+registertest[test["gamma,log_gamma",          Function[{Typed[x,Real]},{Gamma[x],LogGamma[x]}],{{0.001},{0.08},{1.5},{5.3}},Equal]&];
+registertest[test["gamma:complex",            Function[{Typed[x,Complex]},Gamma[x]],{{0.001+0.1I},{0.08+0.2I},{1.5+0.3I},{5.3-0.5I}},Equal]&];
+registertest[test["erf,erfc",                 Function[{Typed[x,Real]},{Erf[x],Erfc[x]}],{{0.001},{0.08},{1.5},{5.3}},Equal]&];
+registertest[test["beta",                     Function[{Typed[x,Real],Typed[y,Real]},Beta[x,y]],{{5.0,4.0},{2.3,3.2}},Equal]&];
+registertest[test["zeta",                     Function[{Typed[x,Real]},Zeta[x]],{{0.001},{0.08},{1.5},{5.3}},Equal]&];
 
 registertest[test["not",                      Function[{Typed[x,Boolean]},Not[x]],{{True},{False}}]&];
 registertest[test["and",                      Function[{Typed[x,{Integer,1}]},And@@Map[#>0&,x]],List/@Tuples[{0,1},5]]&];
@@ -203,6 +204,12 @@ registertest[test["odd_q:real",               Function[{Typed[x,Real]},OddQ[x]],
 registertest[test["divisible",                Function[{Typed[x,Integer],Typed[y,Integer]},Divisible[x,y]],DeleteCases[RandomInteger[{-20,20},{400,2}],{_,0}]]&];
 registertest[test["fibonacci",                Function[{Typed[x,Integer]},Fibonacci[x]],List/@Range[-90,90]]&];
 registertest[test["lucas_l",                  Function[{Typed[x,{Integer,1}]},LucasL[x]],{{Range[-90,90]}}]&];
+registertest[test["factorial:int",            Function[{Typed[x,{Integer,1}]},Factorial[x]],{{Range[0,20]}}]&];
+registertest[test["factorial:real",           Function[{Typed[x,{Real,1}]},Factorial[x]],{{RandomReal[{-10,10},20]}},Equal]&];
+registertest[test["factorial:complex",        Function[{Typed[x,{Complex,1}]},Factorial[x]],{{RandomComplex[{0.+0.I,5+5I},20]}},Max@Abs[(#1-#2)/#2]<1.*^-10&]&];
+registertest[test["factorial2:int",           Function[{Typed[x,{Integer,1}]},Factorial2[x]],{{Range[0,20]}}]&];
+registertest[test["factorial2:real",          Function[{Typed[x,{Real,1}]},Factorial2[x]],{{RandomReal[{-10,10},20]}},Equal]&];
+registertest[test["factorial2:complex",       Function[{Typed[x,{Complex,1}]},Factorial2[x]],{{{0.1+0.1I,0.5+0.2I,1.5+0.3I,3.5-0.5I}}},Max@Abs[(#1-#2)/#2]<1.*^-10&]&];
 registertest[test["integer_digits:1args",     Function[{Typed[x,Integer]},IntegerDigits[x]],{{-58127},{0},{58127}}]&];
 registertest[test["integer_digits:2args",     Function[{Typed[x,Integer],Typed[y,Integer]},IntegerDigits[x,y]],{{-58127,2},{0,2},{12345,8},{58127,17}}]&];
 registertest[test["integer_digits:3args",     Function[{Typed[x,Integer],Typed[y,Integer],Typed[n,Integer]},IntegerDigits[x,y,n]],{{58127,2,10},{0,2,5},{12345,8,0},{58127,17,10}}]&];

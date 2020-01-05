@@ -364,4 +364,7 @@ namespace wl
 #define WL_ERROR_FACTORIAL2_DOMAIN \
 "Factorial2 of the argument cannot be represented by an integer."
 
+#define WL_ERROR_BAD_UTF8_CODEPOINT \
+"The string contains an invalid UTF-8 codepoint."
+
 }

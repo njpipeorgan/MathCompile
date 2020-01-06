@@ -151,7 +151,7 @@ struct uniform
         if constexpr (is_integral_v<T> && Multiple)
         {
             const auto diff = uint64_t(max_) - uint64_t(min_);
-            n_bits_ = size_t(64u - utils::_lzcnt(diff));
+            n_bits_ = size_t(64u - utils::_lzcnt_u64(diff));
             range_ = diff + 1u; // could be zero
         }
     }
@@ -1039,7 +1039,7 @@ auto _random_sample_prepare_binary(const W& w, const size_t x_length)
         uint_probs[i] = (prob > 0u) ? prob : uint64_t(1);
     }
 
-    const auto lzcnt = utils::_lzcnt(uint64_t(n - 1u));
+    const auto lzcnt = utils::_lzcnt_u64(uint64_t(n - 1u));
     const auto max_jump = size_t(1) << (63u - lzcnt);
 
     // fold the ragged part

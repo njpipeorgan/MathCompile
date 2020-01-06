@@ -29,7 +29,109 @@
 namespace wl
 {
 
-struct u8_iterator
+namespace utf8
+{
+
+struct size_properties
+{
+    size_t byte_size;
+    size_t string_size;
+};
+
+template<bool CheckValid = false, size_t N>
+size_properties _get_sizes_impl(const char* in_str)
+{
+    size_t byte_size = 0;
+    size_t trailing_size = 0;
+    auto str_begin = reinterpret_cast<const int8_t*>(in_str);
+    auto str = str_begin;
+
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    auto trailing = zero<M>();
+    for (size_t i = 0;; ++i, str += 32, byte_size += 32)
+    {
+        auto data = loadu<M>(str);
+        if constexpr (N > 0u)
+        {
+            if (int64_t(byte_size) >= int64_t(N) - 32)
+            {
+                auto tmask = movemask_epi8(simd::cmpgt_epi8(upper, data));
+                auto excess_byte = N - byte_size;
+                auto excess_trailing = utils::_popcnt(
+                    uint64_t(tmask) << (64u - excess_byte));
+                byte_size = N - 1u;
+                trailing_size += hsum_epi8(trailing);
+                trailing_size += excess_trailing;
+                return {byte_size, byte_size - trailing_size};
+            }
+        }
+        else
+        {
+            auto compare = cmpeq_epi8(data, zero<M>());
+            if (!testc(zero<M>(), compare))
+            {
+                auto mask = movemask_epi8(compare);
+                auto tmask = movemask_epi8(simd::cmpgt_epi8(upper, data));
+                auto excess_byte = utils::_tzcnt_u64(mask);
+                auto excess_trailing = utils::_popcnt(
+                    uint64_t(tmask) << (64u - excess_byte));
+                byte_size += excess_byte;
+                trailing_size += hsum_epi8(trailing);
+                trailing_size += excess_trailing;
+                return {byte_size, byte_size - trailing_size};
+            }
+        }
+        trailing = sub_epi8(trailing, cmpgt_epi8(upper, data));
+        if (i >= 100u)
+        {
+            trailing_size += hsum_epi8(trailing);
+            trailing = zero<M>();
+            i = 0u;
+        }
+    }
+    return {0, 0};
+#else
+    if constexpr (N > 0u)
+    {
+        for (size_t i = 0; i < N - 1u; ++i)
+            if (str[i] < int8_t(0b1100'0000))
+                ++trailing_size;
+        byte_size = N - 1u;
+    }
+    else
+    {
+        for (; *str; ++str)
+            if (*str < int8_t(0b1100'0000))
+                ++trailing_size;
+        byte_size = size_t(str - str_begin);
+    }
+    return {byte_size, byte_size - trailing_size};
+#endif
+}
+
+template<bool CheckValid = false, typename Str>
+size_properties get_sizes(const Str& str)
+{
+    if constexpr (std::is_array_v<Str>)
+    {
+        constexpr auto N = std::extent_v<Str>;
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        return _get_sizes_impl<CheckValid, N>(static_cast<const char*>(str));
+    }
+    else
+    {
+        return _get_sizes_impl<CheckValid, 0>(static_cast<const char*>(str));
+    }
+}
+
+struct iterator
 {
     const uint8_t* ptr_;
 
@@ -48,43 +150,43 @@ struct u8_iterator
         return ptr_;
     }
 
-    u8_iterator& operator++()
+    iterator& operator++()
     {
         ptr_ += num_bytes();
         return *this;
     }
 
-    u8_iterator& operator--()
+    iterator& operator--()
     {
         ptr_ -= previous_num_bytes();
         return *this;
     }
 
-    u8_iterator& operator+=(ptrdiff_t n)
+    iterator& operator+=(ptrdiff_t n)
     {
         _offset(n);
         return *this;
     }
 
-    u8_iterator& operator-=(ptrdiff_t n)
+    iterator& operator-=(ptrdiff_t n)
     {
         _offset(-n);
         return *this;
     }
 
-    bool operator==(const u8_iterator& other) const
+    bool operator==(const iterator& other) const
     {
         assert(_is_valid_codepoint_begin(*this->ptr_));
         assert(_is_valid_codepoint_begin(*other.ptr_));
         return this->ptr_ == other.ptr_;
     }
 
-    bool operator!=(const u8_iterator& other) const
+    bool operator!=(const iterator& other) const
     {
         return !(this->ptr_ == other.ptr_);
     }
 
-    ptrdiff_t operator-(const u8_iterator& other) const
+    ptrdiff_t operator-(const iterator& other) const
     {
         bool this_is_behind = this->ptr_ > other.ptr_;
         const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
@@ -197,40 +299,34 @@ struct u8_iterator
     }
 };
 
+}
+
 union u8string
 {
     static constexpr size_t small_string_byte_size = 28u; // excluding \0
-
-    struct flags_t
-    {
-        bool is_static_ : 1;
-        bool ascii_only_ : 1;
-    };
-
+    
     struct static_t
     {
-        flags_t flags_;
+        bool    is_static_ = true;
         uint8_t byte_size_;   // size excluding \0
         uint8_t string_size_; // number of codepoints
         uint8_t string_[small_string_byte_size + 1u];
 
-        static_t(size_t byte_size, size_t string_size, bool ascii_only) :
-            flags_{true, ascii_only}, byte_size_{uint8_t(byte_size)},
-            string_size_{uint8_t(string_size)}
+        static_t(size_t byte_size, size_t string_size) :
+            byte_size_{uint8_t(byte_size)}, string_size_{uint8_t(string_size)}
         {
         }
     };
 
     struct dynamic_t
     {
-        flags_t  flags_;
+        bool     is_static_ = false;
         uint64_t byte_size_;   // size excluding \0
         uint64_t string_size_; // number of codepoints
         uint8_t* string_;
         
-        dynamic_t(size_t byte_size, size_t string_size, bool ascii_only) :
-            flags_{false, ascii_only}, byte_size_{byte_size},
-            string_size_{string_size}, string_{nullptr}
+        dynamic_t(size_t byte_size, size_t string_size) :
+            byte_size_{byte_size}, string_size_{string_size}, string_{nullptr}
         {
             allocate(byte_size_);
         }
@@ -242,20 +338,20 @@ union u8string
 
         dynamic_t(const dynamic_t& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             allocate(byte_size_);
             std::copy_n(other.string_, byte_size_ + 1u, string_);
         }
 
         dynamic_t(dynamic_t&& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             std::swap(string_, other.string_);
         }
 
         dynamic_t& operator=(const dynamic_t& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             free();
             allocate(byte_size_);
             std::copy_n(other.string_, byte_size_ + 1u, string_);
@@ -264,7 +360,7 @@ union u8string
 
         dynamic_t& operator=(dynamic_t&& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             std::swap(this->string_, other.string_);
             return *this;
         }
@@ -283,15 +379,14 @@ union u8string
             std::free(string_);
         }
 
-        void copy_flags_and_sizes(const dynamic_t& other)
+        void copy_sizes(const dynamic_t& other)
         {
-            flags_       = other.flags_;
             byte_size_   = other.byte_size_;
             string_size_ = other.string_size_;
         }
     };
     
-    static_assert(sizeof(flags_t) == 1u, WL_ERROR_INTERNAL);
+    static_assert(sizeof(bool) == 1u, WL_ERROR_INTERNAL);
     static_assert(sizeof(static_t) == 32u, WL_ERROR_INTERNAL);
     static_assert(sizeof(dynamic_t) == 32u, WL_ERROR_INTERNAL);
 
@@ -300,7 +395,7 @@ union u8string
 
     u8string()
     {
-        new(&static_) static_t(0u, 0u, true);
+        new(&static_) static_t(0u, 0u);
     }
 
     ~u8string()
@@ -312,17 +407,15 @@ union u8string
     explicit u8string(const Any* str)
     {
         static_assert(sizeof(Any) == 1u, WL_ERROR_INTERNAL);
-        bool ascii_only = true;
-        size_t byte_size = 0;
-        size_t string_size = count_u8_codepoints(str, byte_size, ascii_only);
+        auto [byte_size, string_size] = utf8::get_sizes(str);
         if (byte_size <= small_string_byte_size)
         {
-            new(&static_) static_t(byte_size, string_size, ascii_only);
+            new(&static_) static_t(byte_size, string_size);
             std::memcpy(static_byte_data(), str, byte_size + 1u);
         }
         else
         {
-            new(&dynamic_) dynamic_t(byte_size, string_size, ascii_only);
+            new(&dynamic_) dynamic_t(byte_size, string_size);
             std::memcpy(dynamic_byte_data(), str, byte_size + 1u);
         }
     }
@@ -376,14 +469,14 @@ union u8string
             if (other.dynamic_byte_size() <= small_string_byte_size)
             { // convert to static
                 new(&static_) static_t(other.dynamic_byte_size(),
-                    other.dynamic_string_size(), other.ascii_only());
+                    other.dynamic_string_size());
                 std::memcpy(static_byte_data(), other.dynamic_byte_data(),
                     static_byte_size() + 1u);
             }
             else
             { // remain dynamic
                 new(&dynamic_) dynamic_t(other.dynamic_byte_size(),
-                    other.dynamic_string_size(), other.ascii_only());
+                    other.dynamic_string_size());
                 std::memcpy(dynamic_byte_data(), other.dynamic_byte_data(),
                     dynamic_byte_size() + 1u);
             }
@@ -392,24 +485,9 @@ union u8string
 
     bool is_static() const
     {
-        flags_t flags;
-        std::memcpy(&flags, &static_.flags_, sizeof(flags_t));
-        return flags.is_static_;
-    }
-
-    bool ascii_only() const
-    {
-        flags_t flags;
-        std::memcpy(&flags, &static_.flags_, sizeof(flags_t));
-        return flags.ascii_only_;
-    }
-
-    void set_ascii_only(bool only)
-    {
-        flags_t flags;
-        std::memcpy(&flags, &static_.flags_, sizeof(flags_t));
-        flags.ascii_only_ = only;
-        std::memcpy(&static_.flags_, &flags, sizeof(flags_t));
+        bool value;
+        std::memcpy(&value, &static_.is_static_, sizeof(bool));
+        return value;
     }
 
     size_t static_byte_size() const { return static_.byte_size_; }
@@ -456,6 +534,11 @@ union u8string
             return dynamic_byte_data();
     }
 
+    bool ascii_only() const
+    {
+        return byte_size() == size();
+    }
+
     const char* c_str() const
     {
         return reinterpret_cast<const char*>(byte_data());
@@ -467,44 +550,8 @@ union u8string
     const uint8_t* byte_begin() const { return byte_data(); }
     const uint8_t* byte_end() const { return byte_data() + byte_size(); }
 
-    u8_iterator begin() const { return u8_iterator{byte_begin()}; }
-    u8_iterator end() const { return u8_iterator{byte_end()}; }
-
-    template<typename Any>
-    static size_t count_u8_codepoints(const Any* const input_str,
-        size_t& byte_size, bool& ret_ascii_only)
-    {
-        static_assert(sizeof(Any) == 1u, WL_ERROR_INTERNAL);
-        auto str = input_str;
-        bool ascii_only = true;
-        size_t codepoints = 0;
-        for (;;)
-        {
-            const auto byte = *str;
-            if (!byte) goto success;
-            else if ((byte & 0b1000'0000u) == 0b0000'0000u) goto byte1;
-            else if ((byte & 0b1110'0000u) == 0b1100'0000u) goto byte2;
-            else if ((byte & 0b1111'0000u) == 0b1110'0000u) goto byte3;
-            else if ((byte & 0b1111'1000u) == 0b1111'0000u) goto byte4;
-            else goto failed;
-        byte4:
-            if (((*++str) & 0b1100'0000u) != 0b1000'0000u) goto failed;
-        byte3:
-            if (((*++str) & 0b1100'0000u) != 0b1000'0000u) goto failed;
-        byte2:
-            if (((*++str) & 0b1100'0000u) != 0b1000'0000u) goto failed;
-            ascii_only = false;
-        byte1:
-            ++codepoints;
-            ++str;
-        }
-    failed:
-        throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
-    success:
-        byte_size = size_t(str - input_str);
-        ret_ascii_only = ascii_only;
-        return codepoints;
-    }
+    utf8::iterator begin() const { return utf8::iterator{byte_begin()}; }
+    utf8::iterator end() const { return utf8::iterator{byte_end()}; }
 
     std::string _ascii_string() const
     {
@@ -526,8 +573,6 @@ union u8string
         std::string info = "{ ";
         info += "size=" + std::to_string(size()) + ", ";
         info += "byte_size=" + std::to_string(byte_size()) + ", ";
-        info += "ascii_only=" +
-            std::string(ascii_only() ? "true" : "false") + ", ";
         info += "is_static=" +
             std::string(is_static() ? "true" : "false") + ", ";
         info += "content=";

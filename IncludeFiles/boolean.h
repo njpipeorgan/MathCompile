@@ -162,9 +162,9 @@ auto bit_length(X&& x)
         using XV = decltype(x);
         static_assert(is_integral_v<XV>, WL_ERROR_INTEGRAL_TYPE_ARG);
         if constexpr (std::is_unsigned_v<XV>)
-            return Ret(64) - Ret(utils::_lzcnt(x));
+            return Ret(64) - Ret(utils::_lzcnt_u64(x));
         else
-            return Ret(64) - Ret(utils::_lzcnt(
+            return Ret(64) - Ret(utils::_lzcnt_u64(
                 std::make_unsigned_t<XV>(x >= XV(0) ? x : ~x)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));

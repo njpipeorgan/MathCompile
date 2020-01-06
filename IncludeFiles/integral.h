@@ -124,7 +124,7 @@ inline uint64_t _fibonacci_impl(uint64_t n, uint64_t* prev)
         *prev = n == 0u ? uint64_t(1) : data[n - 1];
         return data[n];
     }
-    auto lzcnt = utils::_lzcnt(n);
+    auto lzcnt = utils::_lzcnt_u64(n);
     uint64_t leading = n >> (58 - lzcnt);
     uint64_t mask = uint64_t(1) << (57 - lzcnt);
     uint64_t a = data[leading - 1];

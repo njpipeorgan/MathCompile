@@ -34,6 +34,11 @@
 #  ifdef __AVX__
 #    define __POPCNT__ 1
 #    define __LZCNT__ 1
+#    define __SSE4_2__ 1
+#    define __SSE4_1__ 1
+#    define __SSE3__ 1
+#    define __SSE2__ 1
+#    define __SSE__ 1
 #  endif
 #  define _wl_popcnt64 __popcnt64
 #  define NOMINMAX // disable min, max macros
@@ -71,6 +76,7 @@
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
 #  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
 #  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#  pragma GCC diagnostic ignored "-Wignored-attributes"
 #endif
 
 // no random device for MinGW

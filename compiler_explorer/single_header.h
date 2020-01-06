@@ -38,6 +38,11 @@
 #  ifdef __AVX__
 #    define __POPCNT__ 1
 #    define __LZCNT__ 1
+#    define __SSE4_2__ 1
+#    define __SSE4_1__ 1
+#    define __SSE3__ 1
+#    define __SSE2__ 1
+#    define __SSE__ 1
 #  endif
 #  define _wl_popcnt64 __popcnt64
 #  define NOMINMAX // disable min, max macros
@@ -75,6 +80,7 @@
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
 #  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
 #  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#  pragma GCC diagnostic ignored "-Wignored-attributes"
 #endif
 #if defined(__MINGW64__)
 #  define WL_NO_RANDOM_DEVICE 1
@@ -591,6 +597,108 @@ constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 }
 namespace wl
 {
+namespace simd
+{
+#define WL_DEFINE_DEFULAT_SIMD_UNARY(name)                      \
+WL_INLINE auto name(__m256i x) { return _mm256_##name(x); }     \
+WL_INLINE auto name(__m128i x) { return _mm_##name(x); }
+#define WL_DEFINE_DEFULAT_SIMD_BINARY(name)                                 \
+WL_INLINE auto name(__m256i x, __m256i y) { return _mm256_##name(x, y); }   \
+WL_INLINE auto name(__m128i x, __m128i y) { return _mm_##name(x, y); }
+WL_DEFINE_DEFULAT_SIMD_BINARY(unpacklo_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(unpackhi_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(add_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(add_epi16)
+WL_DEFINE_DEFULAT_SIMD_BINARY(sub_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(sub_epi16)
+WL_DEFINE_DEFULAT_SIMD_BINARY(cmpeq_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(cmpgt_epi8)
+WL_DEFINE_DEFULAT_SIMD_UNARY(movemask_epi8)
+WL_INLINE auto testc(__m128i x, __m128i y) { return _mm_testc_si128(x, y); }
+WL_INLINE auto testc(__m256i x, __m256i y) { return _mm256_testc_si256(x, y); }
+template<typename M>
+WL_INLINE auto zero()
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_setzero_si256();
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_setzero_si128();
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<typename M, typename T>
+WL_INLINE auto set1(T x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+    {
+        if constexpr (sizeof(T) == 1u) return _mm256_set1_epi8(x);
+        else if constexpr (sizeof(T) == 2u) return _mm256_set1_epi16(x);
+        else if constexpr (sizeof(T) == 4u) return _mm256_set1_epi32(x);
+        else if constexpr (sizeof(T) == 8u) return _mm256_set1_epi64(x);
+        else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+    }
+    else if constexpr (std::is_same_v<M, __m128i>)
+    {
+        if constexpr (sizeof(T) == 1u) return _mm_set1_epi8(x);
+        else if constexpr (sizeof(T) == 2u) return _mm_set1_epi16(x);
+        else if constexpr (sizeof(T) == 4u) return _mm_set1_epi32(x);
+        else if constexpr (sizeof(T) == 8u) return _mm_set1_epi64(x);
+        else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+    }
+    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<typename M, typename Ptr>
+WL_INLINE auto loadu(const Ptr* ptr)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_loadu_si256((const __m256i*)ptr);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_loadu_si128((const __m128i*)ptr);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<typename M, typename Ptr>
+WL_INLINE auto storeu(Ptr* ptr, M x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_storeu_si256((__m256i*)ptr, x);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_storeu_si128((__m128i*)ptr, x);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<int I, typename M>
+WL_INLINE auto extract_epi64(M x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_extract_epi64(x, I);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_extract_epi64(x, I);
+    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+WL_INLINE int64_t hsum_epi8(__m256i v)
+{
+    v = add_epi16(unpacklo_epi8(v, zero<__m256i>()),
+        unpackhi_epi8(v, zero<__m256i>()));
+    auto total = uint64_t(extract_epi64<0>(v) + extract_epi64<1>(v) +
+        extract_epi64<2>(v) + extract_epi64<3>(v));
+    total += total >> 32;
+    total += total >> 16;
+    return int64_t(total & 0xffffu);
+}
+WL_INLINE int64_t hsum_epi8(__m128i v)
+{
+    v = add_epi16(unpacklo_epi8(v, zero<__m128i>()),
+        unpackhi_epi8(v, zero<__m128i>()));
+    auto total = uint64_t(extract_epi64<0>(v) + extract_epi64<1>(v));
+    total += total >> 32;
+    total += total >> 16;
+    return int64_t(total & 0xffffu);
+}
+}
+}
+namespace wl
+{
 struct scalar_indexer; // I
 struct all_indexer;    // A
 struct unit_indexer;   // U
@@ -978,20 +1086,10 @@ size_t linear_position(const std::array<size_t, R>& dims, const Is&... is)
     return pos;
 }
 template<typename X>
-auto _lzcnt(X x)
+size_t _lzcnt_u64(X x)
 {
-    static_assert(std::is_unsigned_v<X>, WL_ERROR_INTERNAL);
 #if defined(__LZCNT__)
-    return _lzcnt_u64(uint64_t(x));
-#elif defined(__POPCNT__)
-    uint64_t y = int64_t(x);
-    y |= (y >> 1);
-    y |= (y >> 2);
-    y |= (y >> 4);
-    if constexpr (sizeof(X) >= 2) y |= (y >> 8);
-    if constexpr (sizeof(X) >= 4) y |= (y >> 16);
-    if constexpr (sizeof(X) >= 8) y |= (y >> 32);
-    return _mm_popcnt_u64(~y);
+    return ::_lzcnt_u64(uint64_t(x));
 #else
     int64_t n = 64;
     uint64_t y = x;
@@ -1001,6 +1099,39 @@ auto _lzcnt(X x)
     if (y >> 4) { n -= 4; y >>= 4; }
     if (y >> 2) { n -= 2; y >>= 2; }
     return n - ((y >> 1) ? int64_t(2) : int64_t(y));
+#endif
+}
+template<typename X>
+size_t _tzcnt_u64(X x)
+{
+#if defined(__BMI__)
+    return ::_tzcnt_u64(uint64_t(x));
+#else
+    int64_t n = 64;
+    uint64_t y = x;
+    if constexpr (sizeof(X) >= 8) if (y << 32) { n -= 32; y <<= 32; }
+    if constexpr (sizeof(X) >= 4) if (y << 16) { n -= 16; y <<= 16; }
+    if constexpr (sizeof(X) >= 2) if (y << 8) { n -= 8; y <<= 8; }
+    if (y << 4) { n -= 4; y <<= 4; }
+    if (y << 2) { n -= 2; y <<= 2; }
+    return n - ((y << 1) ? int64_t(2) : int64_t(y >> 63));
+#endif
+}
+template<typename X>
+size_t _popcnt(X x)
+{
+    static_assert(std::is_unsigned_v<X>, WL_ERROR_INTERNAL);
+#if defined(___POPCNT__)
+    return _mm_popcnt_u64(uint64_t(x));
+#else
+    constexpr uint64_t m1  = 0x5555555555555555u;
+    constexpr uint64_t m2  = 0x3333333333333333u;
+    constexpr uint64_t m4  = 0x0f0f0f0f0f0f0f0fu;
+    constexpr uint64_t h01 = 0x0101010101010101u;
+    x -= (x >> 1) & m1;
+    x = (x & m2) + ((x >> 2) & m2);
+    x = (x + (x >> 4)) & m4;
+    return size_t((x * h01) >> 56);
 #endif
 }
 }
@@ -6426,7 +6557,7 @@ inline uint64_t _fibonacci_impl(uint64_t n, uint64_t* prev)
         *prev = n == 0u ? uint64_t(1) : data[n - 1];
         return data[n];
     }
-    auto lzcnt = utils::_lzcnt(n);
+    auto lzcnt = utils::_lzcnt_u64(n);
     uint64_t leading = n >> (58 - lzcnt);
     uint64_t mask = uint64_t(1) << (57 - lzcnt);
     uint64_t a = data[leading - 1];
@@ -6780,9 +6911,9 @@ auto bit_length(X&& x)
         using XV = decltype(x);
         static_assert(is_integral_v<XV>, WL_ERROR_INTEGRAL_TYPE_ARG);
         if constexpr (std::is_unsigned_v<XV>)
-            return Ret(64) - Ret(utils::_lzcnt(x));
+            return Ret(64) - Ret(utils::_lzcnt_u64(x));
         else
-            return Ret(64) - Ret(utils::_lzcnt(
+            return Ret(64) - Ret(utils::_lzcnt_u64(
                 std::make_unsigned_t<XV>(x >= XV(0) ? x : ~x)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
@@ -6994,7 +7125,7 @@ struct uniform
         if constexpr (is_integral_v<T> && Multiple)
         {
             const auto diff = uint64_t(max_) - uint64_t(min_);
-            n_bits_ = size_t(64u - utils::_lzcnt(diff));
+            n_bits_ = size_t(64u - utils::_lzcnt_u64(diff));
             range_ = diff + 1u; // could be zero
         }
     }
@@ -7788,7 +7919,7 @@ auto _random_sample_prepare_binary(const W& w, const size_t x_length)
         // each element should have a probability of at least ~2^-63
         uint_probs[i] = (prob > 0u) ? prob : uint64_t(1);
     }
-    const auto lzcnt = utils::_lzcnt(uint64_t(n - 1u));
+    const auto lzcnt = utils::_lzcnt_u64(uint64_t(n - 1u));
     const auto max_jump = size_t(1) << (63u - lzcnt);
     // fold the ragged part
     for (size_t i = max_jump; i < n; ++i)
@@ -10823,7 +10954,104 @@ auto tr(const X& x)
 }
 namespace wl
 {
-struct u8_iterator
+namespace utf8
+{
+struct size_properties
+{
+    size_t byte_size;
+    size_t string_size;
+};
+template<bool CheckValid = false, size_t N>
+size_properties _get_sizes_impl(const char* in_str)
+{
+    size_t byte_size = 0;
+    size_t trailing_size = 0;
+    auto str_begin = reinterpret_cast<const int8_t*>(in_str);
+    auto str = str_begin;
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    auto trailing = zero<M>();
+    for (size_t i = 0;; ++i, str += 32, byte_size += 32)
+    {
+        auto data = loadu<M>(str);
+        if constexpr (N > 0u)
+        {
+            if (int64_t(byte_size) >= int64_t(N) - 32)
+            {
+                auto tmask = movemask_epi8(simd::cmpgt_epi8(upper, data));
+                auto excess_byte = N - byte_size;
+                auto excess_trailing = utils::_popcnt(
+                    uint64_t(tmask) << (64u - excess_byte));
+                byte_size = N - 1u;
+                trailing_size += hsum_epi8(trailing);
+                trailing_size += excess_trailing;
+                return {byte_size, byte_size - trailing_size};
+            }
+        }
+        else
+        {
+            auto compare = cmpeq_epi8(data, zero<M>());
+            if (!testc(zero<M>(), compare))
+            {
+                auto mask = movemask_epi8(compare);
+                auto tmask = movemask_epi8(simd::cmpgt_epi8(upper, data));
+                auto excess_byte = utils::_tzcnt_u64(mask);
+                auto excess_trailing = utils::_popcnt(
+                    uint64_t(tmask) << (64u - excess_byte));
+                byte_size += excess_byte;
+                trailing_size += hsum_epi8(trailing);
+                trailing_size += excess_trailing;
+                return {byte_size, byte_size - trailing_size};
+            }
+        }
+        trailing = sub_epi8(trailing, cmpgt_epi8(upper, data));
+        if (i >= 100u)
+        {
+            trailing_size += hsum_epi8(trailing);
+            trailing = zero<M>();
+            i = 0u;
+        }
+    }
+    return {0, 0};
+#else
+    if constexpr (N > 0u)
+    {
+        for (size_t i = 0; i < N - 1u; ++i)
+            if (str[i] < int8_t(0b1100'0000))
+                ++trailing_size;
+        byte_size = N - 1u;
+    }
+    else
+    {
+        for (; *str; ++str)
+            if (*str < int8_t(0b1100'0000))
+                ++trailing_size;
+        byte_size = size_t(str - str_begin);
+    }
+    return {byte_size, byte_size - trailing_size};
+#endif
+}
+template<bool CheckValid = false, typename Str>
+size_properties get_sizes(const Str& str)
+{
+    if constexpr (std::is_array_v<Str>)
+    {
+        constexpr auto N = std::extent_v<Str>;
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        return _get_sizes_impl<CheckValid, N>(static_cast<const char*>(str));
+    }
+    else
+    {
+        return _get_sizes_impl<CheckValid, 0>(static_cast<const char*>(str));
+    }
+}
+struct iterator
 {
     const uint8_t* ptr_;
     static bool _is_valid_codepoint_begin(uint8_t byte)
@@ -10838,37 +11066,37 @@ struct u8_iterator
     {
         return ptr_;
     }
-    u8_iterator& operator++()
+    iterator& operator++()
     {
         ptr_ += num_bytes();
         return *this;
     }
-    u8_iterator& operator--()
+    iterator& operator--()
     {
         ptr_ -= previous_num_bytes();
         return *this;
     }
-    u8_iterator& operator+=(ptrdiff_t n)
+    iterator& operator+=(ptrdiff_t n)
     {
         _offset(n);
         return *this;
     }
-    u8_iterator& operator-=(ptrdiff_t n)
+    iterator& operator-=(ptrdiff_t n)
     {
         _offset(-n);
         return *this;
     }
-    bool operator==(const u8_iterator& other) const
+    bool operator==(const iterator& other) const
     {
         assert(_is_valid_codepoint_begin(*this->ptr_));
         assert(_is_valid_codepoint_begin(*other.ptr_));
         return this->ptr_ == other.ptr_;
     }
-    bool operator!=(const u8_iterator& other) const
+    bool operator!=(const iterator& other) const
     {
         return !(this->ptr_ == other.ptr_);
     }
-    ptrdiff_t operator-(const u8_iterator& other) const
+    ptrdiff_t operator-(const iterator& other) const
     {
         bool this_is_behind = this->ptr_ > other.ptr_;
         const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
@@ -10974,36 +11202,31 @@ struct u8_iterator
         }
     }
 };
+}
 union u8string
 {
     static constexpr size_t small_string_byte_size = 28u; // excluding \0
-    struct flags_t
-    {
-        bool is_static_ : 1;
-        bool ascii_only_ : 1;
-    };
+    
     struct static_t
     {
-        flags_t flags_;
+        bool    is_static_ = true;
         uint8_t byte_size_;   // size excluding \0
         uint8_t string_size_; // number of codepoints
         uint8_t string_[small_string_byte_size + 1u];
-        static_t(size_t byte_size, size_t string_size, bool ascii_only) :
-            flags_{true, ascii_only}, byte_size_{uint8_t(byte_size)},
-            string_size_{uint8_t(string_size)}
+        static_t(size_t byte_size, size_t string_size) :
+            byte_size_{uint8_t(byte_size)}, string_size_{uint8_t(string_size)}
         {
         }
     };
     struct dynamic_t
     {
-        flags_t  flags_;
+        bool     is_static_ = false;
         uint64_t byte_size_;   // size excluding \0
         uint64_t string_size_; // number of codepoints
         uint8_t* string_;
         
-        dynamic_t(size_t byte_size, size_t string_size, bool ascii_only) :
-            flags_{false, ascii_only}, byte_size_{byte_size},
-            string_size_{string_size}, string_{nullptr}
+        dynamic_t(size_t byte_size, size_t string_size) :
+            byte_size_{byte_size}, string_size_{string_size}, string_{nullptr}
         {
             allocate(byte_size_);
         }
@@ -11013,18 +11236,18 @@ union u8string
         }
         dynamic_t(const dynamic_t& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             allocate(byte_size_);
             std::copy_n(other.string_, byte_size_ + 1u, string_);
         }
         dynamic_t(dynamic_t&& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             std::swap(string_, other.string_);
         }
         dynamic_t& operator=(const dynamic_t& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             free();
             allocate(byte_size_);
             std::copy_n(other.string_, byte_size_ + 1u, string_);
@@ -11032,7 +11255,7 @@ union u8string
         }
         dynamic_t& operator=(dynamic_t&& other)
         {
-            copy_flags_and_sizes(other);
+            copy_sizes(other);
             std::swap(this->string_, other.string_);
             return *this;
         }
@@ -11048,22 +11271,21 @@ union u8string
             assert(string_);
             std::free(string_);
         }
-        void copy_flags_and_sizes(const dynamic_t& other)
+        void copy_sizes(const dynamic_t& other)
         {
-            flags_       = other.flags_;
             byte_size_   = other.byte_size_;
             string_size_ = other.string_size_;
         }
     };
     
-    static_assert(sizeof(flags_t) == 1u, WL_ERROR_INTERNAL);
+    static_assert(sizeof(bool) == 1u, WL_ERROR_INTERNAL);
     static_assert(sizeof(static_t) == 32u, WL_ERROR_INTERNAL);
     static_assert(sizeof(dynamic_t) == 32u, WL_ERROR_INTERNAL);
     static_t  static_;
     dynamic_t dynamic_;
     u8string()
     {
-        new(&static_) static_t(0u, 0u, true);
+        new(&static_) static_t(0u, 0u);
     }
     ~u8string()
     {
@@ -11073,17 +11295,15 @@ union u8string
     explicit u8string(const Any* str)
     {
         static_assert(sizeof(Any) == 1u, WL_ERROR_INTERNAL);
-        bool ascii_only = true;
-        size_t byte_size = 0;
-        size_t string_size = count_u8_codepoints(str, byte_size, ascii_only);
+        auto [byte_size, string_size] = utf8::get_sizes(str);
         if (byte_size <= small_string_byte_size)
         {
-            new(&static_) static_t(byte_size, string_size, ascii_only);
+            new(&static_) static_t(byte_size, string_size);
             std::memcpy(static_byte_data(), str, byte_size + 1u);
         }
         else
         {
-            new(&dynamic_) dynamic_t(byte_size, string_size, ascii_only);
+            new(&dynamic_) dynamic_t(byte_size, string_size);
             std::memcpy(dynamic_byte_data(), str, byte_size + 1u);
         }
     }
@@ -11129,14 +11349,14 @@ union u8string
             if (other.dynamic_byte_size() <= small_string_byte_size)
             { // convert to static
                 new(&static_) static_t(other.dynamic_byte_size(),
-                    other.dynamic_string_size(), other.ascii_only());
+                    other.dynamic_string_size());
                 std::memcpy(static_byte_data(), other.dynamic_byte_data(),
                     static_byte_size() + 1u);
             }
             else
             { // remain dynamic
                 new(&dynamic_) dynamic_t(other.dynamic_byte_size(),
-                    other.dynamic_string_size(), other.ascii_only());
+                    other.dynamic_string_size());
                 std::memcpy(dynamic_byte_data(), other.dynamic_byte_data(),
                     dynamic_byte_size() + 1u);
             }
@@ -11144,22 +11364,9 @@ union u8string
     }
     bool is_static() const
     {
-        flags_t flags;
-        std::memcpy(&flags, &static_.flags_, sizeof(flags_t));
-        return flags.is_static_;
-    }
-    bool ascii_only() const
-    {
-        flags_t flags;
-        std::memcpy(&flags, &static_.flags_, sizeof(flags_t));
-        return flags.ascii_only_;
-    }
-    void set_ascii_only(bool only)
-    {
-        flags_t flags;
-        std::memcpy(&flags, &static_.flags_, sizeof(flags_t));
-        flags.ascii_only_ = only;
-        std::memcpy(&static_.flags_, &flags, sizeof(flags_t));
+        bool value;
+        std::memcpy(&value, &static_.is_static_, sizeof(bool));
+        return value;
     }
     size_t static_byte_size() const { return static_.byte_size_; }
     size_t dynamic_byte_size() const { return dynamic_.byte_size_; }
@@ -11197,6 +11404,10 @@ union u8string
         else
             return dynamic_byte_data();
     }
+    bool ascii_only() const
+    {
+        return byte_size() == size();
+    }
     const char* c_str() const
     {
         return reinterpret_cast<const char*>(byte_data());
@@ -11205,43 +11416,8 @@ union u8string
     uint8_t* byte_end() { return byte_data() + byte_size(); }
     const uint8_t* byte_begin() const { return byte_data(); }
     const uint8_t* byte_end() const { return byte_data() + byte_size(); }
-    u8_iterator begin() const { return u8_iterator{byte_begin()}; }
-    u8_iterator end() const { return u8_iterator{byte_end()}; }
-    template<typename Any>
-    static size_t count_u8_codepoints(const Any* const input_str,
-        size_t& byte_size, bool& ret_ascii_only)
-    {
-        static_assert(sizeof(Any) == 1u, WL_ERROR_INTERNAL);
-        auto str = input_str;
-        bool ascii_only = true;
-        size_t codepoints = 0;
-        for (;;)
-        {
-            const auto byte = *str;
-            if (!byte) goto success;
-            else if ((byte & 0b1000'0000u) == 0b0000'0000u) goto byte1;
-            else if ((byte & 0b1110'0000u) == 0b1100'0000u) goto byte2;
-            else if ((byte & 0b1111'0000u) == 0b1110'0000u) goto byte3;
-            else if ((byte & 0b1111'1000u) == 0b1111'0000u) goto byte4;
-            else goto failed;
-        byte4:
-            if (((*++str) & 0b1100'0000u) != 0b1000'0000u) goto failed;
-        byte3:
-            if (((*++str) & 0b1100'0000u) != 0b1000'0000u) goto failed;
-        byte2:
-            if (((*++str) & 0b1100'0000u) != 0b1000'0000u) goto failed;
-            ascii_only = false;
-        byte1:
-            ++codepoints;
-            ++str;
-        }
-    failed:
-        throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
-    success:
-        byte_size = size_t(str - input_str);
-        ret_ascii_only = ascii_only;
-        return codepoints;
-    }
+    utf8::iterator begin() const { return utf8::iterator{byte_begin()}; }
+    utf8::iterator end() const { return utf8::iterator{byte_end()}; }
     std::string _ascii_string() const
     {
         std::string str(size(), ' ');
@@ -11261,8 +11437,6 @@ union u8string
         std::string info = "{ ";
         info += "size=" + std::to_string(size()) + ", ";
         info += "byte_size=" + std::to_string(byte_size()) + ", ";
-        info += "ascii_only=" +
-            std::string(ascii_only() ? "true" : "false") + ", ";
         info += "is_static=" +
             std::string(is_static() ? "true" : "false") + ", ";
         info += "content=";

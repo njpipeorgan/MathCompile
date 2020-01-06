@@ -1086,10 +1086,10 @@ size_t linear_position(const std::array<size_t, R>& dims, const Is&... is)
     return pos;
 }
 template<typename X>
-size_t _lzcnt_u64(X x)
+size_t lzcnt_u64(X x)
 {
 #if defined(__LZCNT__)
-    return ::_lzcnt_u64(uint64_t(x));
+    return _lzcnt_u64(uint64_t(x));
 #else
     int64_t n = 64;
     uint64_t y = x;
@@ -1102,10 +1102,10 @@ size_t _lzcnt_u64(X x)
 #endif
 }
 template<typename X>
-size_t _tzcnt_u64(X x)
+size_t tzcnt_u64(X x)
 {
 #if defined(__BMI__)
-    return ::_tzcnt_u64(uint64_t(x));
+    return _tzcnt_u64(uint64_t(x));
 #else
     int64_t n = 64;
     uint64_t y = x;
@@ -6557,7 +6557,7 @@ inline uint64_t _fibonacci_impl(uint64_t n, uint64_t* prev)
         *prev = n == 0u ? uint64_t(1) : data[n - 1];
         return data[n];
     }
-    auto lzcnt = utils::_lzcnt_u64(n);
+    auto lzcnt = utils::lzcnt_u64(n);
     uint64_t leading = n >> (58 - lzcnt);
     uint64_t mask = uint64_t(1) << (57 - lzcnt);
     uint64_t a = data[leading - 1];
@@ -6911,9 +6911,9 @@ auto bit_length(X&& x)
         using XV = decltype(x);
         static_assert(is_integral_v<XV>, WL_ERROR_INTEGRAL_TYPE_ARG);
         if constexpr (std::is_unsigned_v<XV>)
-            return Ret(64) - Ret(utils::_lzcnt_u64(x));
+            return Ret(64) - Ret(utils::lzcnt_u64(x));
         else
-            return Ret(64) - Ret(utils::_lzcnt_u64(
+            return Ret(64) - Ret(utils::lzcnt_u64(
                 std::make_unsigned_t<XV>(x >= XV(0) ? x : ~x)));
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
@@ -7125,7 +7125,7 @@ struct uniform
         if constexpr (is_integral_v<T> && Multiple)
         {
             const auto diff = uint64_t(max_) - uint64_t(min_);
-            n_bits_ = size_t(64u - utils::_lzcnt_u64(diff));
+            n_bits_ = size_t(64u - utils::lzcnt_u64(diff));
             range_ = diff + 1u; // could be zero
         }
     }
@@ -7919,7 +7919,7 @@ auto _random_sample_prepare_binary(const W& w, const size_t x_length)
         // each element should have a probability of at least ~2^-63
         uint_probs[i] = (prob > 0u) ? prob : uint64_t(1);
     }
-    const auto lzcnt = utils::_lzcnt_u64(uint64_t(n - 1u));
+    const auto lzcnt = utils::lzcnt_u64(uint64_t(n - 1u));
     const auto max_jump = size_t(1) << (63u - lzcnt);
     // fold the ragged part
     for (size_t i = max_jump; i < n; ++i)
@@ -11001,7 +11001,7 @@ size_properties _get_sizes_impl(const char* in_str)
             {
                 auto mask = movemask_epi8(compare);
                 auto tmask = movemask_epi8(simd::cmpgt_epi8(upper, data));
-                auto excess_byte = utils::_tzcnt_u64(mask);
+                auto excess_byte = utils::tzcnt_u64(mask);
                 auto excess_trailing = utils::_popcnt(
                     uint64_t(tmask) << (64u - excess_byte));
                 byte_size += excess_byte;

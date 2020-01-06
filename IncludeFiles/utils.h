@@ -270,10 +270,10 @@ size_t linear_position(const std::array<size_t, R>& dims, const Is&... is)
 }
 
 template<typename X>
-size_t _lzcnt_u64(X x)
+size_t lzcnt_u64(X x)
 {
 #if defined(__LZCNT__)
-    return ::_lzcnt_u64(uint64_t(x));
+    return _lzcnt_u64(uint64_t(x));
 #else
     int64_t n = 64;
     uint64_t y = x;
@@ -287,10 +287,10 @@ size_t _lzcnt_u64(X x)
 }
 
 template<typename X>
-size_t _tzcnt_u64(X x)
+size_t tzcnt_u64(X x)
 {
 #if defined(__BMI__)
-    return ::_tzcnt_u64(uint64_t(x));
+    return _tzcnt_u64(uint64_t(x));
 #else
     int64_t n = 64;
     uint64_t y = x;

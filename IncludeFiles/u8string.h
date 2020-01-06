@@ -79,7 +79,7 @@ size_properties _get_sizes_impl(const char* in_str)
             {
                 auto mask = movemask_epi8(compare);
                 auto tmask = movemask_epi8(simd::cmpgt_epi8(upper, data));
-                auto excess_byte = utils::_tzcnt_u64(mask);
+                auto excess_byte = utils::tzcnt_u64(mask);
                 auto excess_trailing = utils::_popcnt(
                     uint64_t(tmask) << (64u - excess_byte));
                 byte_size += excess_byte;

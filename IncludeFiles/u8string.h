@@ -34,11 +34,24 @@ namespace utf8
 
 struct size_properties
 {
-    size_t byte_size;
-    size_t string_size;
+    size_t byte_size = 0u;
+    size_t string_size = 0u;
+
+    auto operator+(const size_properties& other) const
+    {
+        return size_properties{
+            this->byte_size + other.byte_size,
+            this->string_size + other.string_size};
+    }
+    auto& operator+=(const size_properties& other)
+    {
+        this->byte_size += other.byte_size;
+        this->string_size += other.string_size;
+        return *this;
+    }
 };
 
-template<bool CheckValid = false, size_t N>
+template<size_t N>
 size_properties _get_sizes_impl(const char* in_str)
 {
     size_t byte_size = 0;
@@ -116,19 +129,52 @@ size_properties _get_sizes_impl(const char* in_str)
 #endif
 }
 
+template<size_t N>
+size_properties _get_sizes_check_valid_impl(const char* in_str)
+{
+    size_t byte_size = 0;
+    size_t trailing_size = 0;
+    auto str_begin = reinterpret_cast<const int8_t*>(in_str);
+    auto str = str_begin;
+
+    for (;;)
+    {
+        size_t n_bytes = 0u;
+        auto byte = uint8_t(*str++);
+        if (!byte)
+            return {byte_size, byte_size - trailing_size};
+        if (N >= 1u && byte_size >= N)
+            throw std::logic_error(WL_ERROR_BAD_UTF8_NULL_TERMINATED);
+        if (byte < 0b1000'0000u)
+            n_bytes = 1u;
+        else if ((byte & 0b1110'0000u) == 0b1100'0000u)
+            n_bytes = 2u;
+        else if ((byte & 0b1111'0000u) == 0b1110'0000u)
+            n_bytes = 3u;
+        else if ((byte & 0b1111'1000u) == 0b1111'0000u)
+            n_bytes = 4u;
+        else
+            throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
+
+        for (size_t i = 1u; i < n_bytes; ++i)
+        {
+            if ((*str++ & 0b1100'0000u) != 0b1000'0000u)
+                throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
+        }
+        trailing_size += n_bytes - 1u;
+        byte_size += n_bytes;
+    }
+}
+
 template<bool CheckValid = false, typename Str>
 size_properties get_sizes(const Str& str)
 {
-    if constexpr (std::is_array_v<Str>)
-    {
-        constexpr auto N = std::extent_v<Str>;
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        return _get_sizes_impl<CheckValid, N>(static_cast<const char*>(str));
-    }
+    constexpr auto N = std::extent_v<Str>;
+    auto in_str = reinterpret_cast<const char*>(str);
+    if (CheckValid)
+        return _get_sizes_check_valid_impl<N>(in_str);
     else
-    {
-        return _get_sizes_impl<CheckValid, 0>(static_cast<const char*>(str));
-    }
+        return _get_sizes_impl<N>(in_str);
 }
 
 struct iterator
@@ -295,6 +341,8 @@ struct iterator
                 ((ptr_[1] & 0b0011'1111) << 12) |
                 ((ptr_[2] & 0b0011'1111) << 6) |
                 ((ptr_[2] & 0b0011'1111)));
+        default:
+            return uint32_t(0);
         }
     }
 };
@@ -396,27 +444,34 @@ union u8string
     u8string()
     {
         new(&static_) static_t(0u, 0u);
+        static_byte_data()[0] = '\0';
     }
 
-    ~u8string()
+    explicit u8string(const utf8::size_properties& sizes)
     {
-        destroy();
+        if (sizes.byte_size <= small_string_byte_size)
+            new(&static_) static_t(sizes.byte_size, sizes.string_size);
+        else
+            new(&dynamic_) dynamic_t(sizes.byte_size, sizes.string_size);
     }
 
     template<typename Any>
-    explicit u8string(const Any* str)
+    explicit u8string(const Any& str)
     {
-        static_assert(sizeof(Any) == 1u, WL_ERROR_INTERNAL);
+#if !defined(NDEBUG)
+        auto [byte_size, string_size] = utf8::get_sizes<true>(str);
+#else
         auto [byte_size, string_size] = utf8::get_sizes(str);
+#endif
         if (byte_size <= small_string_byte_size)
         {
             new(&static_) static_t(byte_size, string_size);
-            std::memcpy(static_byte_data(), str, byte_size + 1u);
+            std::memcpy(static_byte_data(), (const char*)str, byte_size + 1u);
         }
         else
         {
             new(&dynamic_) dynamic_t(byte_size, string_size);
-            std::memcpy(dynamic_byte_data(), str, byte_size + 1u);
+            std::memcpy(dynamic_byte_data(), (const char*)str, byte_size + 1u);
         }
     }
 
@@ -428,6 +483,11 @@ union u8string
     u8string(u8string&& other)
     {
         swap_with(other);
+    }
+
+    ~u8string()
+    {
+        destroy();
     }
 
     u8string& operator=(const u8string& other)

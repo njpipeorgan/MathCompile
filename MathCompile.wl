@@ -564,6 +564,9 @@ $builtinfunctions=
   "AnyTrue"         ->"any_true",
   "NoneTrue"        ->"none_true",
   "Count"           ->"count",
+(* string *)
+  "StringJoin"      ->"string_join",
+  "StringLength"    ->"string_length",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",
@@ -800,7 +803,7 @@ codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native[
 
 codegen[assign[p_][var_,expr_],___]:=codegen[native["set",p][var,expr]]
 
-codegen[literal[s_String,p_],___]:={annotatebegin[p],"std::string(",ToString@CForm[s],annotateend[p],")"}
+codegen[literal[s_String,p_],___]:={annotatebegin[p],"wl::string(u8",ToString@CForm[s],annotateend[p],")"}
 codegen[literal[i_Integer,p_],___]:={annotatebegin[p],"int64_t(",ToString@CForm[i],annotateend[p],")"}
 codegen[literal[r_Real,p_],___]:={annotatebegin[p],ToString@CForm[r],annotateend[p]}
 codegen[const[i_Integer],___]:={annotatebegin[],"wl::const_int<"<>ToString@CForm[i]<>">",annotateend[],"{}"}

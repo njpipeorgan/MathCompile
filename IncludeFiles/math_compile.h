@@ -33,7 +33,7 @@
 #include "arrayfn.h"
 #include "linalgebra.h"
 #include "functional.h"
-#include "u8string.h"
+#include "stringfn.h"
 #include "io.h"
 
 namespace wl

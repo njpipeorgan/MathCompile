@@ -307,7 +307,7 @@ template<typename X>
 size_t _popcnt(X x)
 {
     static_assert(std::is_unsigned_v<X>, WL_ERROR_INTERNAL);
-#if defined(___POPCNT__)
+#if defined(__POPCNT__)
     return _mm_popcnt_u64(uint64_t(x));
 #else
     constexpr uint64_t m1  = 0x5555555555555555u;

@@ -143,6 +143,12 @@ namespace wl
 #define WL_ERROR_NUMERIC_ONLY \
 "The function can only take numerical values as its argument(s)."
 
+#define WL_ERROR_STRING_ONLY \
+"The function can only take strings as its arguments."
+
+#define WL_ERROR_STRING_TYPE_ONLY \
+"The function can only take a string or a list of strings."
+
 #define WL_ERROR_PART_DEPTH \
 "The number of part specifications is larger than the array rank."
 
@@ -372,5 +378,8 @@ namespace wl
 
 #define WL_ERROR_BAD_UTF8_CODEPOINT \
 "The string contains an invalid UTF-8 codepoint."
+
+#define WL_ERROR_BAD_UTF8_NULL_TERMINATED \
+"The string is not terminated by a null character."
 
 }

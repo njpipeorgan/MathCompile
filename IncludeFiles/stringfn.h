@@ -48,31 +48,29 @@ auto _string_join_sizes_by_args_impl(const Arg& arg)
 {
     if constexpr (is_argument_pack_v<Arg>)
     {
-        auto sizes = utf8::size_properties{};
+        size_t byte_size = 0;
         for (size_t i = 0; i < arg.size(); ++i)
-            sizes += _string_join_sizes_by_args_impl(arg.get(i));
-        return sizes;
+            byte_size += arg.get(i).byte_size();
+        return byte_size;
     }
     else if constexpr (array_rank_v<Arg> >= 1u)
     {
         static_assert(is_string_v<value_type_t<Arg>>, WL_ERROR_STRING_ONLY);
-        auto sizes = utf8::size_properties{};
-        arg.for_each([&](const auto& x)
-            { sizes += _string_join_sizes_by_args_impl(x); });
-        return sizes;
+        size_t byte_size = 0;
+        arg.for_each([&](const auto& x) { byte_size += x.byte_size(); });
+        return byte_size;
     }
     else
     {
         static_assert(is_string_v<Arg>, WL_ERROR_STRING_ONLY);
-        return utf8::size_properties{arg.byte_size(), arg.size()};
+        return arg.byte_size();
     }
 }
 
 template<typename... Args>
 auto _string_join_sizes_by_args(const Args&... args)
 {
-    return (utf8::size_properties{} +... +
-        _string_join_sizes_by_args_impl(args));
+    return (size_t(0) +... + _string_join_sizes_by_args_impl(args));
 }
 
 template<typename Char, typename Arg>
@@ -81,7 +79,7 @@ void _string_join_copy_by_args_impl(Char*& str, const Arg& arg)
     if constexpr (is_argument_pack_v<Arg>)
     {
         for (size_t i = 0; i < arg.size(); ++i)
-            _string_join_copy_by_args_impl(str, args.get(i));
+            _string_join_copy_by_args_impl(str, arg.get(i));
     }
     else if constexpr (array_rank_v<Arg> >= 1u)
     {

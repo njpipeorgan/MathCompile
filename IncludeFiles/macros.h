@@ -104,6 +104,9 @@ namespace wl
 #define WL_ERROR_INTERNAL \
 "An internal error is encountered."
 
+#define WL_ERROR_SIZEOF_CHAR \
+"The size of char should be 1 byte."
+
 #define WL_ERROR_MUTABLE_TYPE \
 "The type of the result cannot be converted to that of the target."
 

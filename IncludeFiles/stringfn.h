@@ -104,11 +104,62 @@ auto _string_join_copy_by_args(Char*& str, const Args&... args)
 template<typename... Args>
 auto string_join(const Args&... args)
 {
+    WL_TRY_BEGIN()
     auto ret = string(_string_join_sizes_by_args(args...));
     auto ret_data = ret.byte_data();
     _string_join_copy_by_args(ret_data, args...);
-    *ret_data = '\0'; // append null character
+    ret.place_null_character();
     return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Spec>
+auto _string_take_impl_ascii_only()
+{
+    return string();
+}
+
+template<typename Spec>
+auto _string_take_impl_not_ascii_only(const string& str, const Spec& spec)
+{
+    if constexpr (array_rank_v<Spec> == 0u)
+    {
+        static_assert(is_integral_v<Spec>, WL_ERROR_PART_SPEC_INTEGRAL);
+        const auto begin = str.begin();
+        const auto end = str.end();
+        if (spec == Spec(0))
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        if (spec > 0)
+        { // take substring from the beginning
+            auto mid = begin;
+            mid.apply_offset(ptrdiff_t(spec), end);
+            if (mid.pointer() > end.pointer())
+                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+            const auto byte_size = size_t(mid.byte_difference(begin));
+            const auto ascii_only = byte_size == size_t(spec);
+            return string(begin.pointer(), byte_size, ascii_only);
+        }
+        else if (spec < 0)
+        { // take substring from the end
+            auto mid = end;
+            mid.apply_offset(ptrdiff_t(spec), begin);
+            if (mid.pointer() < begin.pointer())
+                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+            const auto byte_size = size_t(end.byte_difference(mid));
+            const auto ascii_only = byte_size == size_t(-ptrdiff_t(spec));
+            return string(mid.pointer(), byte_size, ascii_only);
+        }
+    }
+    return string();
+}
+
+template<typename Spec>
+auto string_take(const string& str, const Spec& spec)
+{
+    if (str.ascii_only())
+        return _string_take_impl_not_ascii_only(str, spec);
+    else
+        return _string_take_impl_not_ascii_only(str, spec);
 }
 
 }

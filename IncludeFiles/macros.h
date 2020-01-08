@@ -56,6 +56,7 @@
 #  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
 #  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #  pragma warning (disable:1011)
+#  pragma warning (disable:650)
 #elif defined(__clang__)
 #  if __clang_major__ < 5
 #    pragma message ("error: cxx::compilerver")
@@ -154,6 +155,9 @@ namespace wl
 
 #define WL_ERROR_PART_DEPTH \
 "The number of part specifications is larger than the array rank."
+
+#define WL_ERROR_PART_SPEC_INTEGRAL \
+"Part specifications should have integral types."
 
 #define WL_ERROR_REQUIRE_ARRAY \
 "The function requires its argument to be an array."

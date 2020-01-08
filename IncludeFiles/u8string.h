@@ -20,6 +20,7 @@
 #include <cassert>
 #include <cstring>
 
+#include <regex>
 #include <vector>
 
 #include "types.h"
@@ -166,12 +167,12 @@ struct iterator
 {
     const uint8_t* ptr_;
 
-    static bool _is_valid_codepoint_begin(uint8_t byte)
+    WL_INLINE static bool _is_valid_codepoint_begin(uint8_t byte)
     {
         return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
     }
 
-    static bool _is_valid_codepoint_tailing(uint8_t byte)
+    WL_INLINE static bool _is_valid_codepoint_tailing(uint8_t byte)
     {
         return (byte & 0b1100'0000u) == 0b1000'0000u;
     }
@@ -195,13 +196,13 @@ struct iterator
 
     iterator& operator+=(ptrdiff_t n)
     {
-        _offset(n);
+        apply_offset(n);
         return *this;
     }
 
     iterator& operator-=(ptrdiff_t n)
     {
-        _offset(-n);
+        apply_offset(-n);
         return *this;
     }
 
@@ -215,6 +216,11 @@ struct iterator
     bool operator!=(const iterator& other) const
     {
         return !(this->ptr_ == other.ptr_);
+    }
+
+    bool operator<(const iterator& other) const
+    {
+        return this->ptr_ < other.ptr_;
     }
 
     ptrdiff_t operator-(const iterator& other) const
@@ -236,7 +242,12 @@ struct iterator
         return codepoint();
     }
 
-    void _offset(ptrdiff_t n)
+    ptrdiff_t byte_difference(const iterator& other) const
+    {
+        return ptrdiff_t(this->ptr_ - other.ptr_);
+    }
+
+    void apply_offset(ptrdiff_t n)
     {
         if (n >= 0)
         {
@@ -246,6 +257,20 @@ struct iterator
         else
         {
             for (ptrdiff_t i = 0u; i < n;)
+                i += ptrdiff_t(_is_valid_codepoint_begin(*--ptr_));
+        }
+    }
+
+    void apply_offset(ptrdiff_t n, const iterator& end)
+    {
+        if (n >= 0)
+        {
+            for (ptrdiff_t i = 0u; (i < n) && (ptr_ <= end.ptr_);)
+                i += ptrdiff_t(_is_valid_codepoint_begin(*++ptr_));
+        }
+        else
+        {
+            for (ptrdiff_t i = 0u; (i < -n) && (ptr_ >= end.ptr_);)
                 i += ptrdiff_t(_is_valid_codepoint_begin(*--ptr_));
         }
     }
@@ -346,25 +371,24 @@ union u8string
         static constexpr size_t capacity_ = small_string_byte_size;
 
         bool is_static_ = true;
-        mutable trilean_t ascii_only_ = trilean_t::True;
+        mutable trilean_t ascii_only_ = trilean_t::Unknown;
         uint8_t byte_size_ = 0u;
         utf8::char_t string_[small_string_byte_size + 1u];
 
         static_t() = default;
 
-        static_t(size_t byte_size) : byte_size_{uint8_t(byte_size)}
+        static_t(size_t byte_size, trilean_t ascii_only) :
+            byte_size_{uint8_t(byte_size)}, ascii_only_{ascii_only}
         {
-            if (byte_size_ > 0u)
-                ascii_only_ = trilean_t::Unknown;
             assert(byte_size_ <= capacity_);
         }
 
-        void put_null_character()
+        void place_null_character()
         {
             string_[byte_size_] = utf8::null_character;
         }
 
-        template<bool PutNull = true, bool UpdateASCII = true>
+        template<bool PlaceNull = true, bool UpdateASCII = true>
         void push(utf8::char_t ch)
         {
             assert(byte_size_ + 1u <= capacity_);
@@ -372,11 +396,11 @@ union u8string
             if constexpr (UpdateASCII)
                 if (!utf8::is_ascii(ch))
                     ascii_only_ = trilean_t::False;
-            if constexpr (PutNull)
-                put_null_character();
+            if constexpr (PlaceNull)
+                place_null_character();
         }
 
-        template<bool PutNull = true, bool UpdateASCII = true>
+        template<bool PlaceNull = true, bool UpdateASCII = true>
         void push(const utf8::char_t* ch, size_t size)
         {
             assert(byte_size_ + size <= capacity_);
@@ -384,30 +408,28 @@ union u8string
             byte_size_ += uint8_t(size);
             if constexpr (UpdateASCII)
                 ascii_only_ = trilean_t::Unknown;
-            if constexpr (PutNull)
-                put_null_character();
+            if constexpr (PlaceNull)
+                place_null_character();
         }
     };
 
     struct dynamic_t
     {
         bool is_static_ = false;
-        mutable trilean_t ascii_only_ = trilean_t::True;
+        mutable trilean_t ascii_only_ = trilean_t::Unknown;
         uint64_t byte_size_ = 0u;
         uint64_t capacity_ = 0u;
         utf8::char_t* string_ = nullptr;
-        
-        dynamic_t(size_t byte_size) : byte_size_{byte_size}
+
+        dynamic_t(size_t byte_size, trilean_t ascii_only) :
+            byte_size_{byte_size}, ascii_only_{ascii_only}
         {
-            if (byte_size_ > 0u)
-                ascii_only_ = trilean_t::Unknown;
             resize_buffer(byte_size_);
         }
 
-        dynamic_t(size_t byte_size, size_t capacity) : byte_size_{byte_size}
+        dynamic_t(size_t byte_size, size_t capacity, trilean_t ascii_only) :
+            byte_size_{byte_size}, ascii_only_{ascii_only}
         {
-            if (byte_size_ > 0u)
-                ascii_only_ = trilean_t::Unknown;
             capacity = std::max(byte_size, capacity);
             resize_buffer(capacity);
         }
@@ -452,12 +474,12 @@ union u8string
             return *this;
         }
 
-        void put_null_character()
+        void place_null_character()
         {
             string_[byte_size_] = utf8::null_character;
         }
 
-        template<bool PutNull = true, bool UpdateASCII = true>
+        template<bool PlaceNull = true, bool UpdateASCII = true>
         void push(utf8::char_t ch)
         {
             if (byte_size_ >= capacity_)
@@ -467,11 +489,11 @@ union u8string
             if constexpr (UpdateASCII)
                 if (!utf8::is_ascii(ch))
                     ascii_only_ = trilean_t::False;
-            if constexpr (PutNull)
-                put_null_character();
+            if constexpr (PlaceNull)
+                place_null_character();
         }
 
-        template<bool PutNull = true, bool UpdateASCII = true>
+        template<bool PlaceNull = true, bool UpdateASCII = true>
         void push(const utf8::char_t* ch, size_t size)
         {
             if (byte_size_ + size > capacity_)
@@ -481,8 +503,8 @@ union u8string
             byte_size_ += uint8_t(size);
             if constexpr (UpdateASCII)
                 ascii_only_ = trilean_t::Unknown;
-            if constexpr (PutNull)
-                put_null_character();
+            if constexpr (PlaceNull)
+                place_null_character();
         }
 
         void resize_buffer(size_t new_capacity)
@@ -525,36 +547,57 @@ union u8string
 
     u8string()
     {
-        new(&static_) static_t(0u);
-        static_.put_null_character();
+        new(&static_) static_t(0u, trilean_t::True);
+        static_.place_null_character();
     }
 
     explicit u8string(size_t byte_size)
     {
         if (byte_size <= small_string_byte_size)
-            new(&static_) static_t(byte_size);
+            new(&static_) static_t(byte_size, trilean_t::Unknown);
         else
-            new(&dynamic_) dynamic_t(byte_size);
+            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
     }
 
     template<size_t N>
-    explicit u8string(const char (&str)[N])
+    explicit u8string(const char(&str)[N])
     {
         static_assert(N >= 1u, WL_ERROR_INTERNAL);
         constexpr auto byte_size = N - 1u;
-#if !defined(_NDEBUG)
-        // check validity
-        utf8::get_string_size<true>((const utf8::char_t*)str, N - 1u);
-#endif
+        construct_by_string((const utf8::char_t*)str, byte_size,
+            trilean_t::Unknown);
+    }
+
+    template<size_t N>
+    explicit u8string(const char (&str)[N], bool ascii_only)
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        constexpr auto byte_size = N - 1u;
+        construct_by_string((const utf8::char_t*)str, byte_size,
+            ascii_only ? trilean_t::True : trilean_t::False);
+    }
+
+    u8string(const utf8::char_t* str, const size_t byte_size, bool ascii_only)
+    {
+        construct_by_string(str, byte_size,
+            ascii_only ? trilean_t::True : trilean_t::False);
+    }
+
+    void construct_by_string(const utf8::char_t* str, const size_t byte_size,
+        trilean_t ascii_only)
+    {
         if (byte_size <= small_string_byte_size)
         {
-            new(&static_) static_t(byte_size);
-            std::memcpy(byte_data(), (const char*)str, byte_size + 1u);
+            new(&static_) static_t(byte_size, ascii_only);
+            if (byte_size > 0)
+                utils::restrict_copy_n(str, byte_size, static_.string_);
+            static_.place_null_character();
         }
         else
         {
-            new(&dynamic_) dynamic_t(byte_size);
-            std::memcpy(byte_data(), (const char*)str, byte_size + 1u);
+            new(&dynamic_) dynamic_t(byte_size, ascii_only);
+            utils::restrict_copy_n(str, byte_size, static_.string_);
+            dynamic_.place_null_character();
         }
     }
 
@@ -611,13 +654,13 @@ union u8string
             const auto byte_size = other.byte_size();
             if (byte_size <= small_string_byte_size)
             { // convert to static
-                new(&static_) static_t(byte_size);
+                new(&static_) static_t(byte_size, other.static_.ascii_only_);
                 utils::restrict_copy_n(
                     other.byte_data(), byte_size + 1u, byte_data());
             }
             else
             { // remain dynamic
-                new(&dynamic_) dynamic_t(byte_size);
+                new(&dynamic_) dynamic_t(byte_size, other.static_.ascii_only_);
                 utils::restrict_copy_n(
                     other.byte_data(), byte_size + 1u, byte_data());
             }
@@ -628,9 +671,10 @@ union u8string
     {
         if (is_static())
         {
-            const static_t copy = static_;
-            const size_t byte_size = copy.byte_size_;
-            new(&dynamic_) dynamic_t(byte_size, capacity);
+            const auto copy = static_;
+            const auto byte_size = copy.byte_size_;
+            const auto ascii_only = copy.ascii_only_;
+            new(&dynamic_) dynamic_t(byte_size, capacity, ascii_only);
             utils::restrict_copy_n(
                 copy.string_, byte_size + 1u, dynamic_.string_);
             dynamic_.ascii_only_ = copy.ascii_only_;
@@ -705,6 +749,14 @@ union u8string
 
     utf8::iterator begin() const { return utf8::iterator{byte_begin()}; }
     utf8::iterator end() const { return utf8::iterator{byte_end()}; }
+
+    auto place_null_character()
+    {
+        if (is_static())
+            static_.place_null_character();
+        else
+            dynamic_.place_null_character();
+    }
 
     void append(const utf8::char_t* str, const size_t append_size)
     {

@@ -115,7 +115,7 @@ size_t convert_index(const IndexType& idx, const size_t& dim)
     }
     else
     {
-        static_assert(is_integral_v<IndexType>, WL_ERROR_INTERNAL);
+        static_assert(is_integral_v<IndexType>, WL_ERROR_PART_SPEC_INTEGRAL);
         ptrdiff_t pos_idx = idx >= 0 ?
             idx : idx + ptrdiff_t(dim) + 1;
         if (1 <= pos_idx && pos_idx <= ptrdiff_t(dim))

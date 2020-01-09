@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include <cassert>
-#include <cstring>
-
-#include <vector>
+#include <tuple>
 
 #include "types.h"
 #include "arrayview.h"
 #include "utils.h"
 #include "u8string.h"
+#include "numerical.h"
+
+#include "srell.h"
 
 namespace wl
 {
@@ -44,33 +44,49 @@ auto string_length(const X& x)
 }
 
 template<typename Arg>
-auto _string_join_sizes_by_args_impl(const Arg& arg)
+auto _string_join_attributes_by_args_impl(
+    size_t& byte_size, bool& ascii_only, const Arg& arg)
 {
     if constexpr (is_argument_pack_v<Arg>)
     {
-        size_t byte_size = 0;
         for (size_t i = 0; i < arg.size(); ++i)
+        {
             byte_size += arg.get(i).byte_size();
+            if (ascii_only)
+                ascii_only = arg.get(i).ascii_only();
+        }
         return byte_size;
     }
     else if constexpr (array_rank_v<Arg> >= 1u)
     {
         static_assert(is_string_v<value_type_t<Arg>>, WL_ERROR_STRING_ONLY);
-        size_t byte_size = 0;
-        arg.for_each([&](const auto& x) { byte_size += x.byte_size(); });
+        arg.for_each([&](const auto& x)
+            {
+                byte_size += x.byte_size();
+                if (ascii_only)
+                    ascii_only = x.ascii_only();
+            });
         return byte_size;
     }
     else
     {
         static_assert(is_string_v<Arg>, WL_ERROR_STRING_ONLY);
-        return arg.byte_size();
+        byte_size += arg.byte_size();
+        if (ascii_only)
+            ascii_only = arg.ascii_only();
     }
 }
 
 template<typename... Args>
-auto _string_join_sizes_by_args(const Args&... args)
+auto _string_join_attributes_by_args(const Args&... args)
 {
-    return (size_t(0) +... + _string_join_sizes_by_args_impl(args));
+    size_t total_size = 0u;
+    bool ascii_only = true;
+    [[maybe_unused]] const auto& _1 = (
+        _string_join_attributes_by_args_impl(
+            total_size, ascii_only, args),
+        ..., 0);
+    return std::pair(total_size, ascii_only);
 }
 
 template<typename Char, typename Arg>
@@ -105,10 +121,11 @@ template<typename... Args>
 auto string_join(const Args&... args)
 {
     WL_TRY_BEGIN()
-    auto ret = string(_string_join_sizes_by_args(args...));
+    auto [total_size, ascii_only] = _string_join_sizes_by_args(args...);
+    auto ret = string(total_size, ascii_only);
     auto ret_data = ret.byte_data();
     _string_join_copy_by_args(ret_data, args...);
-    ret.place_null_character();
+    assert(ret.check_validity());
     return ret;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -119,47 +136,248 @@ auto _string_take_impl_ascii_only()
     return string();
 }
 
-template<typename Spec>
-auto _string_take_impl_not_ascii_only(const string& str, const Spec& spec)
+template<typename Iter, typename Offset>
+Iter _string_take_find_offset(const Iter& begin, const Iter& end,
+    const Offset offset, const bool adjust_end)
 {
-    if constexpr (array_rank_v<Spec> == 0u)
+    if (std::is_unsigned_v<Offset> || offset > 0)
     {
-        static_assert(is_integral_v<Spec>, WL_ERROR_PART_SPEC_INTEGRAL);
-        const auto begin = str.begin();
-        const auto end = str.end();
-        if (spec == Spec(0))
+        auto ret = begin;
+        ret.apply_offset(offset - ptrdiff_t(!adjust_end), end);
+        if (ret.pointer() > end.pointer())
             throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-        if (spec > 0)
-        { // take substring from the beginning
-            auto mid = begin;
-            mid.apply_offset(ptrdiff_t(spec), end);
-            if (mid.pointer() > end.pointer())
+        return ret;
+    }
+    else if (offset < 0)
+    {
+        auto ret = end;
+        ret.apply_offset(offset + ptrdiff_t(adjust_end), begin);
+        if (ret.pointer() < begin.pointer())
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        return ret;
+    }
+    else
+    {
+        throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        return begin;
+    }
+}
+
+template<typename Iter>
+auto _string_take_impl_unicode_1arg(const Iter& begin, const Iter& end,
+    ptrdiff_t offset)
+{
+    const auto mid = _string_take_find_offset(
+        begin, end, offset, (offset > 0));
+    const auto byte_size = (offset > 0) ?
+        size_t(mid.byte_difference(begin)) :
+        size_t(end.byte_difference(mid));
+    return string((offset > 0) ? begin.pointer() : mid.pointer(), byte_size,
+        (byte_size == size_t(offset > 0 ? offset : -offset)));
+}
+
+template<typename Iter>
+auto _string_take_impl_unicode_2args(const Iter& begin, const Iter& end,
+    ptrdiff_t offset, ptrdiff_t string_size)
+{
+    if (string_size <= 0)
+        return string();
+    const auto mid1 = _string_take_find_offset(
+        begin, end, offset, false);
+    const auto mid2 = _string_take_find_offset(
+        mid1, end, size_t(string_size), true);
+    const auto byte_size = size_t(mid2.byte_difference(mid1));
+    return string(mid1.pointer(), byte_size,
+        (byte_size == size_t(string_size)));
+}
+
+template<typename Spec>
+auto _string_take_impl_unicode(const string& str, const Spec& spec,
+    ptrdiff_t total_size = -1)
+{
+    const auto begin = str.begin();
+    const auto end = str.end();
+    if constexpr (is_integral_v<Spec>)
+    {
+        if (spec == Spec(0))
+            return string();
+        else
+            return _string_take_impl_unicode_1arg(
+                begin, end, ptrdiff_t(spec));
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        std::array<ptrdiff_t, 2u> offsets{};
+        spec.copy_to(offsets.data());
+
+        if (spec_size == 1u)
+        {
+            if (offsets[0] == 0)
                 throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-            const auto byte_size = size_t(mid.byte_difference(begin));
-            const auto ascii_only = byte_size == size_t(spec);
-            return string(begin.pointer(), byte_size, ascii_only);
+            return _string_take_impl_unicode_2args(
+                begin, end, offsets[0], 1u);
         }
-        else if (spec < 0)
-        { // take substring from the end
-            auto mid = end;
-            mid.apply_offset(ptrdiff_t(spec), begin);
-            if (mid.pointer() < begin.pointer())
-                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-            const auto byte_size = size_t(end.byte_difference(mid));
-            const auto ascii_only = byte_size == size_t(-ptrdiff_t(spec));
-            return string(mid.pointer(), byte_size, ascii_only);
+        else if (spec_size == 2u)
+        {
+            if (offsets[0] == 0 || offsets[1] == 0)
+                throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+
+            if (offsets[0] * offsets[1] < 0)
+            {
+                if (total_size < 0)
+                    total_size = str.size();
+                if (offsets[0] < 0)
+                    offsets[0] += ptrdiff_t(total_size + 1u);
+                else
+                    offsets[1] += ptrdiff_t(total_size + 1u);
+            }
+            return _string_take_impl_unicode_2args(
+                begin, end, offsets[0], offsets[1] - offsets[0] + 1u);
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
         }
     }
-    return string();
+    else if constexpr (array_rank_v<Spec> == 2u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        auto valspec = cast<ndarray<ptrdiff_t, 2u>>(spec);
+        const auto ret_size = valspec.dims()[0];
+        const auto spec_size = valspec.dims()[1];
+        const auto spec_data = valspec.data();
+        ndarray<string, 1u> ret(std::array<size_t, 1u>{ret_size});
+        auto ret_data = ret.data();
+        if (spec_size == 1u)
+        {
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = _string_take_impl_unicode(str, spec_data[i]);
+        }
+        else if (spec_size == 2u)
+        {
+            if constexpr (std::is_signed_v<value_type_t<Spec>>)
+            {
+                if ((total_size < 0) && std::any_of(
+                    spec_data, spec_data + 2u * ret_size,
+                    [](auto i) { return i < 0; }))
+                {
+                    total_size = str.size();
+                }
+            }
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = _string_take_impl_unicode(str,
+                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u]),
+                    total_size);
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+        }
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
+}
+
+template<typename Spec>
+auto _string_take_impl_ascii(const string& str, const Spec& spec)
+{
+    const auto begin = str.byte_begin();
+    const auto end = str.byte_end();
+    const auto total_size = str.byte_size();
+    if constexpr (is_integral_v<Spec>)
+    {
+        if (spec == Spec(0))
+            return string();
+        else if (size_t(wl::abs(spec)) > total_size)
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        else if (spec > Spec(0))
+            return string(begin, size_t(spec), true);
+        else
+            return string(end + ptrdiff_t(spec), size_t(-spec), true);
+
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        std::array<ptrdiff_t, 2u> offsets{};
+        spec.copy_to(offsets.data());
+
+        if (spec_size == 1u)
+        {
+            if (offsets[0] == 0 || size_t(wl::abs(offsets[0])) > total_size)
+                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+            else if (offsets[0] > 0)
+                return string(begin + offsets[0] - 1, 1u, true);
+            else
+                return string(end + offsets[0], 1u, true);
+        }
+        else if (spec_size == 2u)
+        {
+            if (offsets[0] == 0 || offsets[1] == 0)
+                throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+
+            if (offsets[0] < 0)
+                offsets[0] += ptrdiff_t(total_size + 1u);
+            if (offsets[1] < 0)
+                offsets[1] += ptrdiff_t(total_size + 1u);
+            if (offsets[0] > offsets[1])
+                return string();
+            if (size_t(offsets[0]) > total_size ||
+                size_t(offsets[1]) > total_size)
+                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+            return string(begin + offsets[0] - 1,
+                size_t(offsets[1] - offsets[0] + 1), true);
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+        }
+    }
+    else if constexpr (array_rank_v<Spec> == 2u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        auto valspec = cast<ndarray<ptrdiff_t, 2u>>(spec);
+        const auto ret_size = valspec.dims()[0];
+        const auto spec_size = valspec.dims()[1];
+        const auto spec_data = valspec.data();
+        ndarray<string, 1u> ret(std::array<size_t, 1u>{ret_size});
+        auto ret_data = ret.data();
+        if (spec_size == 1u)
+        {
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = _string_take_impl_ascii(str, spec_data[i]);
+        }
+        else if (spec_size == 2u)
+        {
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = _string_take_impl_ascii(str,
+                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u]));
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+        }
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
 }
 
 template<typename Spec>
 auto string_take(const string& str, const Spec& spec)
 {
     if (str.ascii_only())
-        return _string_take_impl_not_ascii_only(str, spec);
+        return _string_take_impl_ascii(str, spec);
     else
-        return _string_take_impl_not_ascii_only(str, spec);
+        return _string_take_impl_unicode(str, spec);
 }
 
 }

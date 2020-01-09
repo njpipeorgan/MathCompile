@@ -18,9 +18,6 @@
 #pragma once
 
 #include <cassert>
-#include <cstring>
-
-#include <regex>
 #include <vector>
 
 #include "types.h"
@@ -41,6 +38,62 @@ inline bool is_ascii(char_t ch)
     return ch < char_t(0b1000'0000);
 }
 
+inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
+{
+#if defined(___AVX2__) || defined(___SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#  endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    size_t i_byte = 0u;
+    bool ascii_only = true;
+    int zmask = 0;
+    M data;
+    for (; true; str += sizeof(M), i_byte += sizeof(M))
+    {
+        data = loadu<M>(str);
+        zmask = movemask_epi8(cmpeq_epi8(data, zero<M>()));
+        if (zmask)
+            break;
+        if (ascii_only && movemask_epi8(data))
+            ascii_only = false;
+    }
+    auto excess_byte = utils::tzcnt_u64(uint64_t(unsigned(zmask)));
+    if (ascii_only && excess_byte > 0)
+    {
+        auto nmask = uint64_t(unsigned(movemask_epi8(data)));
+        ascii_only = !bool(nmask << (64u - excess_byte));
+    }
+    ret_ascii_only = ascii_only;
+    return i_byte + excess_byte;
+#else
+    auto str0 = str;
+    bool ascii_only = true;
+    for (; ascii_only; ++str)
+    {
+        auto byte = *str;
+        if (!byte)
+        {
+            ret_ascii_only = true;
+            return size_t(str - str0);
+        }
+        else if (uint8_t(byte) >= 0b1000'0000u)
+        {
+            ret_ascii_only = false;
+            ++str;
+            break;
+        }
+    }
+    while (*str++)
+    {
+    }
+    return size_t(str - str0);
+#endif
+}
+
 inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
 {
 #if defined(__AVX2__) || defined(__SSE4_1__)
@@ -49,7 +102,7 @@ inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
     using M = __m256i;
 #  else
     using M = __m128i;
-#endif
+#  endif
     const auto upper = set1<M>(int8_t(0b1100'0000));
     auto trailing = zero<M>();
     size_t trailing_size = 0u;
@@ -549,66 +602,78 @@ union u8string
     {
         new(&static_) static_t(0u, trilean_t::True);
         static_.place_null_character();
+        assert(check_validity());
     }
 
     explicit u8string(size_t byte_size)
     {
         if (byte_size <= small_string_byte_size)
+        {
             new(&static_) static_t(byte_size, trilean_t::Unknown);
+            static_.place_null_character();
+        }
         else
+        {
             new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
+            dynamic_.place_null_character();
+        }
     }
 
-    template<size_t N>
-    explicit u8string(const char(&str)[N])
+    explicit u8string(size_t byte_size, bool ascii_only) : u8string(byte_size)
     {
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        constexpr auto byte_size = N - 1u;
-        construct_by_string((const utf8::char_t*)str, byte_size,
-            trilean_t::Unknown);
+        set_ascii_only(ascii_only);
     }
 
-    template<size_t N>
-    explicit u8string(const char (&str)[N], bool ascii_only)
-    {
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        constexpr auto byte_size = N - 1u;
-        construct_by_string((const utf8::char_t*)str, byte_size,
-            ascii_only ? trilean_t::True : trilean_t::False);
-    }
-
-    u8string(const utf8::char_t* str, const size_t byte_size, bool ascii_only)
-    {
-        construct_by_string(str, byte_size,
-            ascii_only ? trilean_t::True : trilean_t::False);
-    }
-
-    void construct_by_string(const utf8::char_t* str, const size_t byte_size,
-        trilean_t ascii_only)
+    u8string(const utf8::char_t* str, const size_t byte_size)
     {
         if (byte_size <= small_string_byte_size)
         {
-            new(&static_) static_t(byte_size, ascii_only);
+            new(&static_) static_t(byte_size, trilean_t::Unknown);
             if (byte_size > 0)
                 utils::restrict_copy_n(str, byte_size, static_.string_);
             static_.place_null_character();
         }
         else
         {
-            new(&dynamic_) dynamic_t(byte_size, ascii_only);
-            utils::restrict_copy_n(str, byte_size, static_.string_);
+            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
+            utils::restrict_copy_n(str, byte_size, dynamic_.string_);
             dynamic_.place_null_character();
         }
+        assert(check_validity());
+    }
+
+    u8string(const utf8::char_t* str, const size_t byte_size,
+        bool ascii_only) : u8string(str, byte_size)
+    {
+        set_ascii_only(ascii_only);
+        assert(check_validity());
+    }
+
+    template<size_t N>
+    explicit u8string(const char(&str)[N]) :
+        u8string((const utf8::char_t*)str, N - 1u)
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        assert(check_validity());
+    }
+
+    template<size_t N>
+    explicit u8string(const char(&str)[N], bool ascii_only) : u8string(str)
+    {
+        set_ascii_only(ascii_only);
+        assert(check_validity());
     }
 
     u8string(const u8string& other)
     {
         copy_from(other);
+        assert(check_validity());
     }
 
     u8string(u8string&& other)
     {
         swap_with(other);
+        assert(check_validity());
     }
 
     ~u8string()
@@ -702,8 +767,23 @@ union u8string
     }
     WL_INLINE size_t size() const
     {
-        const auto str = is_static() ? static_.string_ : dynamic_.string_;
-        const auto string_size = utf8::get_string_size(str, byte_size());
+        size_t string_size = 0;
+        if (is_static())
+        {
+            if (static_.ascii_only_ == trilean_t::True)
+                return static_.byte_size_;
+            else
+                string_size = utf8::get_string_size(
+                    static_.string_, static_.byte_size_);
+        }
+        else
+        {
+            if (dynamic_.ascii_only_ == trilean_t::True)
+                return dynamic_.byte_size_;
+            else
+                string_size = utf8::get_string_size(
+                    dynamic_.string_, dynamic_.byte_size_);
+        }
         set_ascii_only(string_size == byte_size());
         return string_size;
     }
@@ -777,6 +857,23 @@ union u8string
         else
         {
             dynamic_.push(str, append_size);
+        }
+    }
+
+    bool check_validity() const
+    {
+        if (capacity() < byte_size())
+        {
+            return false;
+        }
+        try
+        {
+            utf8::get_string_size<true>(byte_data(), byte_size());
+            return true;
+        }
+        catch (std::logic_error&)
+        {
+            return false;
         }
     }
 

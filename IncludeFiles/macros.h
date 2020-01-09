@@ -359,6 +359,12 @@ namespace wl
 #define WL_ERROR_TAKE_SPEC_LIST_LENGTH \
 "The list as a specification should have between one and three integers."
 
+#define WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH \
+"Only lists with 1 or 2 integers are supported as StringTake specifications."
+
+#define WL_ERROR_STRING_DROP_SPEC_LIST_LENGTH \
+"Only lists with 1 or 2 integers are supported as StringDrop specifications."
+
 #define WL_ERROR_PAUSE_NEGATIVE \
 "The duration should be non-negative."
 

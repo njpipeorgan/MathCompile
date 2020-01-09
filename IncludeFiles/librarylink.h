@@ -300,6 +300,17 @@ auto get(MArgument arg)
     {
         return get_array<value_type_t<T>, array_rank_v<T>>(arg);
     }
+    else if constexpr (is_string_v<T>)
+    {
+        char* str = MArgument_getUTF8String(arg);
+        bool ascii_only = true;
+        size_t byte_size = wl::utf8::_get_byte_size(
+            (const wl::utf8::char_t*)str, ascii_only);
+        auto ret = wl::string((const wl::utf8::char_t*)str,
+            byte_size, ascii_only);
+        lib_data->UTF8String_disown(str);
+        return ret;
+    }
     else
     {
         static_assert(always_false_v<T>, WL_ERROR_INTERNAL);

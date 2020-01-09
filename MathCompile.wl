@@ -567,6 +567,7 @@ $builtinfunctions=
 (* string *)
   "StringJoin"      ->"string_join",
   "StringLength"    ->"string_length",
+  "StringTake"      ->"string_take",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",
@@ -888,8 +889,12 @@ $numerictypes={
 "Real32","Real64",
 "ComplexReal32","ComplexReal64"};
 
-symboltype[type_]:=Which[StringContainsQ[type,"Integer"],Integer,
-  StringContainsQ[type,"Complex"],Complex,StringContainsQ[type,"Real"],Real,True,type];
+symboltype[type_]:=Which[
+  StringContainsQ[type,"Integer"],Integer,
+  StringContainsQ[type,"Complex"],Complex,
+  StringContainsQ[type,"Real"],Real,
+  type==="String","UTF8String",
+  True,type];
 
 loadfunction[libpath_String,funcid_String,args_]:=
   Module[{typefunc,libfunc,rank,type,commontype,returntype,argtypes,

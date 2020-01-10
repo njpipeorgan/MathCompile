@@ -568,6 +568,7 @@ $builtinfunctions=
   "StringJoin"      ->"string_join",
   "StringLength"    ->"string_length",
   "StringTake"      ->"string_take",
+  "RegularExpression"->"regular_expression",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",

@@ -25,8 +25,6 @@
 #include "u8string.h"
 #include "numerical.h"
 
-#include "srell.h"
-
 namespace wl
 {
 
@@ -144,7 +142,7 @@ Iter _string_take_find_offset(const Iter& begin, const Iter& end,
     {
         auto ret = begin;
         ret.apply_offset(offset - ptrdiff_t(!adjust_end), end);
-        if (ret.pointer() > end.pointer())
+        if (ret.get_pointer() > end.get_pointer())
             throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
         return ret;
     }
@@ -152,7 +150,7 @@ Iter _string_take_find_offset(const Iter& begin, const Iter& end,
     {
         auto ret = end;
         ret.apply_offset(offset + ptrdiff_t(adjust_end), begin);
-        if (ret.pointer() < begin.pointer())
+        if (ret.get_pointer() < begin.get_pointer())
             throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
         return ret;
     }
@@ -172,7 +170,7 @@ auto _string_take_impl_unicode_1arg(const Iter& begin, const Iter& end,
     const auto byte_size = (offset > 0) ?
         size_t(mid.byte_difference(begin)) :
         size_t(end.byte_difference(mid));
-    return string((offset > 0) ? begin.pointer() : mid.pointer(), byte_size,
+    return string((offset > 0) ? begin.get_pointer() : mid.get_pointer(), byte_size,
         (byte_size == size_t(offset > 0 ? offset : -offset)));
 }
 
@@ -187,7 +185,7 @@ auto _string_take_impl_unicode_2args(const Iter& begin, const Iter& end,
     const auto mid2 = _string_take_find_offset(
         mid1, end, size_t(string_size), true);
     const auto byte_size = size_t(mid2.byte_difference(mid1));
-    return string(mid1.pointer(), byte_size,
+    return string(mid1.get_pointer(), byte_size,
         (byte_size == size_t(string_size)));
 }
 
@@ -378,6 +376,18 @@ auto string_take(const string& str, const Spec& spec)
         return _string_take_impl_ascii(str, spec);
     else
         return _string_take_impl_unicode(str, spec);
+}
+
+inline auto regular_expression(const string& str)
+{
+    try
+    {
+        return utf8::regex(str.begin(), str.end());
+    }
+    catch (const std::regex_error& err)
+    {
+        throw std::logic_error(std::string(WL_ERROR_REGEX) + err.what());
+    }
 }
 
 }

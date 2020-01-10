@@ -18,6 +18,8 @@
 #pragma once
 
 #include <cassert>
+#include <regex>
+#include <string>
 #include <vector>
 
 #include "types.h"
@@ -30,17 +32,18 @@ namespace wl
 namespace utf8
 {
 
-using char_t = uint8_t;
+using char_t   = uint8_t;
+using char21_t = uint32_t;
 constexpr char_t null_character = '\0';
 
-inline bool is_ascii(char_t ch)
+inline constexpr bool is_ascii(char_t ch)
 {
     return ch < char_t(0b1000'0000);
 }
 
 inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
 {
-#if defined(___AVX2__) || defined(___SSE4_1__)
+#if defined(__AVX2__) || defined(__SSE4_1__)
     using namespace wl::simd;
 #  if defined(__AVX2__)
     using M = __m256i;
@@ -216,9 +219,15 @@ bool is_ascii_only(const char_t* str, const size_t byte_size)
 #endif
 }
 
-struct iterator
+struct string_iterator
 {
-    const uint8_t* ptr_;
+    using iterator_category = std::bidirectional_iterator_tag;
+    using value_type = char21_t;
+    using difference_type = ptrdiff_t;
+    using pointer = void;
+    using reference = char21_t;
+
+    const char_t* ptr_;
 
     WL_INLINE static bool _is_valid_codepoint_begin(uint8_t byte)
     {
@@ -230,53 +239,67 @@ struct iterator
         return (byte & 0b1100'0000u) == 0b1000'0000u;
     }
 
-    const uint8_t* pointer() const
+    const uint8_t* get_pointer() const
     {
         return ptr_;
     }
 
-    iterator& operator++()
+    string_iterator& operator++()
     {
         ptr_ += num_bytes();
         return *this;
     }
 
-    iterator& operator--()
+    string_iterator& operator--()
     {
         ptr_ -= previous_num_bytes();
         return *this;
     }
 
-    iterator& operator+=(ptrdiff_t n)
+    string_iterator operator++(int)
+    {
+        const auto copy = *this;
+        ++(*this);
+        return copy;
+    }
+
+    string_iterator operator--(int)
+    {
+        const auto copy = *this;
+        --(*this);
+        return copy;
+    }
+
+    string_iterator& operator+=(ptrdiff_t n)
     {
         apply_offset(n);
         return *this;
     }
 
-    iterator& operator-=(ptrdiff_t n)
+    string_iterator& operator-=(ptrdiff_t n)
     {
         apply_offset(-n);
         return *this;
     }
 
-    bool operator==(const iterator& other) const
+    bool operator==(const string_iterator& other) const
     {
         assert(_is_valid_codepoint_begin(*this->ptr_));
         assert(_is_valid_codepoint_begin(*other.ptr_));
         return this->ptr_ == other.ptr_;
     }
 
-    bool operator!=(const iterator& other) const
+    bool operator!=(const string_iterator& other) const
     {
         return !(this->ptr_ == other.ptr_);
     }
 
-    bool operator<(const iterator& other) const
+    bool operator<(const string_iterator& other) const
     {
         return this->ptr_ < other.ptr_;
     }
 
-    ptrdiff_t operator-(const iterator& other) const
+    ptrdiff_t operator-(const string_iterator& other) const
     {
         bool this_is_behind = this->ptr_ > other.ptr_;
         const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
@@ -290,12 +313,34 @@ struct iterator
         return this_is_behind ? n : -n;
     }
 
-    uint32_t operator*() const
+    char21_t operator*() const
     {
-        return codepoint();
+        assert((*ptr_ > 0u) && _is_valid_codepoint_begin(*ptr_));
+        switch (num_bytes())
+        {
+        case 1:
+            return uint32_t(ptr_[0]);
+        case 2:
+            return uint32_t(
+                ((ptr_[0] & 0b0001'1111) << 6) |
+                ((ptr_[1] & 0b0011'1111)));
+        case 3:
+            return uint32_t(
+                ((ptr_[0] & 0b0000'1111) << 12) |
+                ((ptr_[1] & 0b0011'1111) << 6) |
+                ((ptr_[2] & 0b0011'1111)));
+        case 4:
+            return uint32_t(
+                ((ptr_[0] & 0b0000'0111) << 18) |
+                ((ptr_[1] & 0b0011'1111) << 12) |
+                ((ptr_[2] & 0b0011'1111) << 6) |
+                ((ptr_[2] & 0b0011'1111)));
+        default:
+            return uint32_t(0);
+        }
     }
 
-    ptrdiff_t byte_difference(const iterator& other) const
+    ptrdiff_t byte_difference(const string_iterator& other) const
     {
         return ptrdiff_t(this->ptr_ - other.ptr_);
     }
@@ -314,7 +359,7 @@ struct iterator
         }
     }
 
-    void apply_offset(ptrdiff_t n, const iterator& end)
+    void apply_offset(ptrdiff_t n, const string_iterator& end)
     {
         if (n >= 0)
         {
@@ -381,34 +426,80 @@ struct iterator
             return 4u;
         }
     }
+};
 
-    uint32_t codepoint() const
+struct regex_traits :
+    public std::regex_traits<char>
+{
+    using _my_base        = std::regex_traits<char>;
+
+    using char_type       = utf8::char21_t;
+    using string_type     = std::basic_string<utf8::char21_t>;
+    using locale_type     = typename _my_base::locale_type;
+    using char_class_type = typename _my_base::char_class_type;
+
+    static constexpr auto length(const char_type* p)
     {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_begin(*ptr_));
-        switch (num_bytes())
-        {
-        case 1:
-            return uint32_t(ptr_[0]);
-        case 2:
-            return uint32_t(
-                ((ptr_[0] & 0b0001'1111) << 6) |
-                ((ptr_[1] & 0b0011'1111)));
-        case 3:
-            return uint32_t(
-                ((ptr_[0] & 0b0000'1111) << 12) |
-                ((ptr_[1] & 0b0011'1111) << 6) |
-                ((ptr_[2] & 0b0011'1111)));
-        case 4:
-            return uint32_t(
-                ((ptr_[0] & 0b0000'0111) << 18) |
-                ((ptr_[1] & 0b0011'1111) << 12) |
-                ((ptr_[2] & 0b0011'1111) << 6) |
-                ((ptr_[2] & 0b0011'1111)));
-        default:
-            return uint32_t(0);
-        }
+        return std::char_traits<char_type>::length(p);
+    }
+
+    constexpr auto translate(char_type c) const
+    {
+        return c;
+    }
+
+    constexpr auto translate_nocase(char_type c) const
+    {
+        if (char_type('A') <= c && c <= char_type('Z'))
+            return char_type(char_type('Z') - char_type('A') + c);
+        else
+            return c;
+    }
+
+    template<typename Iter>
+    auto transform(Iter begin, Iter end) const
+    {
+        return string_type(begin, end);
+    }
+
+    template<typename Iter>
+    auto transform_primary(Iter begin, Iter end) const
+    {
+        return string_type(begin, end);
+    }
+
+    template<typename Iter>
+    auto lookup_collatename(Iter begin, Iter end) const
+    {
+        return string_type(begin, end);
+    }
+
+    template<typename Iter>
+    auto lookup_classname(Iter begin, Iter end,
+        bool icase = false) const
+    {
+        const _my_base& base = *this;
+        if constexpr (std::is_pointer_v<Iter>)
+            return base.lookup_classname(begin, end, icase);
+        else
+            return base.lookup_classname(
+                begin.get_pointer(), end.get_pointer(), icase);
+    }
+
+    auto isctype(char_type ch, char_class_type f) const
+    {
+        const _my_base& base = *this;
+        return is_ascii(ch) && base.isctype(char(ch), f);
+    }
+
+    auto value(char_type ch, int radix) const
+    {
+        const _my_base& base = *this;
+        return is_ascii(ch) ? int(-1) : base.value(char(ch), radix);
     }
 };
+
+using regex = std::basic_regex<char21_t, regex_traits>;
 
 }
 
@@ -416,6 +507,8 @@ union u8string
 {
     static constexpr size_t small_string_byte_size = 28u; // excluding \0
     static_assert(sizeof(char) == 1u, WL_ERROR_SIZEOF_CHAR);
+
+    using iterator = utf8::string_iterator;
 
     enum class trilean_t : uint8_t { True, False, Unknown };
     
@@ -827,10 +920,10 @@ union u8string
     const uint8_t* byte_begin() const { return byte_data(); }
     const uint8_t* byte_end() const { return byte_data() + byte_size(); }
 
-    utf8::iterator begin() const { return utf8::iterator{byte_begin()}; }
-    utf8::iterator end() const { return utf8::iterator{byte_end()}; }
+    iterator begin() const { return iterator{byte_begin()}; }
+    iterator end() const { return iterator{byte_end()}; }
 
-    auto place_null_character()
+    void place_null_character()
     {
         if (is_static())
             static_.place_null_character();

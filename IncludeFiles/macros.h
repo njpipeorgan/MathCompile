@@ -395,4 +395,7 @@ namespace wl
 #define WL_ERROR_BAD_UTF8_NULL_TERMINATED \
 "The string is not terminated by a null character."
 
+#define WL_ERROR_REGEX \
+"Regex: "
+
 }

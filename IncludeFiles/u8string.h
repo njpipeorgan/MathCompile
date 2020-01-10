@@ -41,6 +41,126 @@ inline constexpr bool is_ascii(char_t ch)
     return ch < char_t(0b1000'0000);
 }
 
+}
+
+}
+
+template<>
+struct std::ctype<wl::utf8::char21_t> : public std::ctype<char>
+{
+    using char_type = wl::utf8::char21_t;
+    using _my_base = std::ctype<char>;
+
+    bool is(mask m, char_type ch) const
+    {
+        const _my_base& base = *this;
+        return wl::utf8::is_ascii(ch) && base.is(m, ch);
+    }
+
+    const char_type* is(const char_type* first, const char_type* last,
+        mask* dst) const
+    {
+        assert(false);
+        return first;
+    }
+
+    const char_type* scan_is(mask m,
+        const char_type* first, const char_type* last) const
+    {
+        for (; first < last; ++first)
+        {
+            if (is(m, *first))
+                break;
+        }
+        return first;
+    }
+
+    const char_type* scan_not(mask m,
+        const char_type* first, const char_type* last) const
+    {
+        for (; first < last; ++first)
+        {
+            if (!is(m, *first))
+                break;
+        }
+        return first;
+    }
+
+    char_type toupper(const char_type ch) const
+    {
+        if (char_type('a') <= ch && ch <= char_type('z'))
+            return char_type('A') - char_type('a') + ch;
+        else
+            return ch;
+    }
+
+    const char_type* toupper(char_type* first, const char_type* last) const
+    {
+        for (; first < last; ++first)
+            *first = toupper(*first);
+        return first;
+    }
+
+    char_type tolower(char_type ch) const
+    {
+        if (char_type('A') <= ch && ch <= char_type('Z'))
+            return char_type('a') - char_type('A') + ch;
+        else
+            return ch;
+    }
+
+    const char_type* tolower(char_type* first, char_type* last) const
+    {
+        for (; first < last; ++first)
+            *first = tolower(*first);
+        return first;
+    }
+
+    char_type widen(char ch) const
+    {
+        return char_type(ch);
+    }
+
+    const char* widen(const char* first, const char* last,
+        char_type* dst) const
+    {
+        for (; first < last; ++first, ++dst)
+            *dst = widen(*first);
+        return first;
+    }
+
+    char_type narrow(char_type ch, char d) const
+    {
+        return wl::utf8::is_ascii(ch) ? char(ch) : d;
+    }
+
+    const char_type* narrow(const char_type* first, const char_type* last,
+        char d, char* dst) const
+    {
+        for (; first < last; ++first, ++dst)
+            *dst = narrow(*first, d);
+        return first;
+    }
+
+    static const mask* classic_table() noexcept
+    {
+        return _my_base::classic_table();
+    }
+
+    const mask* table() const noexcept
+    {
+        const _my_base& base = *this;
+        return base.table();
+    }
+
+};
+
+namespace wl
+{
+
+namespace utf8
+{
+
 inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
 {
 #if defined(__AVX2__) || defined(__SSE4_1__)

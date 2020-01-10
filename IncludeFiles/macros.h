@@ -78,6 +78,7 @@
 #  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
 #  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #  pragma GCC diagnostic ignored "-Wignored-attributes"
+#  pragma GCC diagnostic ignored "-Wpsabi"
 #endif
 
 // no random device for MinGW

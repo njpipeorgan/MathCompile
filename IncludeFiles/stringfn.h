@@ -380,6 +380,7 @@ auto string_take(const string& str, const Spec& spec)
 
 inline auto regular_expression(const string& str)
 {
+    utf8::setup_global_locale();
     try
     {
         return utf8::regex(str.begin(), str.end());

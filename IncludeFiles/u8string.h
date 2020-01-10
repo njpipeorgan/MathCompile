@@ -129,7 +129,7 @@ struct std::ctype<wl::utf8::char21_t> : public std::ctype<char>
         return first;
     }
 
-    char_type narrow(char_type ch, char d) const
+    char narrow(char_type ch, char d) const
     {
         return wl::utf8::is_ascii(ch) ? char(ch) : d;
     }
@@ -439,24 +439,24 @@ struct string_iterator
         switch (num_bytes())
         {
         case 1:
-            return uint32_t(ptr_[0]);
+            return char21_t(ptr_[0]);
         case 2:
-            return uint32_t(
+            return char21_t(
                 ((ptr_[0] & 0b0001'1111) << 6) |
                 ((ptr_[1] & 0b0011'1111)));
         case 3:
-            return uint32_t(
+            return char21_t(
                 ((ptr_[0] & 0b0000'1111) << 12) |
                 ((ptr_[1] & 0b0011'1111) << 6) |
                 ((ptr_[2] & 0b0011'1111)));
         case 4:
-            return uint32_t(
+            return char21_t(
                 ((ptr_[0] & 0b0000'0111) << 18) |
                 ((ptr_[1] & 0b0011'1111) << 12) |
                 ((ptr_[2] & 0b0011'1111) << 6) |
                 ((ptr_[2] & 0b0011'1111)));
         default:
-            return uint32_t(0);
+            return char21_t(0);
         }
     }
 
@@ -620,6 +620,15 @@ struct regex_traits :
 };
 
 using regex = std::basic_regex<char21_t, regex_traits>;
+
+inline void setup_global_locale()
+{
+    [[maybe_unused]] static auto _1 = std::locale::global(
+        std::locale(
+            std::locale::classic(),
+            new std::ctype<wl::utf8::char21_t>)
+        );
+}
 
 }
 

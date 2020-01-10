@@ -29,8 +29,8 @@ namespace wl
 namespace simd
 {
 
-#define WL_DEFINE_DEFULAT_SIMD_UNARY(name)                      \
-WL_INLINE auto name(__m256i x) { return _mm256_##name(x); }     \
+#define WL_DEFINE_DEFULAT_SIMD_UNARY(name)                                  \
+WL_INLINE auto name(__m256i x) { return _mm256_##name(x); }                 \
 WL_INLINE auto name(__m128i x) { return _mm_##name(x); }
 #define WL_DEFINE_DEFULAT_SIMD_BINARY(name)                                 \
 WL_INLINE auto name(__m256i x, __m256i y) { return _mm256_##name(x, y); }   \

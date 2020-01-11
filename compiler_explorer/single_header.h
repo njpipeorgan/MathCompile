@@ -12249,7 +12249,7 @@ auto _string_take_impl_unicode_2args(const Iter& begin, const Iter& end,
     return string_view(mid1, mid2, size_t(string_size));
 }
 template<typename String, typename Spec>
-u8string_view _string_take_impl_unicode(const String& str, const Spec& spec,
+auto _string_take_impl_unicode(const String& str, const Spec& spec,
     ptrdiff_t total_size = -1)
 {
     const auto begin = str.begin();
@@ -12339,7 +12339,7 @@ u8string_view _string_take_impl_unicode(const String& str, const Spec& spec,
     }
 }
 template<typename String, typename Spec>
-u8string_view _string_take_impl_ascii(const String& str, const Spec& spec)
+auto _string_take_impl_ascii(const String& str, const Spec& spec)
 {
     const auto begin = str.byte_begin();
     const auto end = str.byte_end();

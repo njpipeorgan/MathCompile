@@ -165,13 +165,16 @@ template<typename Iter>
 auto _string_take_impl_unicode_1arg(const Iter& begin, const Iter& end,
     ptrdiff_t offset)
 {
-    const auto mid = _string_take_find_offset(
-        begin, end, offset, (offset > 0));
-    const auto byte_size = (offset > 0) ?
-        size_t(mid.byte_difference(begin)) :
-        size_t(end.byte_difference(mid));
-    return string((offset > 0) ? begin.get_pointer() : mid.get_pointer(), byte_size,
-        (byte_size == size_t(offset > 0 ? offset : -offset)));
+    if (offset > 0)
+    {
+        const auto mid = _string_take_find_offset(begin, end, offset, true);
+        return string_view(begin, mid, size_t(offset));
+    }
+    else
+    {
+        const auto mid = _string_take_find_offset(begin, end, offset, false);
+        return string_view(mid, end, size_t(-offset));
+    }
 }
 
 template<typename Iter>
@@ -179,18 +182,17 @@ auto _string_take_impl_unicode_2args(const Iter& begin, const Iter& end,
     ptrdiff_t offset, ptrdiff_t string_size)
 {
     if (string_size <= 0)
-        return string();
+        return string_view(begin, begin, size_t(0));
     const auto mid1 = _string_take_find_offset(
         begin, end, offset, false);
     const auto mid2 = _string_take_find_offset(
         mid1, end, size_t(string_size), true);
     const auto byte_size = size_t(mid2.byte_difference(mid1));
-    return string(mid1.get_pointer(), byte_size,
-        (byte_size == size_t(string_size)));
+    return string_view(mid1, mid2, size_t(string_size));
 }
 
-template<typename Spec>
-auto _string_take_impl_unicode(const string& str, const Spec& spec,
+template<typename String, typename Spec>
+u8string_view _string_take_impl_unicode(const String& str, const Spec& spec,
     ptrdiff_t total_size = -1)
 {
     const auto begin = str.begin();
@@ -198,7 +200,7 @@ auto _string_take_impl_unicode(const string& str, const Spec& spec,
     if constexpr (is_integral_v<Spec>)
     {
         if (spec == Spec(0))
-            return string();
+            return string_view(begin, begin, size_t(0));
         else
             return _string_take_impl_unicode_1arg(
                 begin, end, ptrdiff_t(spec));
@@ -251,7 +253,8 @@ auto _string_take_impl_unicode(const string& str, const Spec& spec,
         if (spec_size == 1u)
         {
             for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = _string_take_impl_unicode(str, spec_data[i]);
+                ret_data[i] = string(
+                    _string_take_impl_unicode(str, spec_data[i]));
         }
         else if (spec_size == 2u)
         {
@@ -265,9 +268,9 @@ auto _string_take_impl_unicode(const string& str, const Spec& spec,
                 }
             }
             for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = _string_take_impl_unicode(str,
+                ret_data[i] = string(_string_take_impl_unicode(str,
                     wl::list(spec_data[2u * i], spec_data[2u * i + 1u]),
-                    total_size);
+                    total_size));
         }
         else
         {
@@ -281,8 +284,8 @@ auto _string_take_impl_unicode(const string& str, const Spec& spec,
     }
 }
 
-template<typename Spec>
-auto _string_take_impl_ascii(const string& str, const Spec& spec)
+template<typename String, typename Spec>
+u8string_view _string_take_impl_ascii(const String& str, const Spec& spec)
 {
     const auto begin = str.byte_begin();
     const auto end = str.byte_end();
@@ -290,13 +293,14 @@ auto _string_take_impl_ascii(const string& str, const Spec& spec)
     if constexpr (is_integral_v<Spec>)
     {
         if (spec == Spec(0))
-            return string();
+            return string_view(begin, begin, size_t(0));
         else if (size_t(wl::abs(spec)) > total_size)
             throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
         else if (spec > Spec(0))
-            return string(begin, size_t(spec), true);
+            return string_view(begin, begin + ptrdiff_t(spec), size_t(spec));
         else
-            return string(end + ptrdiff_t(spec), size_t(-spec), true);
+            return string_view(end + ptrdiff_t(spec), end,
+                size_t(-ptrdiff_t(spec)));
 
     }
     else if constexpr (array_rank_v<Spec> == 1u &&
@@ -310,10 +314,9 @@ auto _string_take_impl_ascii(const string& str, const Spec& spec)
         {
             if (offsets[0] == 0 || size_t(wl::abs(offsets[0])) > total_size)
                 throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-            else if (offsets[0] > 0)
-                return string(begin + offsets[0] - 1, 1u, true);
-            else
-                return string(end + offsets[0], 1u, true);
+            auto substr_begin = (offsets[0] > 0) ?
+                (begin + offsets[0] - 1) : (end + offsets[0]);
+            return string_view(substr_begin, substr_begin + 1, size_t(1));
         }
         else if (spec_size == 2u)
         {
@@ -325,12 +328,12 @@ auto _string_take_impl_ascii(const string& str, const Spec& spec)
             if (offsets[1] < 0)
                 offsets[1] += ptrdiff_t(total_size + 1u);
             if (offsets[0] > offsets[1])
-                return string();
+                return string_view(begin, begin, size_t(0));
             if (size_t(offsets[0]) > total_size ||
                 size_t(offsets[1]) > total_size)
                 throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-            return string(begin + offsets[0] - 1,
-                size_t(offsets[1] - offsets[0] + 1), true);
+            return string_view(begin + offsets[0] - 1,
+                begin + offsets[1], size_t(offsets[1] - offsets[0] + 1));
         }
         else
         {
@@ -349,13 +352,14 @@ auto _string_take_impl_ascii(const string& str, const Spec& spec)
         if (spec_size == 1u)
         {
             for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = _string_take_impl_ascii(str, spec_data[i]);
+                ret_data[i] = string(
+                    _string_take_impl_ascii(str, spec_data[i]));
         }
         else if (spec_size == 2u)
         {
             for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = _string_take_impl_ascii(str,
-                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u]));
+                ret_data[i] = string(_string_take_impl_ascii(str,
+                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u])));
         }
         else
         {
@@ -369,16 +373,30 @@ auto _string_take_impl_ascii(const string& str, const Spec& spec)
     }
 }
 
-template<typename Spec>
-auto string_take(const string& str, const Spec& spec)
+template<typename String, typename Spec>
+auto string_take(String&& str, const Spec& spec)
 {
+    using StringT = remove_cvref_t<String>;
+    static_assert(is_string_view_v<StringT>, WL_ERROR_STRING_ONLY);
+
+    auto view = u8string_view{};
     if (str.ascii_only())
-        return _string_take_impl_ascii(str, spec);
+        view = _string_take_impl_ascii(str, spec);
     else
-        return _string_take_impl_unicode(str, spec);
+        view = _string_take_impl_unicode(str, spec);
+
+    if constexpr (is_string_v<StringT> && std::is_rvalue_reference_v<String&&>)
+    { // must return a string
+        return string(view);
+    }
+    else
+    { // can return a string view
+        return view;
+    }
 }
 
-inline auto regular_expression(const string& str)
+template<typename String>
+auto regular_expression(const String& str)
 {
     utf8::setup_global_locale();
     try

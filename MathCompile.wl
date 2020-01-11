@@ -38,8 +38,10 @@ IndirectReturn[f_][any___]:=Block[{linkreturn},f[any];linkreturn]
 $packagepath=DirectoryName[$InputFileName];
 $slotmaximum=16;
 $rankmaximum=16;
+$documentlinkbase="https://github.com/njpipeorgan/MathCompile/wiki/";
 
 
+getlink[page_]:="\!\(\*TemplateBox[{\"\[RightGuillemet]\",\""<>$documentlinkbase<>page<>"\"},\"HyperlinkURL\"]\)"
 parse::unknown="`1` cannot be parsed.";
 syntax::iter="`1` does not have a correct syntax for an iterator.";
 syntax::bad="`1` does not have a correct syntax for `2`.";

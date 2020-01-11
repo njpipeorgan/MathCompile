@@ -31,8 +31,6 @@ namespace wl
 template<typename T, size_t R>
 struct ndarray;
 
-union u8string;
-
 template<typename T, size_t ArrayRank, size_t ViewRank, bool Const>
 struct simple_view;
 
@@ -45,7 +43,11 @@ struct general_view;
 template<typename T>
 using complex = std::complex<T>;
 
+union u8string;
 using string = u8string;
+
+struct u8string_view;
+using string_view = u8string_view;
 
 struct void_type;
 
@@ -86,6 +88,10 @@ constexpr auto is_float_v = std::is_floating_point_v<T>;
 
 template<typename T>
 constexpr auto is_string_v = std::is_same_v<T, string>;
+
+template<typename T>
+constexpr auto is_string_view_v =
+    std::is_same_v<T, string> || std::is_same_v<T, string_view>;
 
 template<typename T>
 constexpr auto is_boolean_v = std::is_same_v<T, boolean>;
@@ -249,8 +255,8 @@ constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
 
 template<typename T>
 constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||
-is_array_view_v<T> || is_boolean_v<T> || is_string_v<T> ||
-std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
+    is_array_view_v<T> || is_boolean_v<T> || is_string_view_v<T> ||
+    std::is_same_v<T, void_type> || std::is_same_v<T, all_type>;
 
 
 template<typename T>

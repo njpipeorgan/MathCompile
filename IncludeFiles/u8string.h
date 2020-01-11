@@ -349,7 +349,15 @@ struct string_iterator
 
     const char_t* ptr_;
 
-    WL_INLINE static bool _is_valid_codepoint_begin(uint8_t byte)
+    string_iterator() : ptr_{nullptr}
+    {
+    }
+
+    string_iterator(const char_t* ptr) : ptr_{ptr}
+    {
+    }
+
+    WL_INLINE static bool _is_valid_codepoint_leading(uint8_t byte)
     {
         return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
     }
@@ -404,19 +412,29 @@ struct string_iterator
 
     bool operator==(const string_iterator& other) const
     {
-        assert(_is_valid_codepoint_begin(*this->ptr_));
-        assert(_is_valid_codepoint_begin(*other.ptr_));
         return this->ptr_ == other.ptr_;
     }
-
     bool operator!=(const string_iterator& other) const
     {
-        return !(this->ptr_ == other.ptr_);
+        return this->ptr_ != other.ptr_;
     }
 
     bool operator<(const string_iterator& other) const
     {
         return this->ptr_ < other.ptr_;
+    }
+    bool operator>(const string_iterator& other) const
+    {
+        return this->ptr_ > other.ptr_;
+    }
+
+    bool operator<=(const string_iterator& other) const
+    {
+        return this->ptr_ <= other.ptr_;
+    }
+    bool operator>=(const string_iterator& other) const
+    {
+        return this->ptr_ >= other.ptr_;
     }
 
     ptrdiff_t operator-(const string_iterator& other) const
@@ -424,18 +442,18 @@ struct string_iterator
         bool this_is_behind = this->ptr_ > other.ptr_;
         const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
         const auto* end = this_is_behind ? this->ptr_ : other.ptr_;
-        assert(_is_valid_codepoint_begin(*begin));
-        assert(_is_valid_codepoint_begin(*end));
+        assert(_is_valid_codepoint_leading(*begin));
+        assert(_is_valid_codepoint_leading(*end));
 
         ptrdiff_t n = 0;
         for (; begin != end; ++begin)
-            n += ptrdiff_t(_is_valid_codepoint_begin(*begin));
+            n += ptrdiff_t(_is_valid_codepoint_leading(*begin));
         return this_is_behind ? n : -n;
     }
 
     char21_t operator*() const
     {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_begin(*ptr_));
+        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
         switch (num_bytes())
         {
         case 1:
@@ -470,12 +488,12 @@ struct string_iterator
         if (n >= 0)
         {
             for (ptrdiff_t i = 0u; i < n;)
-                i += ptrdiff_t(_is_valid_codepoint_begin(*++ptr_));
+                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
         }
         else
         {
             for (ptrdiff_t i = 0u; i < n;)
-                i += ptrdiff_t(_is_valid_codepoint_begin(*--ptr_));
+                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
         }
     }
 
@@ -484,12 +502,12 @@ struct string_iterator
         if (n >= 0)
         {
             for (ptrdiff_t i = 0u; (i < n) && (ptr_ <= end.ptr_);)
-                i += ptrdiff_t(_is_valid_codepoint_begin(*++ptr_));
+                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
         }
         else
         {
             for (ptrdiff_t i = 0u; (i < -n) && (ptr_ >= end.ptr_);)
-                i += ptrdiff_t(_is_valid_codepoint_begin(*--ptr_));
+                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
         }
     }
 
@@ -515,14 +533,14 @@ struct string_iterator
             assert(_is_valid_codepoint_tailing(ptr_[-1]));
             assert(_is_valid_codepoint_tailing(ptr_[-2]));
             assert(_is_valid_codepoint_tailing(ptr_[-3]));
-            assert((*ptr_ > 0u) && _is_valid_codepoint_begin(ptr_[-4]));
+            assert((*ptr_ > 0u) && _is_valid_codepoint_leading(ptr_[-4]));
             return 4u;
         }
     }
 
     size_t num_bytes() const
     {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_begin(*ptr_));
+        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
         if (*ptr_ < 0b1000'0000u)
         {
             return 1u;
@@ -615,11 +633,12 @@ struct regex_traits :
     auto value(char_type ch, int radix) const
     {
         const _my_base& base = *this;
-        return is_ascii(ch) ? int(-1) : base.value(char(ch), radix);
+        return is_ascii(ch) ? base.value(char(ch), radix) : int(-1);
     }
 };
 
 using regex = std::basic_regex<char21_t, regex_traits>;
+using smatch = std::match_results<utf8::string_iterator>;
 
 inline void setup_global_locale()
 {
@@ -632,14 +651,19 @@ inline void setup_global_locale()
 
 }
 
+enum class trilean_t : uint8_t
+{
+    True,
+    False,
+    Unknown
+};
+
 union u8string
 {
     static constexpr size_t small_string_byte_size = 28u; // excluding \0
     static_assert(sizeof(char) == 1u, WL_ERROR_SIZEOF_CHAR);
 
     using iterator = utf8::string_iterator;
-
-    enum class trilean_t : uint8_t { True, False, Unknown };
     
     struct static_t
     {
@@ -846,8 +870,19 @@ union u8string
         set_ascii_only(ascii_only);
     }
 
+    u8string(const iterator& begin, const iterator& end) :
+        u8string(begin.get_pointer(), end.byte_difference(begin))
+    {
+    }
+
+    u8string(const iterator& begin, const iterator& end, bool ascii_only) :
+        u8string(begin.get_pointer(), end.byte_difference(begin), ascii_only)
+    {
+    }
+
     u8string(const utf8::char_t* str, const size_t byte_size)
     {
+        assert(ptrdiff_t(byte_size) >= 0);
         if (byte_size <= small_string_byte_size)
         {
             new(&static_) static_t(byte_size, trilean_t::Unknown);
@@ -1010,11 +1045,11 @@ union u8string
         return string_size;
     }
 
-    WL_INLINE uint8_t* byte_data()
+    WL_INLINE utf8::char_t* byte_data()
     {
         return is_static() ? static_.string_ : dynamic_.string_;
     }
-    WL_INLINE const uint8_t* byte_data() const
+    WL_INLINE const utf8::char_t* byte_data() const
     {
         return is_static() ? static_.string_ : dynamic_.string_;
     }
@@ -1024,9 +1059,14 @@ union u8string
         return reinterpret_cast<const char*>(byte_data());
     }
 
+    WL_INLINE trilean_t* _ascii_only_ptr() const
+    {
+        return is_static() ? &static_.ascii_only_ : &dynamic_.ascii_only_;
+    }
+
     bool ascii_only() const
     {
-        auto only = is_static() ? &static_.ascii_only_ : &dynamic_.ascii_only_;
+        auto only = _ascii_only_ptr();
         if (*only == trilean_t::Unknown)
         {
             if (utf8::is_ascii_only(byte_data(), byte_size()))
@@ -1039,8 +1079,7 @@ union u8string
 
     void set_ascii_only(bool ascii_only) const
     {
-        auto only = is_static() ? &static_.ascii_only_ : &dynamic_.ascii_only_;
-        *only = ascii_only ? trilean_t::True : trilean_t::False;
+        *_ascii_only_ptr() = ascii_only ? trilean_t::True : trilean_t::False;
     }
 
     uint8_t* byte_begin() { return byte_data(); }
@@ -1128,6 +1167,122 @@ union u8string
         info += _ascii_string();
         info += " }";
         return info;
+    }
+};
+
+struct u8string_view
+{
+    using iterator = utf8::string_iterator;
+    static constexpr ptrdiff_t string_size_unknown = -1;
+
+    iterator begin_{};
+    iterator end_{};
+    mutable trilean_t ascii_only_ = trilean_t::Unknown;
+    mutable ptrdiff_t string_size_ = string_size_unknown;
+
+    u8string_view() = default;
+
+    u8string_view(iterator begin, iterator end) :
+        begin_{begin}, end_{end}
+    {
+        assert(begin <= end);
+    }
+
+    u8string_view(iterator begin, iterator end, bool ascii_only) :
+        u8string_view{begin, end}
+    {
+        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
+        if (ascii_only)
+            string_size_ = byte_size();
+    }
+
+    u8string_view(iterator begin, iterator end, size_t string_size) :
+        u8string_view{begin, end}
+    {
+        string_size_ = string_size;
+        ascii_only_ = (size() == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+    }
+
+    u8string_view(const u8string& str) :
+        begin_{str.begin()}, end_{str.end()}
+    {
+    }
+
+    u8string_view(const u8string& str, bool ascii_only) :
+        u8string_view{str}
+    {
+        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
+        if (ascii_only)
+            string_size_ = byte_size();
+    }
+
+    u8string_view(const u8string& str, size_t string_size) :
+        u8string_view{str}
+    {
+        string_size_ = string_size;
+        ascii_only_ = (size() == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+    }
+
+    const utf8::char_t* byte_data() const
+    {
+        return begin_.get_pointer();
+    }
+
+    size_t byte_size() const
+    {
+        return size_t(end_.byte_difference(begin_));
+    }
+
+    size_t size() const
+    {
+        if (string_size_ == string_size_unknown)
+            string_size_ = utf8::get_string_size(byte_data(), byte_size());
+        ascii_only_ = (string_size_ == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+        return string_size_;
+    }
+
+    const char* c_str() const
+    {
+        return reinterpret_cast<const char*>(byte_data());
+    }
+
+    iterator begin() const
+    {
+        return begin_;
+    }
+
+    iterator end() const
+    {
+        return end_;
+    }
+
+    WL_INLINE trilean_t* _ascii_only_ptr() const
+    {
+        return &ascii_only_;
+    }
+
+    bool ascii_only() const
+    {
+        auto only = _ascii_only_ptr();
+        if (*only == trilean_t::Unknown)
+        {
+            if (utf8::is_ascii_only(byte_data(), byte_size()))
+                *only = trilean_t::True;
+            else
+                *only = trilean_t::False;
+        }
+        return *only == trilean_t::True ? true : false;
+    }
+
+    explicit operator u8string()
+    {
+        if (ascii_only_ == trilean_t::Unknown)
+            return u8string(begin_, end_);
+        else
+            return u8string(begin_, end_, ascii_only());
     }
 };
 

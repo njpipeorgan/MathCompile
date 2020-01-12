@@ -24,6 +24,7 @@
 #include "utils.h"
 #include "u8string.h"
 #include "numerical.h"
+#include "pattern.h"
 
 namespace wl
 {
@@ -407,6 +408,22 @@ auto regular_expression(const String& str)
     {
         throw std::logic_error(std::string(WL_ERROR_REGEX) + err.what());
     }
+}
+
+template<typename Expression>
+auto _string_expression_compile(Expression&& e)
+{
+}
+
+template<typename Expression>
+auto _string_replacement_compile(Expression&& e)
+{
+}
+
+template<typename String, typename Rule>
+auto string_replace(String&& str, Rule&& rule)
+{
+    return 0;
 }
 
 }

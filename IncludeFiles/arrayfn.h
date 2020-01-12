@@ -242,6 +242,12 @@ auto list(First&& first, Rest&&... rest)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename... Args>
+inline auto list_type::operator()(Args&&... args) const
+{
+    return list(std::forward<decltype(args)>(args)...);
+}
+
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
 {

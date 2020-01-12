@@ -334,6 +334,11 @@ $builtinconstants=
   "All"        ->"all",
   "True"       ->"true",
   "False"      ->"false",
+  "Integer"    ->"integer",
+  "Real"       ->"real",
+  "Complex"    ->"complex",
+  "String"     ->"string",
+  "List"       ->"list",
   "Pi"         ->"pi",
   "E"          ->"e",
   "Degree"     ->"degree",
@@ -566,11 +571,27 @@ $builtinfunctions=
   "AnyTrue"         ->"any_true",
   "NoneTrue"        ->"none_true",
   "Count"           ->"count",
+(* patterns *)
+  "Pattern"         ->"pattern",
+  "Blank"           ->"blank",
+  "BlankSequence"   ->"blank_sequence",
+  "BlankNullSequence"->"blank_null_sequence",
+  "Alternatives"    ->"alternatives",
+  "Repeated"        ->"repeated",
+  "RepeatedNull"    ->"repeated_null",
+  "Except"          ->"except",
+  "Longest"         ->"longest",
+  "Shortest"        ->"shortest",
+  "Rule"            ->"rule",
+  "PatternTest"     ->"pattern_test",
+  "Condition"       ->"condition",
 (* string *)
   "StringJoin"      ->"string_join",
   "StringLength"    ->"string_length",
   "StringTake"      ->"string_take",
   "RegularExpression"->"regular_expression",
+  "StringExpression"->"string_expression",
+  "StringReplace"   ->"string_replace",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",
@@ -719,6 +740,39 @@ arithmeticmacro[code_]:=code//.{
     id["Power",p_][x_,literal[y_Integer,_]]:>native["power",p][x,const[y]]
   }
 
+lexicalorder[a_,b_]:=
+  Module[{la=Length[a],lb=Length[b]},
+    If[la>lb,Order[a,PadRight[b,la,-1]],Order[PadRight[a,lb,-1],b]]
+  ];
+
+regexmacro[code_]:=Module[{patternfunctions,sepos,names},
+    code=code//.{
+      id["PatternTest",p_][patt:(id["Pattern",_][id[x_,_],_]),test_]:>id["Condition",p][patt,test[x]],
+      id["PatternTest",p_][patt_,test_]:>Module[{var=newvar},id["Condition",p][id["Pattern",p][id[var,p],patt],test[id[var,0]]]]};
+    patternfunctions={
+      "StringExpression","Pattern","Blank","BlankSequence","BlankNullSequence",
+      "Alternatives","Repeated","RepeatedNull","Except","Longest","Shortest",
+      "Rule","Condition"};
+    sepos=NestWhile[
+      (First/@Split[#,#1==Take[#2,UpTo[Length@#1]]&])&,
+      Sort[Position[code,id[Alternatives@@patternfunctions,_][___]],lexicalorder],
+      Length[#1]!=Length[#2]&,2];
+    Module[{se,rulepos,condpos,rulereplacements,var},Do[
+      se=Extract[code,p];
+      names=GroupBy[#,First->Last,Min]&@Cases[se,id["Pattern",p_][id[x_,xi_],_]:>(x->xi),-1,Heads->True];
+      rulepos=Reverse@Sort[Append[#,2]&/@Position[se,id["Rule",_][_,_]],lexicalorder];
+      rulereplacements=KeyValueMap[id[#1,p_]:>native["_replacement",p][const[#2]]&,names];
+      Do[se[[Sequence@@rp]]=se[[Sequence@@rp]]/.rulereplacements;,{rp,rulepos}];
+      condpos=Append[#,2]&/@Position[se,id["Condition",_][_,_]];
+      Do[var=newvar;se[[Sequence@@cp]]=function[Extract[se,Most[cp]~Join~{0,2}]][{var},{nil},sequence[
+        se[[Sequence@@cp]]/.KeyValueMap[id[#1,p_]:>argmatch[var,const[#2]]&,names]]];
+      ,{cp,condpos}];
+      se=se//.KeyValueMap[id["Pattern",p_][id[#1,_],patt_]:>native["pattern",p][const[#2],patt]&,names];
+      code=ReplacePart[code,p->se];
+    ,{p,sepos}]];
+    code
+  ]
+
 builtinlookup[table_,key_,found_,notfound_]:=If[KeyExistsQ[table,key],found[table[key]],notfound[key]];
 
 resolvesymbols[code_]:=code//.{
@@ -727,11 +781,6 @@ resolvesymbols[code_]:=code//.{
     id[any_,p_]:>builtinlookup[$builtinconstants,any,const[#,p]&,
       builtinlookup[$builtinfunctions,#,native[#,p]&,id[#,p]&]&]
   }
-
-lexicalorder[a_,b_]:=
-  Module[{la=Length[a],lb=Length[b]},
-    If[la>lb,Order[a,PadRight[b,la,-1]],Order[PadRight[a,lb,-1],b]]
-  ];
 
 findinit[code_]:=
   Module[{sequencepos,scopevarpos,scopevar,initpos,initscopepos,refpos},
@@ -756,7 +805,7 @@ findinit[code_]:=
     ReplacePart[code,Append[#,0]->initialize&/@DeleteMissing[initpos/@scopevar]]
   ]
 
-semantics[code_]:=findinit@resolvesymbols@arithmeticmacro@functionmacro@variablerename[code]
+semantics[code_]:=findinit@resolvesymbols@regexmacro@arithmeticmacro@functionmacro@variablerename[code]
 
 
 optim[array][code_]:=code//.{
@@ -787,8 +836,9 @@ toexportbinary[code_String]:=StringJoin@Flatten@StringSplit[
 
 codegen[args[vars_,types_],___]:=
   MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
-codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString[i-1]<>")"
-codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString[i-1]<>")"
+codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString@CForm[i-1]<>")"
+codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString@CForm[i-1]<>")"
+codegen[argmatch[var_,const[i_]]]:=var<>".get_match<"<>ToString@CForm[i]<>">()"
 
 codegen[function[p_][vars_,types_,sequence[exprs___]],any___]:=
   {annotatebegin[p],"[&](",

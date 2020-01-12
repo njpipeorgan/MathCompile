@@ -39,6 +39,12 @@ auto make_complex(const Re& re, const Im& im)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename... Args>
+inline auto complex_type::operator()(Args&&... args) const
+{
+    return make_complex(std::forward<decltype(args)>(args)...);
+}
+
 template<typename X>
 auto re(X&& x)
 {

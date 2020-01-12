@@ -41,6 +41,34 @@ struct none_type
 {
 };
 
+struct any_type
+{
+};
+
+struct string_type
+{
+};
+
+struct integer_type
+{
+};
+
+struct real_type
+{
+};
+
+struct complex_type
+{
+    template<typename... Args>
+    auto operator()(Args&&... args) const;
+};
+
+struct list_type
+{
+    template<typename... Args>
+    auto operator()(Args&&... args) const;
+};
+
 struct varg_tag
 {
 };

@@ -312,6 +312,7 @@ struct u8string_view;
 using string_view = u8string_view;
 struct void_type;
 struct all_type;
+struct list_type;
 struct boolean;
 template<typename F>
 struct function;
@@ -516,6 +517,8 @@ template<typename F>
 struct is_variadic_function : std::false_type {};
 template<typename Normal, typename Variadic>
 struct is_variadic_function<variadic<Normal, Variadic>> : std::true_type {};
+template<>
+struct is_variadic_function<list_type> : std::true_type {};
 template<typename Fn>
 constexpr auto is_variadic_function_v = is_variadic_function<Fn>::value;
 template<typename T>
@@ -535,6 +538,28 @@ struct all_type
 };
 struct none_type
 {
+};
+struct any_type
+{
+};
+struct string_type
+{
+};
+struct integer_type
+{
+};
+struct real_type
+{
+};
+struct complex_type
+{
+    template<typename... Args>
+    auto operator()(Args&&... args) const;
+};
+struct list_type
+{
+    template<typename... Args>
+    auto operator()(Args&&... args) const;
 };
 struct varg_tag
 {
@@ -599,12 +624,17 @@ struct const_ints
 }
 namespace wl
 {
-constexpr auto const_null  = void_type{};
-constexpr auto const_all   = all_type{};
-constexpr auto const_none  = none_type{};
-constexpr auto const_i     = complex<double>(0.f, 1.f);
-constexpr auto const_true  = boolean(true);
-constexpr auto const_false = boolean(false);
+constexpr auto const_null    = void_type{};
+constexpr auto const_all     = all_type{};
+constexpr auto const_none    = none_type{};
+constexpr auto const_real    = real_type{};
+constexpr auto const_integer = integer_type{};
+constexpr auto const_complex = complex_type{};
+constexpr auto const_string  = string_type{};
+constexpr auto const_list    = list_type{};
+constexpr auto const_i       = complex<double>(0.f, 1.f);
+constexpr auto const_true    = boolean(true);
+constexpr auto const_false   = boolean(false);
 constexpr auto const_pi           = double(3.1415926535897932385e+0);
 constexpr auto const_e            = double(2.7182818284590452354e+0);
 constexpr auto const_degree       = double(1.7453292519943295769e-2);
@@ -6897,6 +6927,196 @@ struct u8string_view
 }
 namespace wl
 {
+template<int64_t Id, typename Pattern>
+struct _named_pattern
+{
+    Pattern pattern;
+};
+template<int64_t Id>
+struct _named_replacement
+{
+};
+template<typename... Head>
+struct _pattern_blank
+{
+    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
+};
+template<typename... Head>
+struct _pattern_blank_sequence
+{
+    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
+};
+template<typename... Head>
+struct _pattern_blank_null_sequence
+{
+    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
+};
+template<typename... Patterns>
+struct _pattern_alternatives
+{
+    static constexpr size_t size = sizeof...(Patterns);
+    std::tuple<Patterns...> patterns;
+    template<size_t I>
+    auto get() const &
+    {
+        return std::get<I>(patterns);
+    }
+    template<size_t I>
+    auto get() &&
+    {
+        return std::get<I>(patterns);
+    }
+};
+template<typename Pattern>
+struct _pattern_repeated
+{
+    Pattern pattern;
+};
+template<typename Pattern>
+struct _pattern_repeated_null
+{
+    Pattern pattern;
+};
+template<typename Pattern>
+struct _pattern_except
+{
+    Pattern pattern;
+};
+template<typename Pattern>
+struct _pattern_longest
+{
+    Pattern pattern;
+};
+template<typename Pattern>
+struct _pattern_shortest
+{
+    Pattern pattern;
+};
+template<typename Left, typename Right>
+struct _pattern_rule
+{
+    Left left;
+    Right right;
+};
+template<typename Pattern, typename Test>
+struct _pattern_test
+{
+    Pattern pattern;
+    Test test;
+};
+template<typename... Patterns>
+struct _string_expression
+{
+    std::tuple<Patterns...> patterns;
+    template<size_t I>
+    auto get() const &
+    {
+        return std::get<I>(patterns);
+    }
+    template<size_t I>
+    auto get() &&
+    {
+        return std::get<I>(patterns);
+    }
+};
+template<typename Pattern, typename Condition>
+struct _condition
+{
+    Pattern pattern;
+    Condition condition;
+};
+template<int64_t Id, typename Pattern>
+auto pattern(const_int<Id>, Pattern&& pattern)
+{
+    return _named_pattern<Id, remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Left, typename Right>
+auto rule(Left&& left, Right&& right)
+{
+    return _pattern_rule<remove_cvref_t<Left>, remove_cvref_t<Right>>{
+        std::forward<decltype(left)>(left),
+        std::forward<decltype(right)>(right)};
+}
+template<typename... Head>
+auto blank(const Head&...)
+{
+    return _pattern_blank<Head...>{};
+}
+template<typename... Head>
+auto blank_sequence(const Head&...)
+{
+    return _pattern_blank_sequence<Head...>{};
+}
+template<typename... Head>
+auto blank_null_sequence(const Head&...)
+{
+    return _pattern_blank_null_sequence<Head...>{};
+}
+template<typename... Patterns>
+auto alternatives(Patterns&&... patterns)
+{
+    return _pattern_alternatives<remove_cvref_t<Patterns>...>{
+        std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
+}
+template<typename Pattern>
+auto repeated(Pattern&& pattern)
+{
+    return _pattern_repeated<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern>
+auto repeated_null(Pattern&& pattern)
+{
+    return _pattern_repeated_null<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern>
+auto except(Pattern&& pattern)
+{
+    return _pattern_except<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern>
+auto longest(Pattern&& pattern)
+{
+    return _pattern_longest<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern>
+auto shortest(Pattern&& pattern)
+{
+    return _pattern_shortest<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern, typename Test>
+auto pattern_test(Pattern&& pattern, Test&& test)
+{
+    return _pattern_test<remove_cvref_t<Pattern>, remove_cvref_t<Test>>{
+        std::forward<decltype(pattern)>(pattern),
+        std::forward<decltype(test)>(test)};
+}
+template<typename Pattern, typename Condition>
+auto condition(Pattern&& pattern, Condition&& condition)
+{
+    return _condition<remove_cvref_t<Pattern>, remove_cvref_t<Condition>>{
+        std::forward<decltype(pattern)>(pattern),
+        std::forward<decltype(condition)>(condition)};
+}
+template<int64_t Id>
+auto _replacement(const_int<Id>)
+{
+    return _named_replacement<Id>{};
+}
+template<typename... Patterns>
+auto string_expression(Patterns&&... patterns)
+{
+    return _string_expression<remove_cvref_t<Patterns>...>{
+        std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
+}
+}
+namespace wl
+{
 struct _returns_function_tag {};
 struct _returns_value_tag {};
 template<typename... Ts>
@@ -7293,6 +7513,11 @@ auto make_complex(const Re& re, const Im& im)
     using T = std::conditional_t<std::is_same_v<C, float>, float, double>;
     return complex<T>(T(re), T(im));
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename... Args>
+inline auto complex_type::operator()(Args&&... args) const
+{
+    return make_complex(std::forward<decltype(args)>(args)...);
 }
 template<typename X>
 auto re(X&& x)
@@ -9414,6 +9639,11 @@ auto list(First&& first, Rest&&... rest)
         }
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename... Args>
+inline auto list_type::operator()(Args&&... args) const
+{
+    return list(std::forward<decltype(args)>(args)...);
 }
 template<typename T, typename... Dims>
 auto constant_array(const T& val, varg_tag, const Dims&... dims)
@@ -12454,6 +12684,19 @@ auto regular_expression(const String& str)
     {
         throw std::logic_error(std::string(WL_ERROR_REGEX) + err.what());
     }
+}
+template<typename Expression>
+auto _string_expression_compile(Expression&& e)
+{
+}
+template<typename Expression>
+auto _string_replacement_compile(Expression&& e)
+{
+}
+template<typename String, typename Rule>
+auto string_replace(String&& str, Rule&& rule)
+{
+    return 0;
 }
 }
 namespace wl

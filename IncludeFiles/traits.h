@@ -53,6 +53,8 @@ struct void_type;
 
 struct all_type;
 
+struct list_type;
+
 struct boolean;
 
 template<typename F>
@@ -333,6 +335,9 @@ struct is_variadic_function : std::false_type {};
 
 template<typename Normal, typename Variadic>
 struct is_variadic_function<variadic<Normal, Variadic>> : std::true_type {};
+
+template<>
+struct is_variadic_function<list_type> : std::true_type {};
 
 template<typename Fn>
 constexpr auto is_variadic_function_v = is_variadic_function<Fn>::value;

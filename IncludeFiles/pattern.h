@@ -78,12 +78,13 @@ template<typename Pattern>
 struct _pattern_repeated
 {
     Pattern pattern;
-};
+    size_t min;
+    size_t max;
 
-template<typename Pattern>
-struct _pattern_repeated_null
-{
-    Pattern pattern;
+    bool max_is_infinity() const
+    {
+        return max == size_t(const_int_infinity);
+    }
 };
 
 template<typename Pattern>
@@ -109,13 +110,6 @@ struct _pattern_rule
 {
     Left left;
     Right right;
-};
-
-template<typename Pattern, typename Test>
-struct _pattern_test
-{
-    Pattern pattern;
-    Test test;
 };
 
 template<typename... Patterns>
@@ -182,18 +176,65 @@ auto alternatives(Patterns&&... patterns)
         std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
 }
 
+template<typename Pattern, typename Spec>
+auto _repeated_impl(Pattern&& pattern, const Spec min, const Spec max)
+{
+    if (max < min || min < Spec(0))
+        throw std::logic_error(WL_ERROR_REPEATED_INVALID_SPEC);
+    return _pattern_repeated<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern), size_t(min), size_t(max)};
+}
+
+template<typename Pattern, typename Spec>
+auto repeated(Pattern&& pattern, const Spec& spec)
+{
+    if constexpr (array_rank_v<Spec> == 0u)
+    {
+        static_assert(is_integral_v<Spec>, WL_ERROR_REPEATED_SPEC);
+        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+            Spec(1), spec);
+    }
+    else
+    {
+        using XV = value_type_t<Spec>;
+        static_assert(array_rank_v<Spec> == 1u && is_integral_v<XV>,
+            WL_ERROR_REPEATED_SPEC);
+        if (spec.size() != 2u)
+            throw std::logic_error(WL_ERROR_REPEATED_SPEC);
+        std::array<XV, 2u> valspec;
+        spec.copy_to(valspec.data());
+        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+            valspec[0], valspec[1]);
+    }
+}
+
 template<typename Pattern>
 auto repeated(Pattern&& pattern)
 {
-    return _pattern_repeated<remove_cvref_t<Pattern>>{
-        std::forward<decltype(pattern)>(pattern)};
+    return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+        size_t(1), size_t(const_int_infinity));
+}
+
+template<typename Pattern, typename Spec>
+auto repeated_null(Pattern&& pattern, const Spec& spec)
+{
+    if constexpr (array_rank_v<Spec> == 0u)
+    {
+        static_assert(is_integral_v<Spec>, WL_ERROR_REPEATED_SPEC);
+        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+            Spec(0), spec);
+    }
+    else
+    {
+        return repeated(std::forward<decltype(pattern)>(pattern), spec);
+    }
 }
 
 template<typename Pattern>
 auto repeated_null(Pattern&& pattern)
 {
-    return _pattern_repeated_null<remove_cvref_t<Pattern>>{
-        std::forward<decltype(pattern)>(pattern)};
+    return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+        size_t(0), size_t(const_int_infinity));
 }
 
 template<typename Pattern>
@@ -215,14 +256,6 @@ auto shortest(Pattern&& pattern)
 {
     return _pattern_shortest<remove_cvref_t<Pattern>>{
         std::forward<decltype(pattern)>(pattern)};
-}
-
-template<typename Pattern, typename Test>
-auto pattern_test(Pattern&& pattern, Test&& test)
-{
-    return _pattern_test<remove_cvref_t<Pattern>, remove_cvref_t<Test>>{
-        std::forward<decltype(pattern)>(pattern),
-        std::forward<decltype(test)>(test)};
 }
 
 template<typename Pattern, typename Condition>

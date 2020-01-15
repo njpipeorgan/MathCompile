@@ -1196,15 +1196,6 @@ struct general_view
     }
 };
 
-template<typename Any>
-auto val(Any&& any) -> decltype(auto)
-{
-    if constexpr (is_array_view_v<remove_cvref_t<Any>>)
-        return std::forward<decltype(any)>(any).to_array();
-    else
-        return std::forward<decltype(any)>(any);
-}
-
 template<view_category Category, typename Any>
 auto allows(Any&& any) -> decltype(auto)
 {

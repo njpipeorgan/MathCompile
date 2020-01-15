@@ -367,7 +367,7 @@ struct string_iterator
         return (byte & 0b1100'0000u) == 0b1000'0000u;
     }
 
-    const uint8_t* get_pointer() const
+    const char_t* get_pointer() const
     {
         return ptr_;
     }
@@ -640,6 +640,8 @@ struct regex_traits :
 using regex = std::basic_regex<char21_t, regex_traits>;
 using smatch = std::match_results<utf8::string_iterator>;
 
+constexpr size_t max_capture_groups = 99u;
+
 inline void setup_global_locale()
 {
     [[maybe_unused]] static auto _1 = std::locale::global(
@@ -690,7 +692,7 @@ union u8string
         template<bool PlaceNull = true, bool UpdateASCII = true>
         void push(utf8::char_t ch)
         {
-            assert(byte_size_ + 1u <= capacity_);
+            assert(byte_size_ + 1u <= size_t(capacity_));
             string_[byte_size_++] = ch;
             if constexpr (UpdateASCII)
                 if (!utf8::is_ascii(ch))
@@ -699,14 +701,13 @@ union u8string
                 place_null_character();
         }
 
-        template<bool PlaceNull = true, bool UpdateASCII = true>
+        template<bool PlaceNull = true>
         void push(const utf8::char_t* ch, size_t size)
         {
-            assert(byte_size_ + size <= capacity_);
+            assert(byte_size_ + size <= size_t(capacity_));
             utils::restrict_copy_n(ch, size, string_ + byte_size_);
             byte_size_ += uint8_t(size);
-            if constexpr (UpdateASCII)
-                ascii_only_ = trilean_t::Unknown;
+            ascii_only_ = trilean_t::Unknown;
             if constexpr (PlaceNull)
                 place_null_character();
         }
@@ -792,7 +793,7 @@ union u8string
                 place_null_character();
         }
 
-        template<bool PlaceNull = true, bool UpdateASCII = true>
+        template<bool PlaceNull = true>
         void push(const utf8::char_t* ch, size_t size)
         {
             if (byte_size_ + size > capacity_)
@@ -800,8 +801,7 @@ union u8string
             assert(byte_size_ + size <= capacity_);
             utils::restrict_copy_n(ch, size, string_ + byte_size_);
             byte_size_ += uint8_t(size);
-            if constexpr (UpdateASCII)
-                ascii_only_ = trilean_t::Unknown;
+            ascii_only_ = trilean_t::Unknown;
             if constexpr (PlaceNull)
                 place_null_character();
         }
@@ -833,6 +833,7 @@ union u8string
         {
             assert(string_);
             std::free(string_);
+            string_ = nullptr;
             capacity_ = 0u;
         }
     };
@@ -921,13 +922,13 @@ union u8string
         assert(check_validity());
     }
 
-    u8string(const u8string& other)
+    u8string(const u8string& other) : u8string()
     {
         copy_from(other);
         assert(check_validity());
     }
 
-    u8string(u8string&& other)
+    u8string(u8string&& other) : u8string()
     {
         swap_with(other);
         assert(check_validity());
@@ -1099,6 +1100,7 @@ union u8string
             dynamic_.place_null_character();
     }
 
+    template<bool PlaceNull = true>
     void append(const utf8::char_t* str, const size_t append_size)
     {
         const size_t new_byte_size = byte_size() + append_size;
@@ -1108,17 +1110,54 @@ union u8string
             {
                 set_dynamic_capacity(new_byte_size);
                 assert(!is_static());
-                dynamic_.push(str, append_size);
+                dynamic_.push<PlaceNull>(str, append_size);
             }
             else
             {
-                static_.push(str, append_size);
+                static_.push<PlaceNull>(str, append_size);
             }
         }
         else
         {
-            dynamic_.push(str, append_size);
+            dynamic_.push<PlaceNull>(str, append_size);
         }
+    }
+
+    template<bool PlaceNull = true, bool UpdateASCII = true>
+    void append(const utf8::char_t ch)
+    {
+        const size_t new_byte_size = byte_size() + 1u;
+        if (is_static())
+        {
+            if (new_byte_size > small_string_byte_size)
+            {
+                set_dynamic_capacity(new_byte_size);
+                assert(!is_static());
+                dynamic_.push<PlaceNull, UpdateASCII>(ch);
+            }
+            else
+            {
+                static_.push<PlaceNull, UpdateASCII>(ch);
+            }
+        }
+        else
+        {
+            dynamic_.push<PlaceNull, UpdateASCII>(ch);
+        }
+    }
+
+    u8string& join(const u8string& other)
+    {
+        append(other.byte_begin(), other.byte_size());
+        return *this;
+    }
+
+    template<size_t N>
+    u8string& join(const char(&str)[N])
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        append((utf8::char_t*)str, N - 1u);
+        return *this;
     }
 
     bool check_validity() const

@@ -81,6 +81,47 @@ struct identity_type
     using type = T;
 };
 
+template<int64_t Id, typename Pattern>
+struct _named_pattern;
+
+template<int64_t Id>
+struct _named_replacement;
+
+template<typename... Head>
+struct _pattern_blank;
+
+template<typename... Head>
+struct _pattern_blank_sequence;
+
+template<typename... Head>
+struct _pattern_blank_null_sequence;
+
+template<typename... Patterns>
+struct _pattern_alternatives;
+
+template<typename Pattern>
+struct _pattern_repeated;
+
+template<typename Pattern>
+struct _pattern_except;
+
+template<typename Pattern>
+struct _pattern_longest;
+
+template<typename Pattern>
+struct _pattern_shortest;
+
+template<typename Left, typename Right>
+struct _pattern_rule;
+
+template<typename... Patterns>
+struct _string_expression;
+
+template<typename Pattern, typename Condition>
+struct _condition;
+
+template<int64_t... Ids>
+struct _pattern_id_list;
 
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
@@ -110,6 +151,48 @@ constexpr auto is_real_v = is_integral_v<T> || is_float_v<T>;
 
 template<typename T>
 constexpr auto is_arithmetic_v = is_real_v<T> || is_complex_v<T>;
+
+template<typename T>
+struct is_pattern : std::false_type {};
+
+template<int64_t Id, typename Pattern>
+struct is_pattern<_named_pattern<Id, Pattern>> : std::true_type {};
+
+template<int64_t Id>
+struct is_pattern<_named_replacement<Id>> : std::true_type {};
+
+template<typename... Head>
+struct is_pattern<_pattern_blank<Head...>> : std::true_type {};
+
+template<typename... Head>
+struct is_pattern<_pattern_blank_sequence<Head...>> : std::true_type {};
+
+template<typename... Head>
+struct is_pattern<_pattern_blank_null_sequence<Head...>> : std::true_type {};
+
+template<typename... Patterns>
+struct is_pattern<_pattern_alternatives<Patterns...>> : std::true_type {};
+
+template<typename Pattern>
+struct is_pattern<_pattern_repeated<Pattern>> : std::true_type {};
+
+template<typename Pattern>
+struct is_pattern<_pattern_except<Pattern>> : std::true_type {};
+
+template<typename Pattern>
+struct is_pattern<_pattern_longest<Pattern>> : std::true_type {};
+
+template<typename Pattern>
+struct is_pattern<_pattern_shortest<Pattern>> : std::true_type {};
+
+template<typename Left, typename Right>
+struct is_pattern<_pattern_rule<Left, Right>> : std::true_type {};
+
+template<typename Pattern, typename Condition>
+struct is_pattern<_condition<Pattern, Condition>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_pattern_v = is_pattern<T>::value;
 
 template<typename T>
 struct promote_integral

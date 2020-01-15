@@ -33,6 +33,20 @@
 namespace wl
 {
 
+template<typename Expression>
+auto _string_expression_compile(Expression);
+
+template<typename Any>
+auto val(Any&& any) -> decltype(auto)
+{
+    if constexpr (is_array_view_v<remove_cvref_t<Any>>)
+        return std::forward<decltype(any)>(any).to_array();
+    else if constexpr (is_pattern_v<remove_cvref_t<Any>>)
+        return _string_expression_compile(std::forward<decltype(any)>(any));
+    else
+        return std::forward<decltype(any)>(any);
+}
+
 template<typename Y, typename XV, size_t XR>
 auto cast(ndarray<XV, XR>&& x) -> decltype(auto)
 {

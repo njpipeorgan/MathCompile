@@ -583,7 +583,6 @@ $builtinfunctions=
   "Longest"         ->"longest",
   "Shortest"        ->"shortest",
   "Rule"            ->"rule",
-  "PatternTest"     ->"pattern_test",
   "Condition"       ->"condition",
 (* string *)
   "StringJoin"      ->"string_join",
@@ -591,7 +590,10 @@ $builtinfunctions=
   "StringTake"      ->"string_take",
   "RegularExpression"->"regular_expression",
   "StringExpression"->"string_expression",
+  "StringCases"     ->"string_cases",
   "StringReplace"   ->"string_replace",
+  "StringCount"     ->"string_count",
+  "StringMatchQ"    ->"string_match_q",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",

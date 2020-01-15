@@ -277,6 +277,27 @@ namespace wl
 #define WL_ERROR_PARTITION_SPEC \
 "The lengths and offsets of partition should be integers or lists of integers."
 
+#define WL_ERROR_TO_MANY_REGEX_GROUPS \
+"The number of groups needed by the string expression exceeds the limit(99)."
+
+#define WL_ERROR_REPEATED_SPEC \
+"The number of repetitions should be an integer or a pair of integers."
+
+#define WL_ERROR_STRING_FUNCTION_STRING \
+"The first argument to the function should be a string."
+
+#define WL_ERROR_STRING_COUNT_PATTERN \
+"The second argument to StringCount should be a string pattern."
+
+#define WL_ERROR_STRING_CASES_PATTERN \
+"The second argument to StringCases should be a string pattern or rule."
+
+#define WL_ERROR_STRING_REPLACE_PATTERN \
+"The second argument to StringReplace should be a string replacement rule."
+
+#define WL_ERROR_STRING_MATCH_Q_PATTERN \
+"The second argument to StringMatchQ should be a string pattern."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -397,6 +418,12 @@ namespace wl
 "The string is not terminated by a null character."
 
 #define WL_ERROR_REGEX \
-"Regex: "
+"[regex] "
+
+#define WL_ERROR_BAD_PATTERN \
+"The expression does not specify a valid pattern or a pattern rule."
+
+#define WL_ERROR_REPEATED_INVALID_SPEC \
+"The specification of repetition should be non-negative and in order."
 
 }

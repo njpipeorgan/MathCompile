@@ -1033,9 +1033,9 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           OptionValue["CompileOptions"]
         },
       "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
-      "IncludeDirectories"->{mldir,$packagepath<>"/IncludeFiles"},
-      "LibraryDirectories"->{mldir};
-      "Libraries"->{"ML64i4"},
+      "IncludeDirectories"->Echo@{mldir,$packagepath<>"/IncludeFiles"},
+      "LibraryDirectories"->Echo@{mldir,$packagepath<>"/LibraryResources/"<>$SystemID},
+      "Libraries"->{"ML64i4","re2"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
       "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),
@@ -1076,7 +1076,7 @@ $compileroptions=<|
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -fp-model fast=2"|>,
     "Define"->("-D"<>#&/@#&)|>,
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler-><|
-    "Base"->"/std:c++17 /EHsc",
+    "Base"->"/std:c++17 /EHsc /MD",
     "Optimize"-><|0->"/O0",1->"/O1",2->"/O2",3->"/Ox /Gy /fp:fast"|>,
     "Define"->("/D"<>#&/@#&)|>
 |>;

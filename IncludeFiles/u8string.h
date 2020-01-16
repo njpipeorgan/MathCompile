@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cassert>
-#include <regex>
 #include <string>
 #include <vector>
 
@@ -40,126 +39,6 @@ inline constexpr bool is_ascii(char_t ch)
 {
     return ch < char_t(0b1000'0000);
 }
-
-}
-
-}
-
-template<>
-struct std::ctype<wl::utf8::char21_t> : public std::ctype<char>
-{
-    using char_type = wl::utf8::char21_t;
-    using _my_base = std::ctype<char>;
-
-    bool is(mask m, char_type ch) const
-    {
-        const _my_base& base = *this;
-        return wl::utf8::is_ascii(ch) && base.is(m, ch);
-    }
-
-    const char_type* is(const char_type* first, const char_type* last,
-        mask* dst) const
-    {
-        assert(false);
-        return first;
-    }
-
-    const char_type* scan_is(mask m,
-        const char_type* first, const char_type* last) const
-    {
-        for (; first < last; ++first)
-        {
-            if (is(m, *first))
-                break;
-        }
-        return first;
-    }
-
-    const char_type* scan_not(mask m,
-        const char_type* first, const char_type* last) const
-    {
-        for (; first < last; ++first)
-        {
-            if (!is(m, *first))
-                break;
-        }
-        return first;
-    }
-
-    char_type toupper(const char_type ch) const
-    {
-        if (char_type('a') <= ch && ch <= char_type('z'))
-            return char_type('A') - char_type('a') + ch;
-        else
-            return ch;
-    }
-
-    const char_type* toupper(char_type* first, const char_type* last) const
-    {
-        for (; first < last; ++first)
-            *first = toupper(*first);
-        return first;
-    }
-
-    char_type tolower(char_type ch) const
-    {
-        if (char_type('A') <= ch && ch <= char_type('Z'))
-            return char_type('a') - char_type('A') + ch;
-        else
-            return ch;
-    }
-
-    const char_type* tolower(char_type* first, char_type* last) const
-    {
-        for (; first < last; ++first)
-            *first = tolower(*first);
-        return first;
-    }
-
-    char_type widen(char ch) const
-    {
-        return char_type(ch);
-    }
-
-    const char* widen(const char* first, const char* last,
-        char_type* dst) const
-    {
-        for (; first < last; ++first, ++dst)
-            *dst = widen(*first);
-        return first;
-    }
-
-    char narrow(char_type ch, char d) const
-    {
-        return wl::utf8::is_ascii(ch) ? char(ch) : d;
-    }
-
-    const char_type* narrow(const char_type* first, const char_type* last,
-        char d, char* dst) const
-    {
-        for (; first < last; ++first, ++dst)
-            *dst = narrow(*first, d);
-        return first;
-    }
-
-    static const mask* classic_table() noexcept
-    {
-        return _my_base::classic_table();
-    }
-
-    const mask* table() const noexcept
-    {
-        const _my_base& base = *this;
-        return base.table();
-    }
-
-};
-
-namespace wl
-{
-
-namespace utf8
-{
 
 inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
 {
@@ -372,6 +251,23 @@ struct string_iterator
         return ptr_;
     }
 
+    operator const char*() const
+    {
+        return (const char*)ptr_;
+    }
+
+    string_iterator& operator=(const utf8::char_t* other)
+    {
+        ptr_ = other;
+        return *this;
+    }
+
+    string_iterator& operator=(const char* other)
+    {
+        *this = (const utf8::char_t*)other;
+        return *this;
+    }
+
     string_iterator& operator++()
     {
         ptr_ += num_bytes();
@@ -565,91 +461,6 @@ struct string_iterator
         }
     }
 };
-
-struct regex_traits :
-    public std::regex_traits<char>
-{
-    using _my_base        = std::regex_traits<char>;
-
-    using char_type       = utf8::char21_t;
-    using string_type     = std::basic_string<utf8::char21_t>;
-    using locale_type     = typename _my_base::locale_type;
-    using char_class_type = typename _my_base::char_class_type;
-
-    static constexpr auto length(const char_type* p)
-    {
-        return std::char_traits<char_type>::length(p);
-    }
-
-    constexpr auto translate(char_type c) const
-    {
-        return c;
-    }
-
-    constexpr auto translate_nocase(char_type c) const
-    {
-        if (char_type('A') <= c && c <= char_type('Z'))
-            return char_type(char_type('Z') - char_type('A') + c);
-        else
-            return c;
-    }
-
-    template<typename Iter>
-    auto transform(Iter begin, Iter end) const
-    {
-        return string_type(begin, end);
-    }
-
-    template<typename Iter>
-    auto transform_primary(Iter begin, Iter end) const
-    {
-        return string_type(begin, end);
-    }
-
-    template<typename Iter>
-    auto lookup_collatename(Iter begin, Iter end) const
-    {
-        return string_type(begin, end);
-    }
-
-    template<typename Iter>
-    auto lookup_classname(Iter begin, Iter end,
-        bool icase = false) const
-    {
-        const _my_base& base = *this;
-        if constexpr (std::is_pointer_v<Iter>)
-            return base.lookup_classname(begin, end, icase);
-        else
-            return base.lookup_classname(
-                begin.get_pointer(), end.get_pointer(), icase);
-    }
-
-    auto isctype(char_type ch, char_class_type f) const
-    {
-        const _my_base& base = *this;
-        return is_ascii(ch) && base.isctype(char(ch), f);
-    }
-
-    auto value(char_type ch, int radix) const
-    {
-        const _my_base& base = *this;
-        return is_ascii(ch) ? base.value(char(ch), radix) : int(-1);
-    }
-};
-
-using regex = std::basic_regex<char21_t, regex_traits>;
-using smatch = std::match_results<utf8::string_iterator>;
-
-constexpr size_t max_capture_groups = 99u;
-
-inline void setup_global_locale()
-{
-    [[maybe_unused]] static auto _1 = std::locale::global(
-        std::locale(
-            std::locale::classic(),
-            new std::ctype<wl::utf8::char21_t>)
-        );
-}
 
 }
 

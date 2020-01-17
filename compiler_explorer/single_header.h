@@ -14079,7 +14079,6 @@ auto _string_count_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
             begin = match[0].begin();
             ++begin;
         }
-        std::cout << "begin = " << begin.byte_difference(str.begin()) << "\n";
         if (begin >= end)
             break;
     }
@@ -14127,7 +14126,6 @@ auto _string_cases_impl(String&& str,
             begin = match[0].begin();
             ++begin;
         }
-        std::cout << "begin = " << begin.byte_difference(str.begin()) << "\n";
         if (begin >= end)
             break;
     }
@@ -14162,7 +14160,6 @@ auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
             begin = match[0].begin();
             ++begin;
         }
-        std::cout << "begin = " << begin.byte_difference(str.begin()) << "\n";
         if (begin >= end)
             break;
     }
@@ -14199,7 +14196,6 @@ auto _string_replace_impl(String&& str,
             begin = match[0].begin();
             ++begin;
         }
-        std::cout << "begin = " << begin.byte_difference(str.begin()) << "\n";
         if (begin >= end)
             break;
     }

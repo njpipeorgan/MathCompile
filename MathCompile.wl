@@ -1033,8 +1033,8 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           OptionValue["CompileOptions"]
         },
       "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
-      "IncludeDirectories"->Echo@{mldir,$packagepath<>"/IncludeFiles"},
-      "LibraryDirectories"->Echo@{mldir,$packagepath<>"/LibraryResources/"<>$SystemID},
+      "IncludeDirectories"->{mldir,$packagepath<>"/IncludeFiles"},
+      "LibraryDirectories"->{mldir,$packagepath<>"/LibraryResources/"<>$SystemID},
       "Libraries"->{"ML64i4","re2"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,

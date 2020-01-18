@@ -286,17 +286,11 @@ namespace wl
 #define WL_ERROR_STRING_FUNCTION_STRING \
 "The first argument to the function should be a string."
 
-#define WL_ERROR_STRING_COUNT_PATTERN \
-"The second argument to StringCount should be a string pattern."
+#define WL_ERROR_NOT_A_PATTERN \
+"The expression dose not evaluate to a valid string pattern."
 
-#define WL_ERROR_STRING_CASES_PATTERN \
-"The second argument to StringCases should be a string pattern or rule."
-
-#define WL_ERROR_STRING_REPLACE_PATTERN \
-"The second argument to StringReplace should be a string replacement rule."
-
-#define WL_ERROR_STRING_MATCH_Q_PATTERN \
-"The second argument to StringMatchQ should be a string pattern."
+#define WL_ERROR_NOT_A_REPLACEMENT \
+"The expression dose not evaluate to a valid string pattern replacement."
 
 // runtime error messages
 

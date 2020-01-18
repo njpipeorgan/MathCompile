@@ -69,6 +69,7 @@ link::libdir="The library directory does not exist.";
 link::genfail="Failed to generate the library.";
 link::noheader="The header file \"math_compile.h\" cannot be found.";
 cxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information."
+cxx::support="The compiler `1` is not supported on the platform `2`."
 cxx::error="`1`";
 runtime::error="`1`";
 
@@ -106,9 +107,11 @@ parse[Hold[head_[args___]]]:=
     parsehead@@parseargs
   ]
 parse[Hold[s_Symbol]]:=
-  Module[{name=SymbolName[Unevaluated@s],oldptr=$sourceptr},
-    $sourceptr+=StringLength@name;
-    id[name,oldptr]
+  Module[{context=Context[Unevaluated@s],name=SymbolName[Unevaluated@s],fullname,oldptr=$sourceptr},
+    If[context=="Global`"||context=="System`"||context=="MathCompile",context=""];
+    fullname=context<>name;
+    $sourceptr+=StringLength@fullname;
+    id[fullname,oldptr]
   ]
 parse[Hold[I]]:=
   Module[{oldptr=sourceptr},
@@ -594,6 +597,7 @@ $builtinfunctions=
   "StringReplace"   ->"string_replace",
   "StringCount"     ->"string_count",
   "StringMatchQ"    ->"string_match_q",
+  "StringPattern`PatternConvert"->"_pattern_convert",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",
@@ -993,7 +997,7 @@ compilelink[$Failed,___]:=$Failed;
 
 compilelink[f_,uncompiled_,OptionsPattern[]]:=
   Module[{output,types,funcid,src,lib,workdir,
-      libdir,mldir,compiler,opt,errorparser,errors},
+      libdir,mldir,compiler,opt,opterror,errorparser,errors},
     $CppSource="";
     $CompilerOutput="";
     output=f["output"];
@@ -1020,7 +1024,8 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     mldir=$InstallationDirectory<>
       "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
     compiler=CCompilerDriver`DefaultCCompiler[];
-    opt=$compileroptions[compiler];
+    opterror=Catch[opt=$compileroptions[compiler,$SystemID];];
+    If[opterror=!=Null,Return[$Failed]];
     lib=Quiet@CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
       "Language"->"C++",
@@ -1056,62 +1061,89 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
 
 
 $joinoptions=StringRiffle[Flatten[#]," "]&;
-$compileroptions=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler-><|
+$compileroptionsbase=<|
+  "GCC"-><|
     "Base"->"-x c++ -std=c++1z -fPIC -march=native",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
-  CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    If[$SystemID=="Windows-x86-64",
-    <|(*MinGW*)
+  "MinGW"-><|
     "Base"->"-static -x c++ -std=c++1z -fPIC -march=native",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
-    <|(*Clang*)
-    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
-    "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
-    "Define"->("-D"<>#&/@#&)|>],
-  CCompilerDriver`IntelCompiler`IntelCompiler-><|
+  "ICC"-><|
     "Base"->"-std=c++17 -Kc++ -restrict -march=native",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -fp-model fast=2"|>,
     "Define"->("-D"<>#&/@#&)|>,
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler-><|
+  "Clang"-><|
+    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
+    "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
+    "Define"->("-D"<>#&/@#&)|>,
+  "MSVC"-><|
     "Base"->"/std:c++17 /EHsc /MD",
     "Optimize"-><|0->"/O0",1->"/O1",2->"/O2",3->"/Ox /Gy /fp:fast"|>,
     "Define"->("/D"<>#&/@#&)|>
 |>;
-$compilererrorparser=<|
-  CCompilerDriver`GCCCompiler`GCCCompiler->Function[{id},{
+$compileroptions[
+    CCompilerDriver`GCCCompiler`GCCCompiler,
+    _
+  ]:=$compileroptionsbase["GCC"]
+$compileroptions[
+    CCompilerDriver`GenericCCompiler`GenericCCompiler,
+    "Windows-x86-64"
+  ]:=$compileroptionsbase["MinGW"]
+$compileroptions[
+    CCompilerDriver`GenericCCompiler`GenericCCompiler,
+    s_str/;StringContainsQ[s,"Linux"]
+  ]:=$compileroptionsbase["Clang"]
+$compileroptions[
+    CCompilerDriver`ClangCompiler`ClangCompiler,
+    "MacOSX-x86-64"
+  ]:=$compileroptionsbase["Clang"]
+$compileroptions[
+    CCompilerDriver`IntelCompiler`IntelCompiler,
+    s_str/;StringContainsQ[s,"Linux"]
+  ]:=$compileroptionsbase["ICC"]
+$compileroptions[
+    CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler,
+    s_(*str/;StringContainsQ[s,"Windows"]*)
+  ]:=$compileroptionsbase["MSVC"]
+$compileroptions[compiler_,platform_String
+  ]:=(Message[cxx::support,SymbolName@Unevaluated@compiler,platform];Throw[0];)
+
+$compilererrorparserbase=<|
+  "GCC"->Function[{id},{
       Split[#,Head[#2]=!=Integer&]&,Flatten[{
         StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
         StringDelete["static assertion failed: "]@StringCases[#,"error: "~~err___:>err]
       }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}],
-  CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    If[$SystemID=="Windows-x86-64",
-    (*MinGW*)Function[{id},{
-      Split[#,Head[#2]=!=Integer&]&,Flatten[{
-        StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
-        StringDelete["static assertion failed: "]@StringCases[#,"error: "~~err___:>err]
-      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}],
-    (*Clang*)Function[{id},{
-      Reverse/@Split[#,Head[#1]=!=Integer&]&,Flatten[{
-        StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
-          StringDelete["static_assert"~~__~~"'"~~Shortest[__]~~"' "]@
-            StringCases[#,"error: "~~err___:>err]
-      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}]]
-      ,
-  CCompilerDriver`IntelCompiler`IntelCompiler->Function[{id},{
+  "ICC"->Function[{id},{
       Reverse/@Split[#,Head[#1]=!=Integer&]&,Flatten[
         StringCases[$CompilerOutput<>"\n",{
           "at line "~~l:(DigitCharacter ..)~~Shortest[m___]~~id<>".c\""
             /;StringFreeQ[m,"at line"]:>FromDigits[l]-1,
           "error: "~~Shortest[err___]~~"\n":>
             StringDelete["static_assert"~~__~~"'"~~Shortest[__]~~"' "]@err}]]}],
-  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->Function[{id},{
+  "Clang"->Function[{id},{
+      Reverse/@Split[#,Head[#1]=!=Integer&]&,Flatten[{
+        StringCases[#,id<>".c:"~~l:(DigitCharacter ..)~~":":>FromDigits@l],
+          StringDelete["static_assert"~~__~~"'"~~Shortest[__]~~"' "]@
+            StringCases[#,"error: "~~err___:>err]
+      }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}],
+  "MSVC"->Function[{id},{
       Reverse/@Split[#,Head[#1]=!=Integer&]&,Flatten[{
         StringCases[#,id<>".c("~~l:(DigitCharacter ..)~~")":>FromDigits@l],
         StringDelete["C2338: "]@StringCases[#,": error "~~err___:>err]
       }&/@StringSplit[MathCompile`$CompilerOutput,"\n"]]}]
+|>;
+$compilererrorparser=<|
+  CCompilerDriver`GCCCompiler`GCCCompiler->
+    $compilererrorparser["GCC"],
+  CCompilerDriver`GenericCCompiler`GenericCCompiler->
+    $compilererrorparser[If[$SystemID=="Windows-x86-64","GCC","Clang"]],
+  CCompilerDriver`IntelCompiler`IntelCompiler->
+    $compilererrorparser["ICC"],
+  CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
+    $compilererrorparser["MSVC"]
 |>
 emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
   Module[{cxxsrc,srcrange,errors,message,position,srcpart},

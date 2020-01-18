@@ -882,14 +882,15 @@ inline void _string_expression_compile_impl(
 template<typename Any, typename State, typename... Tags>
 auto _string_expression_compile(Any&& any, string& str, State s, Tags...)
 {
-    if constexpr (is_string_view_v<remove_cvref_t<Any>>)
+    using AT = remove_cvref_t<Any>;
+    if constexpr (is_string_view_v<AT>)
     {
         _string_expression_compile_impl(any.byte_begin(), any.byte_end(), str);
         return std::move(s);
     }
     else
     {
-        static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
+        static_assert(is_pattern_v<Any>, WL_ERROR_NOT_A_PATTERN);
         return std::move(s);
     }
 }
@@ -946,7 +947,8 @@ template<typename Any, typename State, typename FormatIdList>
 auto _string_replacement_compile(
     Any&& any, string& str, const State&, FormatIdList f)
 {
-    if constexpr (is_string_view_v<remove_cvref_t<Any>>)
+    using AT = remove_cvref_t<Any>;
+    if constexpr (is_string_view_v<AT>)
     {
         _string_replacement_compile_impl(
             any.byte_begin(), any.byte_end(), str);
@@ -954,16 +956,17 @@ auto _string_replacement_compile(
     }
     else
     {
-        static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
+        static_assert(always_false_v<Any>, WL_ERROR_NOT_A_REPLACEMENT);
         return std::move(f);
     }
 }
 
 template<typename Expression>
-auto _string_expression_compile(Expression e)
+auto _string_expression_compile(Expression&& e)
 {
     auto str = string();
-    auto s1 = _string_expression_compile(e, str, 
+    auto s1 = _string_expression_compile(
+        std::forward<decltype(e)>(e), str, 
         _string_expression_compilation_state<
             _pattern_condition_list<>,
             _pattern_id_list<>
@@ -1066,6 +1069,34 @@ inline void _string_expression_format(_regex_match_results<PL> match,
         }
     }
     ret.place_null_character();
+}
+
+template<typename CL, typename PL>
+auto _pattern_convert_impl(const _compiled_pattern<CL, PL>& pattern)
+{
+    auto regex = pattern.get_regex().pattern();
+    auto ret = string((const utf8::char_t*)regex.c_str(), regex.size());
+    if constexpr (CL::size > 0)
+        ret.join(" [").join(to_string(CL::size)).join("  conditions]");
+    return ret;
+}
+
+template<typename CP, typename CR>
+auto _pattern_convert_impl(const _compiled_pattern_rule<CP, CR>& rule)
+{
+    auto ret = _pattern_convert_impl(rule.pattern);
+    ret.join(rule.replacement.format);
+    return ret;
+}
+
+template<typename Any>
+auto _pattern_convert(Any&& any)
+{
+    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
+        return _pattern_convert_impl(
+            _string_expression_compile(std::forward<decltype(any)>(any)));
+    else
+        return _pattern_convert_impl(std::forward<decltype(any)>(any));
 }
 
 template<typename String, typename CL, typename PL>
@@ -1224,34 +1255,6 @@ auto _string_replace_impl(String&& str,
         ret.append<false>(begin.get_pointer(),
             size_t(end.byte_difference(begin)));
     return ret;
-}
-
-template<typename String, typename Any>
-auto _string_count_impl(String&& str, const Any& any)
-{
-    static_assert(always_false_v<String>, WL_ERROR_STRING_COUNT_PATTERN);
-    return 0;
-}
-
-template<typename String, typename Any>
-auto _string_cases_impl(String&& str, const Any& any)
-{
-    static_assert(always_false_v<String>, WL_ERROR_STRING_CASES_PATTERN);
-    return 0;
-}
-
-template<typename String, typename Any>
-auto _string_replace_impl(String&& str, const Any& any)
-{
-    static_assert(always_false_v<String>, WL_ERROR_STRING_REPLACE_PATTERN);
-    return 0;
-}
-
-template<typename String, typename Any>
-auto _string_match_q_impl(String&& str, const Any& any)
-{
-    static_assert(always_false_v<String>, WL_ERROR_STRING_MATCH_Q_PATTERN);
-    return 0;
 }
 
 template<typename String, typename Any>

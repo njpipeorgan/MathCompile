@@ -191,6 +191,24 @@ struct is_pattern<_pattern_rule<Left, Right>> : std::true_type {};
 template<typename Pattern, typename Condition>
 struct is_pattern<_condition<Pattern, Condition>> : std::true_type {};
 
+#define WL_DEFINE_STRING_PATTERN_CONSTANT(pattern_type)         \
+struct pattern_type {};                                         \
+template<> struct is_pattern<pattern_type> : std::true_type {};
+
+WL_DEFINE_STRING_PATTERN_CONSTANT(_whitespace_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_number_string_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_word_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_digit_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_hexadecimal_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_letter_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_whitespace_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_punctuation_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_word_boundary_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_start_of_line_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_end_of_line_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_start_of_string_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_end_of_string_type)
+
 template<typename T>
 constexpr auto is_pattern_v = is_pattern<T>::value;
 

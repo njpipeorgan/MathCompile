@@ -21,7 +21,7 @@
 #include <memory>
 #include <tuple>
 
-#include "re2/re2.h"
+#include "re2/re2_wrapper.h"
 
 #include "types.h"
 #include "arrayview.h"
@@ -648,7 +648,7 @@ template<typename String>
 auto regular_expression(const String& str)
 {
     return _compiled_pattern<_pattern_condition_list<>, _pattern_id_list<>>{
-        std::make_shared<re2::RE2>(str.c_str())};
+        re2::re2_new(str.c_str())};
 }
 
 template<int64_t Id, typename Pattern, typename State, typename... Tags>
@@ -973,7 +973,7 @@ auto _string_expression_compile(Expression&& e)
         >{});
     using PatternIdList = typename decltype(s1)::PatternIdList;
     return _compiled_pattern<decltype(s1.conditions), PatternIdList>{
-        std::make_shared<re2::RE2>(str.c_str()), std::move(s1.conditions)};
+        re2::re2_new(str.c_str()), std::move(s1.conditions)};
 }
 
 template<typename CL, typename PL>
@@ -1113,8 +1113,9 @@ auto _string_count_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
     {
         auto piece = re2::StringPiece(
             (const char*)begin, end.byte_difference(begin));
-        bool found = pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
+        bool found = re2::re2_match(*pattern.regex_ptr, piece, 0u,
+            piece.size(), re2::RE2::UNANCHORED, match.data(),
+            int(match.size()));
         if (!found)
             break;
         if (pattern.test_match(match))
@@ -1141,8 +1142,8 @@ auto _string_match_q_impl(String&& str,
         WL_ERROR_STRING_FUNCTION_STRING);
     const auto piece = re2::StringPiece(str.c_str(), str.byte_size());
     _regex_match_results<PL> match;
-    bool matched = (*pattern.regex_ptr).Match(piece, 0u, str.byte_size(),
-        re2::RE2::ANCHOR_BOTH, match.data(), match.size());
+    bool matched = re2::re2_match(*pattern.regex_ptr, piece, 0u,
+        str.byte_size(), re2::RE2::ANCHOR_BOTH, match.data(), match.size());
     return boolean(matched && pattern.test_match(match));
 }
 
@@ -1160,8 +1161,9 @@ auto _string_cases_impl(String&& str,
     {
         auto piece = re2::StringPiece(
             (const char*)begin, end.byte_difference(begin));
-        bool found = rule.pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
+        bool found = re2::re2_match(*rule.pattern.regex_ptr, piece, 0u,
+            piece.size(), re2::RE2::UNANCHORED, match.data(),
+            int(match.size()));
         if (!found)
             break;
         if (rule.pattern.test_match(match))
@@ -1196,8 +1198,9 @@ auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
     {
         auto piece = re2::StringPiece(
             (const char*)begin, end.byte_difference(begin));
-        bool found = pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
+        bool found = re2::re2_match(*pattern.regex_ptr, piece, 0u,
+            piece.size(), re2::RE2::UNANCHORED, match.data(),
+            int(match.size()));
         if (!found)
             break;
         if (pattern.test_match(match))
@@ -1231,8 +1234,9 @@ auto _string_replace_impl(String&& str,
     {
         auto piece = re2::StringPiece(
             (const char*)begin, end.byte_difference(begin));
-        bool found = rule.pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
+        bool found = re2::re2_match(*rule.pattern.regex_ptr, piece, 0u,
+            piece.size(), re2::RE2::UNANCHORED, match.data(),
+            int(match.size()));
         if (!found)
             break;
         if (rule.pattern.test_match(match))

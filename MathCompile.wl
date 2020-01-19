@@ -1101,11 +1101,11 @@ $compileroptions[
   ]:=$compileroptionsbase["Clang"]
 $compileroptions[
     CCompilerDriver`IntelCompiler`IntelCompiler,
-    s_str/;StringContainsQ[s,"Linux"]
+    s_String/;StringContainsQ[s,"Linux"]
   ]:=$compileroptionsbase["ICC"]
 $compileroptions[
     CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler,
-    s_(*str/;StringContainsQ[s,"Windows"]*)
+    s_String/;StringContainsQ[s,"Windows"]
   ]:=$compileroptionsbase["MSVC"]
 $compileroptions[compiler_,platform_String
   ]:=(Message[cxx::support,SymbolName@Unevaluated@compiler,platform];Throw[0];)

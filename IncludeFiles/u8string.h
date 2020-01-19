@@ -85,11 +85,10 @@ inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
         else if (uint8_t(byte) >= 0b1000'0000u)
         {
             ret_ascii_only = false;
-            ++str;
             break;
         }
     }
-    while (*str++)
+    while (*++str)
     {
     }
     return size_t(str - str0);

@@ -647,8 +647,19 @@ struct _string_expression_match_shortest_tag {};
 template<typename String>
 auto regular_expression(const String& str)
 {
-    return _compiled_pattern<_pattern_condition_list<>, _pattern_id_list<>>{
-        re2::re2_new(str.c_str())};
+    WL_TRY_BEGIN()
+    using CP = _compiled_pattern<
+        _pattern_condition_list<>, _pattern_id_list<>>;
+    try
+    {
+        return CP{re2::re2_new(str.c_str())};
+    }
+    catch (const std::logic_error& regex_error)
+    {
+        throw std::logic_error(
+            std::string(WL_ERROR_REGEX) + regex_error.what());
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<int64_t Id, typename Pattern, typename State, typename... Tags>
@@ -767,7 +778,6 @@ auto _string_expression_compile(
     }
     return std::move(s2);
 }
-
 
 template<typename Pattern, typename State>
 auto _string_expression_compile(
@@ -891,6 +901,34 @@ auto _string_expression_compile(Any&& any, string& str, State s, Tags...)
     else
     {
         static_assert(is_pattern_v<Any>, WL_ERROR_NOT_A_PATTERN);
+        if constexpr (std::is_same_v<AT, _whitespace_type>)
+            str.join("\\s+");
+        else if constexpr (std::is_same_v<AT, _number_string_type>)
+            str.join(u8"(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+        else if constexpr (std::is_same_v<AT, _number_string_type>)
+            str.join(u8"(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+        else if constexpr (std::is_same_v<AT, _word_character_type>)
+            str.join(u8"[[:alnum:]]");
+        else if constexpr (std::is_same_v<AT, _digit_character_type>)
+            str.join(u8"\\d");
+        else if constexpr (std::is_same_v<AT, _hexadecimal_character_type>)
+            str.join(u8"[[:xdigit:]]");
+        else if constexpr (std::is_same_v<AT, _whitespace_character_type>)
+            str.join(u8"\\s");
+        else if constexpr (std::is_same_v<AT, _punctuation_character_type>)
+            str.join(u8"[[:punct:]]");
+        else if constexpr (std::is_same_v<AT, _word_boundary_type>)
+            str.join(u8"\\b");
+        else if constexpr (std::is_same_v<AT, _start_of_line_type>)
+            str.join(u8"^");
+        else if constexpr (std::is_same_v<AT, _end_of_line_type>)
+            str.join(u8"$");
+        else if constexpr (std::is_same_v<AT, _start_of_string_type>)
+            str.join(u8"\\A");
+        else if constexpr (std::is_same_v<AT, _end_of_string_type>)
+            str.join(u8"\\z");
+        else
+            static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
         return std::move(s);
     }
 }
@@ -916,12 +954,12 @@ template<typename... Patterns, typename State, typename FormatIdList>
 auto _string_replacement_compile(_string_expression<Patterns...>&& p,
     string& str, const State& s, FormatIdList f)
 {
-    return _string_expression_compile_impl<0u>(
+    return _string_replacement_compile_impl<0u>(
         std::move(p), str, s, std::move(f));
 }
 
 template<int64_t Id, typename State, typename FormatIdList>
-auto _string_replacement_compile(const_int<Id>,
+auto _string_replacement_compile(_named_replacement<Id>,
     string& str, const State&, FormatIdList)
 {
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
@@ -964,16 +1002,24 @@ auto _string_replacement_compile(
 template<typename Expression>
 auto _string_expression_compile(Expression&& e)
 {
-    auto str = string();
+    auto str = string(u8"(?ms)");
     auto s1 = _string_expression_compile(
         std::forward<decltype(e)>(e), str, 
         _string_expression_compilation_state<
             _pattern_condition_list<>,
             _pattern_id_list<>
         >{});
-    using PatternIdList = typename decltype(s1)::PatternIdList;
-    return _compiled_pattern<decltype(s1.conditions), PatternIdList>{
-        re2::re2_new(str.c_str()), std::move(s1.conditions)};
+    using CP = _compiled_pattern<
+        decltype(s1.conditions), typename decltype(s1)::PatternIdList>;
+    try
+    {
+        return CP{re2::re2_new(str.c_str()), std::move(s1.conditions)};
+    }
+    catch (const std::logic_error& regex_error)
+    {
+        throw std::logic_error(std::string(WL_ERROR_INTERNAL) +
+            WL_ERROR_REGEX + regex_error.what());
+    }
 }
 
 template<typename CL, typename PL>
@@ -1092,11 +1138,13 @@ auto _pattern_convert_impl(const _compiled_pattern_rule<CP, CR>& rule)
 template<typename Any>
 auto _pattern_convert(Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _pattern_convert_impl(
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _pattern_convert_impl(std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename String, typename CL, typename PL>
@@ -1143,7 +1191,8 @@ auto _string_match_q_impl(String&& str,
     const auto piece = re2::StringPiece(str.c_str(), str.byte_size());
     _regex_match_results<PL> match;
     bool matched = re2::re2_match(*pattern.regex_ptr, piece, 0u,
-        str.byte_size(), re2::RE2::ANCHOR_BOTH, match.data(), match.size());
+        str.byte_size(), re2::RE2::ANCHOR_BOTH, match.data(),
+        int(match.size()));
     return boolean(matched && pattern.test_match(match));
 }
 
@@ -1264,45 +1313,53 @@ auto _string_replace_impl(String&& str,
 template<typename String, typename Any>
 auto string_count(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_count_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_count_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename String, typename Any>
 auto string_cases(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_cases_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_cases_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename String, typename Any>
 auto string_replace(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_replace_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_replace_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename String, typename Any>
 auto string_match_q(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_match_q_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_match_q_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

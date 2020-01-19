@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <iostream>
+
 #include "types.h"
 #include "ndarray.h"
 #include "utils.h"
@@ -40,12 +42,14 @@ auto echo(X&& x);
 template<typename X>
 auto print(const X& x)
 {
+    std::cout << x << std::endl;
     return const_null;
 }
 
 template<typename X>
 auto echo(X&& x)
 {
+    std::cout << x << std::endl;
     return std::forward<decltype(x)>(x);
 }
 

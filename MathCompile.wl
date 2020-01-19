@@ -350,7 +350,20 @@ $builtinconstants=
   "EulerGamma" ->"euler_gamma",
   "Catalan"    ->"calatan",
   "Glaisher"   ->"glaisher",
-  "Khinchin"   ->"khinchin"
+  "Khinchin"   ->"khinchin",
+  (* string patterns *)
+  "Whitespace"          ->"whitespace",
+  "NumberString"        ->"number_string",
+  "WordCharacter"       ->"digit_character",
+  "DigitCharacter"      ->"whitespace",
+  "HexadecimalCharacter"->"hexadecimal_character",
+  "WhitespaceCharacter" ->"whitespace_character",
+  "PunctuationCharacter"->"punctuation_character",
+  "WordBoundary"        ->"word_boundary",
+  "StartOfLine"         ->"start_of_line",
+  "EndOfLine"           ->"end_of_line",
+  "StartOfString"       ->"start_of_string",
+  "EndOfString"         ->"end_of_string"
 |>;
 
 $builtinfunctions=
@@ -586,6 +599,7 @@ $builtinfunctions=
   "Longest"         ->"longest",
   "Shortest"        ->"shortest",
   "Rule"            ->"rule",
+  "RuleDelayed"     ->"rule_delayed",
   "Condition"       ->"condition",
 (* string *)
   "StringJoin"      ->"string_join",
@@ -758,7 +772,7 @@ regexmacro[code_]:=Module[{patternfunctions,sepos,names},
     patternfunctions={
       "StringExpression","Pattern","Blank","BlankSequence","BlankNullSequence",
       "Alternatives","Repeated","RepeatedNull","Except","Longest","Shortest",
-      "Rule","Condition"};
+      "Rule","RuleDelayed","Condition"};
     sepos=NestWhile[
       (First/@Split[#,#1==Take[#2,UpTo[Length@#1]]&])&,
       Sort[Position[code,id[Alternatives@@patternfunctions,_][___]],lexicalorder],
@@ -766,7 +780,7 @@ regexmacro[code_]:=Module[{patternfunctions,sepos,names},
     Module[{se,rulepos,condpos,rulereplacements,var},Do[
       se=Extract[code,p];
       names=GroupBy[#,First->Last,Min]&@Cases[se,id["Pattern",p_][id[x_,xi_],_]:>(x->xi),-1,Heads->True];
-      rulepos=Reverse@Sort[Append[#,2]&/@Position[se,id["Rule",_][_,_]],lexicalorder];
+      rulepos=Reverse@Sort[Append[#,2]&/@Position[se,id["Rule"|"RuleDelayed",_][_,_]],lexicalorder];
       rulereplacements=KeyValueMap[id[#1,p_]:>native["_replacement",p][const[#2]]&,names];
       Do[se[[Sequence@@rp]]=se[[Sequence@@rp]]/.rulereplacements;,{rp,rulepos}];
       condpos=Append[#,2]&/@Position[se,id["Condition",_][_,_]];

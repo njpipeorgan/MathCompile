@@ -30,8 +30,35 @@ extern "C" bool _re2_RE2_match_impl(const void* regex_ptr,
     const void* piece_ptr, size_t startpos, size_t endpos, int re_anchor,
     void* submatch, int nsubmatch);
 
+extern "C" bool _re2_RE2_ok(const void* regex_ptr);
+
+extern "C" void _re2_RE2_error(const void* regex_ptr, char* buffer,
+    const size_t buffer_size);
+
 namespace re2
 {
+
+template<typename Regex>
+bool re2_ok(const Regex& regex)
+{
+    return _re2_RE2_ok(static_cast<const void*>(&regex));
+}
+
+template<typename Regex>
+std::string re2_error(const Regex& regex)
+{
+    if (re2_ok(regex))
+    {
+        return std::string();
+    }
+    else
+    {
+        constexpr size_t buffer_size = 256u;
+        char buffer[buffer_size];
+        _re2_RE2_error(static_cast<const void*>(&regex), buffer, buffer_size);
+        return std::string(buffer);
+    }
+}
 
 template<typename CharT,
     typename = typename std::enable_if<sizeof(CharT) == 1u>::type>
@@ -45,14 +72,16 @@ std::shared_ptr<re2::RE2> re2_new(const CharT* pattern)
         _re2_RE2_construct_impl(static_cast<const char*>(pattern)));
     if (!ptr)
         throw std::bad_alloc();
+    if (!re2_ok(*ptr))
+        throw std::logic_error(re2_error(*ptr));
     return std::shared_ptr<re2::RE2>(ptr, re2_deleter);
 }
 
-template<typename PieceT,
-    typename = std::enable_if<std::is_same<PieceT, re2::StringPiece>::value>>
+template<typename Regex,
+    typename = std::enable_if<std::is_same<Regex, re2::RE2>::value>>
 bool re2_match(
-    const re2::RE2& regex, const PieceT& string_piece, size_t startpos,
-    size_t endpos, RE2::Anchor re_anchor, PieceT* submatch, int nsubmatch)
+    const Regex& regex, const StringPiece& string_piece, size_t startpos,
+    size_t endpos, RE2::Anchor re_anchor, StringPiece* submatch, int nsubmatch)
 {
     return _re2_RE2_match_impl(static_cast<const void*>(&regex),
         static_cast<const void*>(&string_piece), startpos, endpos,

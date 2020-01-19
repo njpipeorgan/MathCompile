@@ -287,10 +287,10 @@ namespace wl
 "The first argument to the function should be a string."
 
 #define WL_ERROR_NOT_A_PATTERN \
-"The expression dose not evaluate to a valid string pattern."
+"The expression does not evaluate to a valid string pattern."
 
 #define WL_ERROR_NOT_A_REPLACEMENT \
-"The expression dose not evaluate to a valid string pattern replacement."
+"The expression does not evaluate to a valid string pattern replacement."
 
 // runtime error messages
 

@@ -34,7 +34,7 @@ namespace wl
 {
 
 template<typename Expression>
-auto _string_expression_compile(Expression);
+auto _string_expression_compile(Expression&&);
 
 template<typename Any>
 auto val(Any&& any) -> decltype(auto)

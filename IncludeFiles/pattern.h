@@ -151,6 +151,13 @@ auto rule(Left&& left, Right&& right)
         std::forward<decltype(right)>(right)};
 }
 
+template<typename Left, typename Right>
+auto rule_delayed(Left&& left, Right&& right)
+{
+    return rule(std::forward<decltype(left)>(left),
+            std::forward<decltype(right)>(right));
+}
+
 template<typename... Head>
 auto blank(const Head&...)
 {

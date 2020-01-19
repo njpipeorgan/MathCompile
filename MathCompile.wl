@@ -1107,7 +1107,7 @@ $compileroptions[
   ]:=$compileroptionsbase["MinGW"]
 $compileroptions[
     CCompilerDriver`GenericCCompiler`GenericCCompiler,
-    s_str/;StringContainsQ[s,"Linux"]
+    s_String/;StringContainsQ[s,"Linux"]
   ]:=$compileroptionsbase["Clang"]
 $compileroptions[
     CCompilerDriver`ClangCompiler`ClangCompiler,

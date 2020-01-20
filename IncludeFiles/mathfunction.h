@@ -214,7 +214,10 @@ WL_DEFINE_UNARY_MATH_FUNCTION(gamma, _scalar_gamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
+
+#if !defined(WL_DISABLE_SPECIAL_FUNCTIONS)
 WL_DEFINE_BINARY_MATH_FUNCTION(beta, std::beta(x, y))
 WL_DEFINE_UNARY_MATH_FUNCTION(zeta, std::riemann_zeta(x))
+#endif
 
 }

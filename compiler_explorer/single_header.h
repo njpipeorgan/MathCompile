@@ -79,6 +79,9 @@
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
 #  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
 #  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#  if defined(__APPLE__) // Apple Clang
+#    define WL_DISABLE_SPECIAL_FUNCTIONS
+#  endif
 #elif defined(__GNUC__)
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")
@@ -8695,8 +8698,10 @@ WL_DEFINE_UNARY_MATH_FUNCTION(gamma, _scalar_gamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
 WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
+#if !defined(WL_DISABLE_SPECIAL_FUNCTIONS)
 WL_DEFINE_BINARY_MATH_FUNCTION(beta, std::beta(x, y))
 WL_DEFINE_UNARY_MATH_FUNCTION(zeta, std::riemann_zeta(x))
+#endif
 }
 namespace wl
 {

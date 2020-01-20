@@ -67,6 +67,9 @@
 #  define WL_FUNCSIG __PRETTY_FUNCTION__
 #  define WL_LIKELY(x) __builtin_expect(!!(x), 1)
 #  define WL_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#  if defined(__APPLE__) // Apple Clang
+#    define WL_DISABLE_SPECIAL_FUNCTIONS
+#  endif
 #elif defined(__GNUC__)
 #  if __GNUC__ < 7
 #    pragma message ("error: cxx::compilerver")

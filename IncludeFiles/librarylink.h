@@ -215,6 +215,8 @@ auto get_array(MArgument arg)
         break;
     case MNumericArray_Type_Undef:
         throw LIBRARY_TYPE_ERROR;
+    default:
+        pass_by_tensor = false;
     }
 
     if (pass_by_tensor)
@@ -333,6 +335,8 @@ void set_array(MArgument& res, const ndarray<T, R>& val)
         break;
     case MNumericArray_Type_Undef:
         throw LIBRARY_TYPE_ERROR;
+    default:
+        pass_by_tensor = false;
     }
 
     std::array<mint, R> output_dims;

@@ -1016,7 +1016,7 @@ compilelink[$Failed,___]:=$Failed;
 
 compilelink[f_,uncompiled_,OptionsPattern[]]:=
   Module[{output,types,funcid,src,lib,workdir,
-      libdir,mldir,compiler,opt,opterror,errorparser,errors},
+      libdir,mldir,mllib,compiler,opt,opterror,errorparser,errors},
     $CppSource="";
     $CompilerOutput="";
     output=f["output"];
@@ -1042,8 +1042,10 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       Message[link::noheader];Return[$Failed]];
     mldir=$InstallationDirectory<>
       "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
+    mllib=If[StringContainsQ[$SystemID,"MacOSX"],"MLi4","ML"<>ToString[$SystemWordLength]<>"i4"];
     compiler=CCompilerDriver`DefaultCCompiler[];
     opterror=Catch[opt=$compileroptions[compiler,$SystemID];];
+    If[!FileExistsQ[mldir<>"/"<>mllib],Return[$Failed]];
     If[opterror=!=Null,Return[$Failed]];
     lib=Quiet@CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,
@@ -1059,7 +1061,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
       "IncludeDirectories"->{mldir,$packagepath<>"/IncludeFiles"},
       "LibraryDirectories"->{mldir,$packagepath<>"/LibraryResources/"<>$SystemID},
-      "Libraries"->{"ML64i4","re2"},
+      "Libraries"->{mllib,"re2"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
       "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),

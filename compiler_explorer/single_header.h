@@ -7311,7 +7311,7 @@ union u8string
         void grow_buffer(size_t extra = 0u)
         {
             auto new_buffer_size = capacity_ + 1u;
-            new_buffer_size += std::max(capacity_ + 1u, extra);
+            new_buffer_size += std::max(size_t(capacity_ + 1u), extra);
             auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
             if (!storage)
                 throw std::bad_alloc();

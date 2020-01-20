@@ -148,22 +148,25 @@ mint get_return_type_id()
     using V = std::conditional_t<wl::is_array_v<ReturnType>,
         wl::value_type_t<ReturnType>, ReturnType>;
     mint rank = mint(wl::array_rank_v<ReturnType>);
+#define WL_CATEGORIZE_INTEGRAL_V(byte, sign) \
+        std::is_integral_v<V> && sizeof(V) == byte && std::is_##sign##_v<V>
     mint type =
-        std::is_same_v<V, void_type>       ? Null :
-        std::is_same_v<V, boolean>         ? Bool :
-        std::is_same_v<V, int8_t>          ? I8   :
-        std::is_same_v<V, uint8_t>         ? U8   :
-        std::is_same_v<V, int16_t>         ? I16  :
-        std::is_same_v<V, uint16_t>        ? U16  :
-        std::is_same_v<V, int32_t>         ? I32  :
-        std::is_same_v<V, uint32_t>        ? U32  :
-        std::is_same_v<V, int64_t>         ? I64  :
-        std::is_same_v<V, uint64_t>        ? U64  :
-        std::is_same_v<V, float>           ? R32  :
-        std::is_same_v<V, double>          ? R64  :
-        std::is_same_v<V, complex<float>>  ? C32  :
-        std::is_same_v<V, complex<double>> ? C64  :
+        std::is_same_v<V, void_type>          ? Null :
+        std::is_same_v<V, boolean>            ? Bool :
+        WL_CATEGORIZE_INTEGRAL_V(1, signed)   ? I8   :
+        WL_CATEGORIZE_INTEGRAL_V(1, unsigned) ? U8   :
+        WL_CATEGORIZE_INTEGRAL_V(2, signed)   ? I16  :
+        WL_CATEGORIZE_INTEGRAL_V(2, unsigned) ? U16  :
+        WL_CATEGORIZE_INTEGRAL_V(4, signed)   ? I32  :
+        WL_CATEGORIZE_INTEGRAL_V(4, unsigned) ? U32  :
+        WL_CATEGORIZE_INTEGRAL_V(8, signed)   ? I64  :
+        WL_CATEGORIZE_INTEGRAL_V(8, unsigned) ? U64  :
+        std::is_same_v<V, float>              ? R32  :
+        std::is_same_v<V, double>             ? R64  :
+        std::is_same_v<V, complex<float>>     ? C32  :
+        std::is_same_v<V, complex<double>>    ? C64  :
         MathLink;
+#undef WL_CATEGORIZE_INTEGRAL_V
     constexpr mint max_type_count = 256;
     return rank * max_type_count + type;
 }

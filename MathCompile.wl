@@ -354,8 +354,8 @@ $builtinconstants=
   (* string patterns *)
   "Whitespace"          ->"whitespace",
   "NumberString"        ->"number_string",
-  "WordCharacter"       ->"digit_character",
-  "DigitCharacter"      ->"whitespace",
+  "WordCharacter"       ->"word_character",
+  "DigitCharacter"      ->"digit_character",
   "HexadecimalCharacter"->"hexadecimal_character",
   "WhitespaceCharacter" ->"whitespace_character",
   "PunctuationCharacter"->"punctuation_character",
@@ -611,6 +611,7 @@ $builtinfunctions=
   "StringReplace"   ->"string_replace",
   "StringCount"     ->"string_count",
   "StringMatchQ"    ->"string_match_q",
+  "StringSplit"     ->"string_split",
   "StringPattern`PatternConvert"->"_pattern_convert",
 (* io *)
   "Print"           ->"io::print",
@@ -853,6 +854,10 @@ annotateend[___]:="/*\\e*/"
 toexportcode[code_String]:=StringDelete[code,"/*\\"~~("b"|"e"|"n")~~Shortest[___]~~"*/"]
 toexportbinary[code_String]:=StringJoin@Flatten@StringSplit[
   StringTrim/@StringSplit[code,"\n"],x:("/*\\"~~("b"|"e"|"n")~~Shortest[___]~~"*/"):>{"\n",x}]
+stringtransform[str_String]:=FromCharacterCode@Flatten[Map[
+    If[#<128,#,Join[{92,If[#<65536,117,85]},#+48+39UnitStep[#-10]&@IntegerDigits[#,16,If[#<65536,4,8]]]]&,
+    ToCharacterCode[ToString@CForm@str,"Unicode"]
+  ]]
 
 codegen[args[vars_,types_],___]:=
   MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
@@ -877,7 +882,7 @@ codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native[
 
 codegen[assign[p_][var_,expr_],___]:=codegen[native["set",p][var,expr]]
 
-codegen[literal[s_String,p_],___]:={annotatebegin[p],"wl::string(u8",ToString@CForm[s],annotateend[p],")"}
+codegen[literal[s_String,p_],___]:={annotatebegin[p],"wl::string(",stringtransform[s],annotateend[p],")"}
 codegen[literal[i_Integer,p_],___]:={annotatebegin[p],"int64_t(",ToString@CForm[i],annotateend[p],")"}
 codegen[literal[r_Real,p_],___]:={annotatebegin[p],ToString@CForm[r],annotateend[p]}
 codegen[const[i_Integer],___]:={annotatebegin[],"wl::const_int<"<>ToString@CForm[i]<>">",annotateend[],"{}"}
@@ -1063,7 +1068,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     If[lib===$Failed,
       Message[link::genfail];
       errorparser=Lookup[$compilererrorparser,compiler,Null];
-      If[errorparser=!=Null,
+      If[Head[errorparser]===Function,
         errors=errorparser[funcid];
         emitcompilererrors[f["source"],errors];,
         Message[cxx::error,"Check $CompilerOutput for the errors."];
@@ -1151,13 +1156,13 @@ $compilererrorparserbase=<|
 |>;
 $compilererrorparser=<|
   CCompilerDriver`GCCCompiler`GCCCompiler->
-    $compilererrorparser["GCC"],
+    $compilererrorparserbase["GCC"],
   CCompilerDriver`GenericCCompiler`GenericCCompiler->
-    $compilererrorparser[If[$SystemID=="Windows-x86-64","GCC","Clang"]],
+    $compilererrorparserbase[If[$SystemID=="Windows-x86-64","GCC","Clang"]],
   CCompilerDriver`IntelCompiler`IntelCompiler->
-    $compilererrorparser["ICC"],
+    $compilererrorparserbase["ICC"],
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
-    $compilererrorparser["MSVC"]
+    $compilererrorparserbase["MSVC"]
 |>
 emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
   Module[{cxxsrc,srcrange,errors,message,position,srcpart},

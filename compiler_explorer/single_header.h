@@ -20,15 +20,16 @@
 #include <initializer_list>
 #include <numeric>
 #include <variant>
-#include <cmath>
 #include <stddef.h>
 #include <string.h>
 #include <iosfwd>
 #include <string_view>
-#include <functional>
+#include <cmath>
 #include <stdint.h>
 #include <map>
 #include <mutex>
+#include <iostream>
+#include <functional>
 #include <random>
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  if _MSC_VER < 1920
@@ -225,14 +226,12 @@ namespace wl
 "The number of repetitions should be an integer or a pair of integers."
 #define WL_ERROR_STRING_FUNCTION_STRING \
 "The first argument to the function should be a string."
-#define WL_ERROR_STRING_COUNT_PATTERN \
-"The second argument to StringCount should be a string pattern."
-#define WL_ERROR_STRING_CASES_PATTERN \
-"The second argument to StringCases should be a string pattern or rule."
-#define WL_ERROR_STRING_REPLACE_PATTERN \
-"The second argument to StringReplace should be a string replacement rule."
-#define WL_ERROR_STRING_MATCH_Q_PATTERN \
-"The second argument to StringMatchQ should be a string pattern."
+#define WL_ERROR_NOT_A_PATTERN \
+"The expression does not evaluate to a valid string pattern."
+#define WL_ERROR_NOT_A_REPLACEMENT \
+"The expression does not evaluate to a valid string pattern replacement."
+#define WL_ERROR_STRING_EXCEPT \
+"Except only takes a set of characters as its argument in string expressions."
 #define WL_ERROR_CALLBACK \
 "Callback failed."
 #define WL_ERROR_NEGATIVE_DIMS \
@@ -430,6 +429,22 @@ template<typename Left, typename Right>
 struct is_pattern<_pattern_rule<Left, Right>> : std::true_type {};
 template<typename Pattern, typename Condition>
 struct is_pattern<_condition<Pattern, Condition>> : std::true_type {};
+#define WL_DEFINE_STRING_PATTERN_CONSTANT(pattern_type)         \
+struct pattern_type {};                                         \
+template<> struct is_pattern<pattern_type> : std::true_type {};
+WL_DEFINE_STRING_PATTERN_CONSTANT(_whitespace_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_number_string_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_word_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_digit_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_hexadecimal_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_letter_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_whitespace_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_punctuation_character_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_word_boundary_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_start_of_line_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_end_of_line_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_start_of_string_type)
+WL_DEFINE_STRING_PATTERN_CONSTANT(_end_of_string_type)
 template<typename T>
 constexpr auto is_pattern_v = is_pattern<T>::value;
 template<typename T>
@@ -715,6 +730,19 @@ constexpr auto const_list    = list_type{};
 constexpr auto const_i       = complex<double>(0.f, 1.f);
 constexpr auto const_true    = boolean(true);
 constexpr auto const_false   = boolean(false);
+constexpr auto const_whitespace            = _whitespace_type{};
+constexpr auto const_number_string         = _number_string_type{};
+constexpr auto const_word_character        = _word_character_type{};
+constexpr auto const_digit_character       = _digit_character_type{};
+constexpr auto const_hexadecimal_character = _hexadecimal_character_type{};
+constexpr auto const_letter_character      = _letter_character_type{};
+constexpr auto const_whitespace_character  = _whitespace_character_type{};
+constexpr auto const_punctuation_character = _punctuation_character_type{};
+constexpr auto const_word_boundary         = _word_boundary_type{};
+constexpr auto const_start_of_line         = _start_of_line_type{};
+constexpr auto const_end_of_line           = _end_of_line_type{};
+constexpr auto const_start_of_string       = _start_of_string_type{};
+constexpr auto const_end_of_string         = _end_of_string_type{};
 constexpr auto const_pi           = double(3.1415926535897932385e+0);
 constexpr auto const_e            = double(2.7182818284590452354e+0);
 constexpr auto const_degree       = double(1.7453292519943295769e-2);
@@ -3306,6 +3334,156 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
 }
 }
 }
+#ifndef RE2_STRINGPIECE_H_
+#define RE2_STRINGPIECE_H_
+#ifndef __has_include
+#define __has_include(x) 0
+#endif
+#if __has_include(<string_view>) && __cplusplus >= 201703L
+#endif
+namespace re2 {
+class StringPiece {
+ public:
+  typedef std::char_traits<char> traits_type;
+  typedef char value_type;
+  typedef char* pointer;
+  typedef const char* const_pointer;
+  typedef char& reference;
+  typedef const char& const_reference;
+  typedef const char* const_iterator;
+  typedef const_iterator iterator;
+  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+  typedef const_reverse_iterator reverse_iterator;
+  typedef size_t size_type;
+  typedef ptrdiff_t difference_type;
+  static const size_type npos = static_cast<size_type>(-1);
+  // We provide non-explicit singleton constructors so users can pass
+  // in a "const char*" or a "string" wherever a "StringPiece" is
+  // expected.
+  StringPiece()
+      : data_(NULL), size_(0) {}
+#if __has_include(<string_view>) && __cplusplus >= 201703L
+  StringPiece(const std::string_view& str)
+      : data_(str.data()), size_(str.size()) {}
+#endif
+  StringPiece(const std::string& str)
+      : data_(str.data()), size_(str.size()) {}
+  StringPiece(const char* str)
+      : data_(str), size_(str == NULL ? 0 : strlen(str)) {}
+  StringPiece(const char* str, size_type len)
+      : data_(str), size_(len) {}
+  const_iterator begin() const { return data_; }
+  const_iterator end() const { return data_ + size_; }
+  const_reverse_iterator rbegin() const {
+    return const_reverse_iterator(data_ + size_);
+  }
+  const_reverse_iterator rend() const {
+    return const_reverse_iterator(data_);
+  }
+  size_type size() const { return size_; }
+  size_type length() const { return size_; }
+  bool empty() const { return size_ == 0; }
+  const_reference operator[](size_type i) const { return data_[i]; }
+  const_pointer data() const { return data_; }
+  void remove_prefix(size_type n) {
+    data_ += n;
+    size_ -= n;
+  }
+  void remove_suffix(size_type n) {
+    size_ -= n;
+  }
+  void set(const char* str) {
+    data_ = str;
+    size_ = str == NULL ? 0 : strlen(str);
+  }
+  void set(const char* str, size_type len) {
+    data_ = str;
+    size_ = len;
+  }
+  // Converts to `std::basic_string`.
+  template <typename A>
+  explicit operator std::basic_string<char, traits_type, A>() const {
+    if (!data_) return {};
+    return std::basic_string<char, traits_type, A>(data_, size_);
+  }
+  std::string as_string() const {
+    return std::string(data_, size_);
+  }
+  // We also define ToString() here, since many other string-like
+  // interfaces name the routine that converts to a C++ string
+  // "ToString", and it's confusing to have the method that does that
+  // for a StringPiece be called "as_string()".  We also leave the
+  // "as_string()" method defined here for existing code.
+  std::string ToString() const {
+    return std::string(data_, size_);
+  }
+  void CopyToString(std::string* target) const {
+    target->assign(data_, size_);
+  }
+  void AppendToString(std::string* target) const {
+    target->append(data_, size_);
+  }
+  size_type copy(char* buf, size_type n, size_type pos = 0) const;
+  StringPiece substr(size_type pos = 0, size_type n = npos) const;
+  int compare(const StringPiece& x) const {
+    size_type min_size = std::min(size(), x.size());
+    if (min_size > 0) {
+      int r = memcmp(data(), x.data(), min_size);
+      if (r < 0) return -1;
+      if (r > 0) return 1;
+    }
+    if (size() < x.size()) return -1;
+    if (size() > x.size()) return 1;
+    return 0;
+  }
+  // Does "this" start with "x"?
+  bool starts_with(const StringPiece& x) const {
+    return x.empty() ||
+           (size() >= x.size() && memcmp(data(), x.data(), x.size()) == 0);
+  }
+  // Does "this" end with "x"?
+  bool ends_with(const StringPiece& x) const {
+    return x.empty() ||
+           (size() >= x.size() &&
+            memcmp(data() + (size() - x.size()), x.data(), x.size()) == 0);
+  }
+  bool contains(const StringPiece& s) const {
+    return find(s) != npos;
+  }
+  size_type find(const StringPiece& s, size_type pos = 0) const;
+  size_type find(char c, size_type pos = 0) const;
+  size_type rfind(const StringPiece& s, size_type pos = npos) const;
+  size_type rfind(char c, size_type pos = npos) const;
+ private:
+  const_pointer data_;
+  size_type size_;
+};
+inline bool operator==(const StringPiece& x, const StringPiece& y) {
+  StringPiece::size_type len = x.size();
+  if (len != y.size()) return false;
+  return x.data() == y.data() || len == 0 ||
+         memcmp(x.data(), y.data(), len) == 0;
+}
+inline bool operator!=(const StringPiece& x, const StringPiece& y) {
+  return !(x == y);
+}
+inline bool operator<(const StringPiece& x, const StringPiece& y) {
+  StringPiece::size_type min_size = std::min(x.size(), y.size());
+  int r = min_size == 0 ? 0 : memcmp(x.data(), y.data(), min_size);
+  return (r < 0) || (r == 0 && x.size() < y.size());
+}
+inline bool operator>(const StringPiece& x, const StringPiece& y) {
+  return y < x;
+}
+inline bool operator<=(const StringPiece& x, const StringPiece& y) {
+  return !(x > y);
+}
+inline bool operator>=(const StringPiece& x, const StringPiece& y) {
+  return !(x < y);
+}
+std::ostream& operator<<(std::ostream& o, const StringPiece& p);
+}  // namespace re2
+#endif  // RE2_STRINGPIECE_H_
 namespace wl
 {
 template<typename X>
@@ -4074,156 +4252,635 @@ auto chop(X&& x, const Y& y)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
-#ifndef RE2_STRINGPIECE_H_
-#define RE2_STRINGPIECE_H_
-#ifndef __has_include
-#define __has_include(x) 0
-#endif
-#if __has_include(<string_view>) && __cplusplus >= 201703L
-#endif
+#ifndef RE2_RE2_H_
+#define RE2_RE2_H_
 namespace re2 {
-class StringPiece {
- public:
-  typedef std::char_traits<char> traits_type;
-  typedef char value_type;
-  typedef char* pointer;
-  typedef const char* const_pointer;
-  typedef char& reference;
-  typedef const char& const_reference;
-  typedef const char* const_iterator;
-  typedef const_iterator iterator;
-  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
-  typedef const_reverse_iterator reverse_iterator;
-  typedef size_t size_type;
-  typedef ptrdiff_t difference_type;
-  static const size_type npos = static_cast<size_type>(-1);
-  // We provide non-explicit singleton constructors so users can pass
-  // in a "const char*" or a "string" wherever a "StringPiece" is
-  // expected.
-  StringPiece()
-      : data_(NULL), size_(0) {}
-#if __has_include(<string_view>) && __cplusplus >= 201703L
-  StringPiece(const std::string_view& str)
-      : data_(str.data()), size_(str.size()) {}
-#endif
-  StringPiece(const std::string& str)
-      : data_(str.data()), size_(str.size()) {}
-  StringPiece(const char* str)
-      : data_(str), size_(str == NULL ? 0 : strlen(str)) {}
-  StringPiece(const char* str, size_type len)
-      : data_(str), size_(len) {}
-  const_iterator begin() const { return data_; }
-  const_iterator end() const { return data_ + size_; }
-  const_reverse_iterator rbegin() const {
-    return const_reverse_iterator(data_ + size_);
-  }
-  const_reverse_iterator rend() const {
-    return const_reverse_iterator(data_);
-  }
-  size_type size() const { return size_; }
-  size_type length() const { return size_; }
-  bool empty() const { return size_ == 0; }
-  const_reference operator[](size_type i) const { return data_[i]; }
-  const_pointer data() const { return data_; }
-  void remove_prefix(size_type n) {
-    data_ += n;
-    size_ -= n;
-  }
-  void remove_suffix(size_type n) {
-    size_ -= n;
-  }
-  void set(const char* str) {
-    data_ = str;
-    size_ = str == NULL ? 0 : strlen(str);
-  }
-  void set(const char* str, size_type len) {
-    data_ = str;
-    size_ = len;
-  }
-  // Converts to `std::basic_string`.
-  template <typename A>
-  explicit operator std::basic_string<char, traits_type, A>() const {
-    if (!data_) return {};
-    return std::basic_string<char, traits_type, A>(data_, size_);
-  }
-  std::string as_string() const {
-    return std::string(data_, size_);
-  }
-  // We also define ToString() here, since many other string-like
-  // interfaces name the routine that converts to a C++ string
-  // "ToString", and it's confusing to have the method that does that
-  // for a StringPiece be called "as_string()".  We also leave the
-  // "as_string()" method defined here for existing code.
-  std::string ToString() const {
-    return std::string(data_, size_);
-  }
-  void CopyToString(std::string* target) const {
-    target->assign(data_, size_);
-  }
-  void AppendToString(std::string* target) const {
-    target->append(data_, size_);
-  }
-  size_type copy(char* buf, size_type n, size_type pos = 0) const;
-  StringPiece substr(size_type pos = 0, size_type n = npos) const;
-  int compare(const StringPiece& x) const {
-    size_type min_size = std::min(size(), x.size());
-    if (min_size > 0) {
-      int r = memcmp(data(), x.data(), min_size);
-      if (r < 0) return -1;
-      if (r > 0) return 1;
-    }
-    if (size() < x.size()) return -1;
-    if (size() > x.size()) return 1;
-    return 0;
-  }
-  // Does "this" start with "x"?
-  bool starts_with(const StringPiece& x) const {
-    return x.empty() ||
-           (size() >= x.size() && memcmp(data(), x.data(), x.size()) == 0);
-  }
-  // Does "this" end with "x"?
-  bool ends_with(const StringPiece& x) const {
-    return x.empty() ||
-           (size() >= x.size() &&
-            memcmp(data() + (size() - x.size()), x.data(), x.size()) == 0);
-  }
-  bool contains(const StringPiece& s) const {
-    return find(s) != npos;
-  }
-  size_type find(const StringPiece& s, size_type pos = 0) const;
-  size_type find(char c, size_type pos = 0) const;
-  size_type rfind(const StringPiece& s, size_type pos = npos) const;
-  size_type rfind(char c, size_type pos = npos) const;
- private:
-  const_pointer data_;
-  size_type size_;
-};
-inline bool operator==(const StringPiece& x, const StringPiece& y) {
-  StringPiece::size_type len = x.size();
-  if (len != y.size()) return false;
-  return x.data() == y.data() || len == 0 ||
-         memcmp(x.data(), y.data(), len) == 0;
-}
-inline bool operator!=(const StringPiece& x, const StringPiece& y) {
-  return !(x == y);
-}
-inline bool operator<(const StringPiece& x, const StringPiece& y) {
-  StringPiece::size_type min_size = std::min(x.size(), y.size());
-  int r = min_size == 0 ? 0 : memcmp(x.data(), y.data(), min_size);
-  return (r < 0) || (r == 0 && x.size() < y.size());
-}
-inline bool operator>(const StringPiece& x, const StringPiece& y) {
-  return y < x;
-}
-inline bool operator<=(const StringPiece& x, const StringPiece& y) {
-  return !(x > y);
-}
-inline bool operator>=(const StringPiece& x, const StringPiece& y) {
-  return !(x < y);
-}
-std::ostream& operator<<(std::ostream& o, const StringPiece& p);
+class Prog;
+class Regexp;
 }  // namespace re2
-#endif  // RE2_STRINGPIECE_H_
+namespace re2 {
+class RE2 {
+ public:
+  // We convert user-passed pointers into special Arg objects
+  class Arg;
+  class Options;
+  // Defined in set.h.
+  class Set;
+  enum ErrorCode {
+    NoError = 0,
+    // Unexpected error
+    ErrorInternal,
+    // Parse errors
+    ErrorBadEscape,          // bad escape sequence
+    ErrorBadCharClass,       // bad character class
+    ErrorBadCharRange,       // bad character class range
+    ErrorMissingBracket,     // missing closing ]
+    ErrorMissingParen,       // missing closing )
+    ErrorTrailingBackslash,  // trailing \ at end of regexp
+    ErrorRepeatArgument,     // repeat argument missing, e.g. "*"
+    ErrorRepeatSize,         // bad repetition argument
+    ErrorRepeatOp,           // bad repetition operator
+    ErrorBadPerlOp,          // bad perl operator
+    ErrorBadUTF8,            // invalid UTF-8 in regexp
+    ErrorBadNamedCapture,    // bad named capture group
+    ErrorPatternTooLarge     // pattern too large (compile failed)
+  };
+  // Predefined common options.
+  // If you need more complicated things, instantiate
+  // an Option class, possibly passing one of these to
+  // the Option constructor, change the settings, and pass that
+  // Option class to the RE2 constructor.
+  enum CannedOptions {
+    DefaultOptions = 0,
+    Latin1, // treat input as Latin-1 (default UTF-8)
+    POSIX, // POSIX syntax, leftmost-longest match
+    Quiet // do not log about regexp parse errors
+  };
+  // Need to have the const char* and const std::string& forms for implicit
+  // conversions when passing string literals to FullMatch and PartialMatch.
+  // Otherwise the StringPiece form would be sufficient.
+#ifndef SWIG
+  RE2(const char* pattern);
+  RE2(const std::string& pattern);
+#endif
+  RE2(const StringPiece& pattern);
+  RE2(const StringPiece& pattern, const Options& options);
+  ~RE2();
+  // Returns whether RE2 was created properly.
+  bool ok() const { return error_code() == NoError; }
+  // The string specification for this RE2.  E.g.
+  //   RE2 re("ab*c?d+");
+  //   re.pattern();    // "ab*c?d+"
+  const std::string& pattern() const { return pattern_; }
+  // If RE2 could not be created properly, returns an error string.
+  // Else returns the empty string.
+  const std::string& error() const { return *error_; }
+  // If RE2 could not be created properly, returns an error code.
+  // Else returns RE2::NoError (== 0).
+  ErrorCode error_code() const { return error_code_; }
+  // If RE2 could not be created properly, returns the offending
+  // portion of the regexp.
+  const std::string& error_arg() const { return error_arg_; }
+  // Returns the program size, a very approximate measure of a regexp's "cost".
+  // Larger numbers are more expensive than smaller numbers.
+  int ProgramSize() const;
+  int ReverseProgramSize() const;
+  // EXPERIMENTAL! SUBJECT TO CHANGE!
+  // Outputs the program fanout as a histogram bucketed by powers of 2.
+  // Returns the number of the largest non-empty bucket.
+  int ProgramFanout(std::map<int, int>* histogram) const;
+  int ReverseProgramFanout(std::map<int, int>* histogram) const;
+  // Returns the underlying Regexp; not for general use.
+  // Returns entire_regexp_ so that callers don't need
+  // to know about prefix_ and prefix_foldcase_.
+  re2::Regexp* Regexp() const { return entire_regexp_; }
+  /***** The array-based matching interface ******/
+  // The functions here have names ending in 'N' and are used to implement
+  // the functions whose names are the prefix before the 'N'. It is sometimes
+  // useful to invoke them directly, but the syntax is awkward, so the 'N'-less
+  // versions should be preferred.
+  static bool FullMatchN(const StringPiece& text, const RE2& re,
+                         const Arg* const args[], int n);
+  static bool PartialMatchN(const StringPiece& text, const RE2& re,
+                            const Arg* const args[], int n);
+  static bool ConsumeN(StringPiece* input, const RE2& re,
+                       const Arg* const args[], int n);
+  static bool FindAndConsumeN(StringPiece* input, const RE2& re,
+                              const Arg* const args[], int n);
+#ifndef SWIG
+ private:
+  template <typename F, typename SP>
+  static inline bool Apply(F f, SP sp, const RE2& re) {
+    return f(sp, re, NULL, 0);
+  }
+  template <typename F, typename SP, typename... A>
+  static inline bool Apply(F f, SP sp, const RE2& re, const A&... a) {
+    const Arg* const args[] = {&a...};
+    const int n = sizeof...(a);
+    return f(sp, re, args, n);
+  }
+ public:
+  // In order to allow FullMatch() et al. to be called with a varying number
+  // of arguments of varying types, we use two layers of variadic templates.
+  // The first layer constructs the temporary Arg objects. The second layer
+  // (above) constructs the array of pointers to the temporary Arg objects.
+  /***** The useful part: the matching interface *****/
+  // Matches "text" against "re".  If pointer arguments are
+  // supplied, copies matched sub-patterns into them.
+  //
+  // You can pass in a "const char*" or a "std::string" for "text".
+  // You can pass in a "const char*" or a "std::string" or a "RE2" for "re".
+  //
+  // The provided pointer arguments can be pointers to any scalar numeric
+  // type, or one of:
+  //    std::string     (matched piece is copied to string)
+  //    StringPiece     (StringPiece is mutated to point to matched piece)
+  //    T               (where "bool T::ParseFrom(const char*, size_t)" exists)
+  //    (void*)NULL     (the corresponding matched sub-pattern is not copied)
+  //
+  // Returns true iff all of the following conditions are satisfied:
+  //   a. "text" matches "re" exactly
+  //   b. The number of matched sub-patterns is >= number of supplied pointers
+  //   c. The "i"th argument has a suitable type for holding the
+  //      string captured as the "i"th sub-pattern.  If you pass in
+  //      NULL for the "i"th argument, or pass fewer arguments than
+  //      number of sub-patterns, "i"th captured sub-pattern is
+  //      ignored.
+  //
+  // CAVEAT: An optional sub-pattern that does not exist in the
+  // matched string is assigned the empty string.  Therefore, the
+  // following will return false (because the empty string is not a
+  // valid number):
+  //    int number;
+  //    RE2::FullMatch("abc", "[a-z]+(\\d+)?", &number);
+  template <typename... A>
+  static bool FullMatch(const StringPiece& text, const RE2& re, A&&... a) {
+    return Apply(FullMatchN, text, re, Arg(std::forward<A>(a))...);
+  }
+  // Exactly like FullMatch(), except that "re" is allowed to match
+  // a substring of "text".
+  template <typename... A>
+  static bool PartialMatch(const StringPiece& text, const RE2& re, A&&... a) {
+    return Apply(PartialMatchN, text, re, Arg(std::forward<A>(a))...);
+  }
+  // Like FullMatch() and PartialMatch(), except that "re" has to match
+  // a prefix of the text, and "input" is advanced past the matched
+  // text.  Note: "input" is modified iff this routine returns true
+  // and "re" matched a non-empty substring of "text".
+  template <typename... A>
+  static bool Consume(StringPiece* input, const RE2& re, A&&... a) {
+    return Apply(ConsumeN, input, re, Arg(std::forward<A>(a))...);
+  }
+  // Like Consume(), but does not anchor the match at the beginning of
+  // the text.  That is, "re" need not start its match at the beginning
+  // of "input".  For example, "FindAndConsume(s, "(\\w+)", &word)" finds
+  // the next word in "s" and stores it in "word".
+  template <typename... A>
+  static bool FindAndConsume(StringPiece* input, const RE2& re, A&&... a) {
+    return Apply(FindAndConsumeN, input, re, Arg(std::forward<A>(a))...);
+  }
+#endif
+  // Replace the first match of "re" in "str" with "rewrite".
+  // Within "rewrite", backslash-escaped digits (\1 to \9) can be
+  // used to insert text matching corresponding parenthesized group
+  // from the pattern.  \0 in "rewrite" refers to the entire matching
+  // text.  E.g.,
+  //
+  //   std::string s = "yabba dabba doo";
+  //   CHECK(RE2::Replace(&s, "b+", "d"));
+  //
+  // will leave "s" containing "yada dabba doo"
+  //
+  // Returns true if the pattern matches and a replacement occurs,
+  // false otherwise.
+  static bool Replace(std::string* str,
+                      const RE2& re,
+                      const StringPiece& rewrite);
+  // Like Replace(), except replaces successive non-overlapping occurrences
+  // of the pattern in the string with the rewrite. E.g.
+  //
+  //   std::string s = "yabba dabba doo";
+  //   CHECK(RE2::GlobalReplace(&s, "b+", "d"));
+  //
+  // will leave "s" containing "yada dada doo"
+  // Replacements are not subject to re-matching.
+  //
+  // Because GlobalReplace only replaces non-overlapping matches,
+  // replacing "ana" within "banana" makes only one replacement, not two.
+  //
+  // Returns the number of replacements made.
+  static int GlobalReplace(std::string* str,
+                           const RE2& re,
+                           const StringPiece& rewrite);
+  // Like Replace, except that if the pattern matches, "rewrite"
+  // is copied into "out" with substitutions.  The non-matching
+  // portions of "text" are ignored.
+  //
+  // Returns true iff a match occurred and the extraction happened
+  // successfully;  if no match occurs, the string is left unaffected.
+  //
+  // REQUIRES: "text" must not alias any part of "*out".
+  static bool Extract(const StringPiece& text,
+                      const RE2& re,
+                      const StringPiece& rewrite,
+                      std::string* out);
+  // Escapes all potentially meaningful regexp characters in
+  // 'unquoted'.  The returned string, used as a regular expression,
+  // will exactly match the original string.  For example,
+  //           1.5-2.0?
+  // may become:
+  //           1\.5\-2\.0\?
+  static std::string QuoteMeta(const StringPiece& unquoted);
+  // Computes range for any strings matching regexp. The min and max can in
+  // some cases be arbitrarily precise, so the caller gets to specify the
+  // maximum desired length of string returned.
+  //
+  // Assuming PossibleMatchRange(&min, &max, N) returns successfully, any
+  // string s that is an anchored match for this regexp satisfies
+  //   min <= s && s <= max.
+  //
+  // Note that PossibleMatchRange() will only consider the first copy of an
+  // infinitely repeated element (i.e., any regexp element followed by a '*' or
+  // '+' operator). Regexps with "{N}" constructions are not affected, as those
+  // do not compile down to infinite repetitions.
+  //
+  // Returns true on success, false on error.
+  bool PossibleMatchRange(std::string* min, std::string* max,
+                          int maxlen) const;
+  // Generic matching interface
+  // Type of match.
+  enum Anchor {
+    UNANCHORED,         // No anchoring
+    ANCHOR_START,       // Anchor at start only
+    ANCHOR_BOTH         // Anchor at start and end
+  };
+  // Return the number of capturing subpatterns, or -1 if the
+  // regexp wasn't valid on construction.  The overall match ($0)
+  // does not count: if the regexp is "(a)(b)", returns 2.
+  int NumberOfCapturingGroups() const { return num_captures_; }
+  // Return a map from names to capturing indices.
+  // The map records the index of the leftmost group
+  // with the given name.
+  // Only valid until the re is deleted.
+  const std::map<std::string, int>& NamedCapturingGroups() const;
+  // Return a map from capturing indices to names.
+  // The map has no entries for unnamed groups.
+  // Only valid until the re is deleted.
+  const std::map<int, std::string>& CapturingGroupNames() const;
+  // General matching routine.
+  // Match against text starting at offset startpos
+  // and stopping the search at offset endpos.
+  // Returns true if match found, false if not.
+  // On a successful match, fills in submatch[] (up to nsubmatch entries)
+  // with information about submatches.
+  // I.e. matching RE2("(foo)|(bar)baz") on "barbazbla" will return true, with
+  // submatch[0] = "barbaz", submatch[1].data() = NULL, submatch[2] = "bar",
+  // submatch[3].data() = NULL, ..., up to submatch[nsubmatch-1].data() = NULL.
+  // Caveat: submatch[] may be clobbered even on match failure.
+  //
+  // Don't ask for more match information than you will use:
+  // runs much faster with nsubmatch == 1 than nsubmatch > 1, and
+  // runs even faster if nsubmatch == 0.
+  // Doesn't make sense to use nsubmatch > 1 + NumberOfCapturingGroups(),
+  // but will be handled correctly.
+  //
+  // Passing text == StringPiece(NULL, 0) will be handled like any other
+  // empty string, but note that on return, it will not be possible to tell
+  // whether submatch i matched the empty string or did not match:
+  // either way, submatch[i].data() == NULL.
+  bool Match(const StringPiece& text,
+             size_t startpos,
+             size_t endpos,
+             Anchor re_anchor,
+             StringPiece* submatch,
+             int nsubmatch) const;
+  // Check that the given rewrite string is suitable for use with this
+  // regular expression.  It checks that:
+  //   * The regular expression has enough parenthesized subexpressions
+  //     to satisfy all of the \N tokens in rewrite
+  //   * The rewrite string doesn't have any syntax errors.  E.g.,
+  //     '\' followed by anything other than a digit or '\'.
+  // A true return value guarantees that Replace() and Extract() won't
+  // fail because of a bad rewrite string.
+  bool CheckRewriteString(const StringPiece& rewrite,
+                          std::string* error) const;
+  // Returns the maximum submatch needed for the rewrite to be done by
+  // Replace(). E.g. if rewrite == "foo \\2,\\1", returns 2.
+  static int MaxSubmatch(const StringPiece& rewrite);
+  // Append the "rewrite" string, with backslash subsitutions from "vec",
+  // to string "out".
+  // Returns true on success.  This method can fail because of a malformed
+  // rewrite string.  CheckRewriteString guarantees that the rewrite will
+  // be sucessful.
+  bool Rewrite(std::string* out,
+               const StringPiece& rewrite,
+               const StringPiece* vec,
+               int veclen) const;
+  // Constructor options
+  class Options {
+   public:
+    // The options are (defaults in parentheses):
+    //
+    //   utf8             (true)  text and pattern are UTF-8; otherwise Latin-1
+    //   posix_syntax     (false) restrict regexps to POSIX egrep syntax
+    //   longest_match    (false) search for longest match, not first match
+    //   log_errors       (true)  log syntax and execution errors to ERROR
+    //   max_mem          (see below)  approx. max memory footprint of RE2
+    //   literal          (false) interpret string as literal, not regexp
+    //   never_nl         (false) never match \n, even if it is in regexp
+    //   dot_nl           (false) dot matches everything including new line
+    //   never_capture    (false) parse all parens as non-capturing
+    //   case_sensitive   (true)  match is case-sensitive (regexp can override
+    //                              with (?i) unless in posix_syntax mode)
+    //
+    // The following options are only consulted when posix_syntax == true.
+    // When posix_syntax == false, these features are always enabled and
+    // cannot be turned off; to perform multi-line matching in that case,
+    // begin the regexp with (?m).
+    //   perl_classes     (false) allow Perl's \d \s \w \D \S \W
+    //   word_boundary    (false) allow Perl's \b \B (word boundary and not)
+    //   one_line         (false) ^ and $ only match beginning and end of text
+    //
+    // The max_mem option controls how much memory can be used
+    // to hold the compiled form of the regexp (the Prog) and
+    // its cached DFA graphs.  Code Search placed limits on the number
+    // of Prog instructions and DFA states: 10,000 for both.
+    // In RE2, those limits would translate to about 240 KB per Prog
+    // and perhaps 2.5 MB per DFA (DFA state sizes vary by regexp; RE2 does a
+    // better job of keeping them small than Code Search did).
+    // Each RE2 has two Progs (one forward, one reverse), and each Prog
+    // can have two DFAs (one first match, one longest match).
+    // That makes 4 DFAs:
+    //
+    //   forward, first-match    - used for UNANCHORED or ANCHOR_START searches
+    //                               if opt.longest_match() == false
+    //   forward, longest-match  - used for all ANCHOR_BOTH searches,
+    //                               and the other two kinds if
+    //                               opt.longest_match() == true
+    //   reverse, first-match    - never used
+    //   reverse, longest-match  - used as second phase for unanchored searches
+    //
+    // The RE2 memory budget is statically divided between the two
+    // Progs and then the DFAs: two thirds to the forward Prog
+    // and one third to the reverse Prog.  The forward Prog gives half
+    // of what it has left over to each of its DFAs.  The reverse Prog
+    // gives it all to its longest-match DFA.
+    //
+    // Once a DFA fills its budget, it flushes its cache and starts over.
+    // If this happens too often, RE2 falls back on the NFA implementation.
+    // For now, make the default budget something close to Code Search.
+    static const int kDefaultMaxMem = 8<<20;
+    enum Encoding {
+      EncodingUTF8 = 1,
+      EncodingLatin1
+    };
+    Options() :
+      encoding_(EncodingUTF8),
+      posix_syntax_(false),
+      longest_match_(false),
+      log_errors_(true),
+      max_mem_(kDefaultMaxMem),
+      literal_(false),
+      never_nl_(false),
+      dot_nl_(false),
+      never_capture_(false),
+      case_sensitive_(true),
+      perl_classes_(false),
+      word_boundary_(false),
+      one_line_(false) {
+    }
+    /*implicit*/ Options(CannedOptions);
+    Encoding encoding() const { return encoding_; }
+    void set_encoding(Encoding encoding) { encoding_ = encoding; }
+    // Legacy interface to encoding.
+    // TODO(rsc): Remove once clients have been converted.
+    bool utf8() const { return encoding_ == EncodingUTF8; }
+    void set_utf8(bool b) {
+      if (b) {
+        encoding_ = EncodingUTF8;
+      } else {
+        encoding_ = EncodingLatin1;
+      }
+    }
+    bool posix_syntax() const { return posix_syntax_; }
+    void set_posix_syntax(bool b) { posix_syntax_ = b; }
+    bool longest_match() const { return longest_match_; }
+    void set_longest_match(bool b) { longest_match_ = b; }
+    bool log_errors() const { return log_errors_; }
+    void set_log_errors(bool b) { log_errors_ = b; }
+    int64_t max_mem() const { return max_mem_; }
+    void set_max_mem(int64_t m) { max_mem_ = m; }
+    bool literal() const { return literal_; }
+    void set_literal(bool b) { literal_ = b; }
+    bool never_nl() const { return never_nl_; }
+    void set_never_nl(bool b) { never_nl_ = b; }
+    bool dot_nl() const { return dot_nl_; }
+    void set_dot_nl(bool b) { dot_nl_ = b; }
+    bool never_capture() const { return never_capture_; }
+    void set_never_capture(bool b) { never_capture_ = b; }
+    bool case_sensitive() const { return case_sensitive_; }
+    void set_case_sensitive(bool b) { case_sensitive_ = b; }
+    bool perl_classes() const { return perl_classes_; }
+    void set_perl_classes(bool b) { perl_classes_ = b; }
+    bool word_boundary() const { return word_boundary_; }
+    void set_word_boundary(bool b) { word_boundary_ = b; }
+    bool one_line() const { return one_line_; }
+    void set_one_line(bool b) { one_line_ = b; }
+    void Copy(const Options& src) {
+      *this = src;
+    }
+    int ParseFlags() const;
+   private:
+    Encoding encoding_;
+    bool posix_syntax_;
+    bool longest_match_;
+    bool log_errors_;
+    int64_t max_mem_;
+    bool literal_;
+    bool never_nl_;
+    bool dot_nl_;
+    bool never_capture_;
+    bool case_sensitive_;
+    bool perl_classes_;
+    bool word_boundary_;
+    bool one_line_;
+  };
+  // Returns the options set in the constructor.
+  const Options& options() const { return options_; }
+  // Argument converters; see below.
+  static inline Arg CRadix(short* x);
+  static inline Arg CRadix(unsigned short* x);
+  static inline Arg CRadix(int* x);
+  static inline Arg CRadix(unsigned int* x);
+  static inline Arg CRadix(long* x);
+  static inline Arg CRadix(unsigned long* x);
+  static inline Arg CRadix(long long* x);
+  static inline Arg CRadix(unsigned long long* x);
+  static inline Arg Hex(short* x);
+  static inline Arg Hex(unsigned short* x);
+  static inline Arg Hex(int* x);
+  static inline Arg Hex(unsigned int* x);
+  static inline Arg Hex(long* x);
+  static inline Arg Hex(unsigned long* x);
+  static inline Arg Hex(long long* x);
+  static inline Arg Hex(unsigned long long* x);
+  static inline Arg Octal(short* x);
+  static inline Arg Octal(unsigned short* x);
+  static inline Arg Octal(int* x);
+  static inline Arg Octal(unsigned int* x);
+  static inline Arg Octal(long* x);
+  static inline Arg Octal(unsigned long* x);
+  static inline Arg Octal(long long* x);
+  static inline Arg Octal(unsigned long long* x);
+ private:
+  void Init(const StringPiece& pattern, const Options& options);
+  bool DoMatch(const StringPiece& text,
+               Anchor re_anchor,
+               size_t* consumed,
+               const Arg* const args[],
+               int n) const;
+  re2::Prog* ReverseProg() const;
+  std::string   pattern_;          // string regular expression
+  Options       options_;          // option flags
+  std::string   prefix_;           // required prefix (before regexp_)
+  bool          prefix_foldcase_;  // prefix is ASCII case-insensitive
+  re2::Regexp*  entire_regexp_;    // parsed regular expression
+  re2::Regexp*  suffix_regexp_;    // parsed regular expression, prefix removed
+  re2::Prog*    prog_;             // compiled program for regexp
+  int           num_captures_;     // Number of capturing groups
+  bool          is_one_pass_;      // can use prog_->SearchOnePass?
+  mutable re2::Prog*          rprog_;    // reverse program for regexp
+  mutable const std::string*  error_;    // Error indicator
+                                         // (or points to empty string)
+  mutable ErrorCode      error_code_;    // Error code
+  mutable std::string    error_arg_;     // Fragment of regexp showing error
+  // Map from capture names to indices
+  mutable const std::map<std::string, int>* named_groups_;
+  // Map from capture indices to names
+  mutable const std::map<int, std::string>* group_names_;
+  // Onces for lazy computations.
+  mutable std::once_flag rprog_once_;
+  mutable std::once_flag named_groups_once_;
+  mutable std::once_flag group_names_once_;
+  RE2(const RE2&) = delete;
+  RE2& operator=(const RE2&) = delete;
+};
+/***** Implementation details *****/
+template <class T>
+class _RE2_MatchObject {
+ public:
+  static inline bool Parse(const char* str, size_t n, void* dest) {
+    if (dest == NULL) return true;
+    T* object = reinterpret_cast<T*>(dest);
+    return object->ParseFrom(str, n);
+  }
+};
+class RE2::Arg {
+ public:
+  // Empty constructor so we can declare arrays of RE2::Arg
+  Arg();
+  // Constructor specially designed for NULL arguments
+  Arg(void*);
+  Arg(std::nullptr_t);
+  typedef bool (*Parser)(const char* str, size_t n, void* dest);
+#define MAKE_PARSER(type, name)            \
+  Arg(type* p) : arg_(p), parser_(name) {} \
+  Arg(type* p, Parser parser) : arg_(p), parser_(parser) {}
+  MAKE_PARSER(char,               parse_char)
+  MAKE_PARSER(signed char,        parse_schar)
+  MAKE_PARSER(unsigned char,      parse_uchar)
+  MAKE_PARSER(float,              parse_float)
+  MAKE_PARSER(double,             parse_double)
+  MAKE_PARSER(std::string,        parse_string)
+  MAKE_PARSER(StringPiece,        parse_stringpiece)
+  MAKE_PARSER(short,              parse_short)
+  MAKE_PARSER(unsigned short,     parse_ushort)
+  MAKE_PARSER(int,                parse_int)
+  MAKE_PARSER(unsigned int,       parse_uint)
+  MAKE_PARSER(long,               parse_long)
+  MAKE_PARSER(unsigned long,      parse_ulong)
+  MAKE_PARSER(long long,          parse_longlong)
+  MAKE_PARSER(unsigned long long, parse_ulonglong)
+#undef MAKE_PARSER
+  // Generic constructor templates
+  template <class T> Arg(T* p)
+      : arg_(p), parser_(_RE2_MatchObject<T>::Parse) { }
+  template <class T> Arg(T* p, Parser parser)
+      : arg_(p), parser_(parser) { }
+  // Parse the data
+  bool Parse(const char* str, size_t n) const;
+ private:
+  void*         arg_;
+  Parser        parser_;
+  static bool parse_null          (const char* str, size_t n, void* dest);
+  static bool parse_char          (const char* str, size_t n, void* dest);
+  static bool parse_schar         (const char* str, size_t n, void* dest);
+  static bool parse_uchar         (const char* str, size_t n, void* dest);
+  static bool parse_float         (const char* str, size_t n, void* dest);
+  static bool parse_double        (const char* str, size_t n, void* dest);
+  static bool parse_string        (const char* str, size_t n, void* dest);
+  static bool parse_stringpiece   (const char* str, size_t n, void* dest);
+#define DECLARE_INTEGER_PARSER(name)                                       \
+ private:                                                                  \
+  static bool parse_##name(const char* str, size_t n, void* dest);         \
+  static bool parse_##name##_radix(const char* str, size_t n, void* dest,  \
+                                   int radix);                             \
+                                                                           \
+ public:                                                                   \
+  static bool parse_##name##_hex(const char* str, size_t n, void* dest);   \
+  static bool parse_##name##_octal(const char* str, size_t n, void* dest); \
+  static bool parse_##name##_cradix(const char* str, size_t n, void* dest);
+  DECLARE_INTEGER_PARSER(short)
+  DECLARE_INTEGER_PARSER(ushort)
+  DECLARE_INTEGER_PARSER(int)
+  DECLARE_INTEGER_PARSER(uint)
+  DECLARE_INTEGER_PARSER(long)
+  DECLARE_INTEGER_PARSER(ulong)
+  DECLARE_INTEGER_PARSER(longlong)
+  DECLARE_INTEGER_PARSER(ulonglong)
+#undef DECLARE_INTEGER_PARSER
+};
+inline RE2::Arg::Arg() : arg_(NULL), parser_(parse_null) { }
+inline RE2::Arg::Arg(void* p) : arg_(p), parser_(parse_null) { }
+inline RE2::Arg::Arg(std::nullptr_t p) : arg_(p), parser_(parse_null) { }
+inline bool RE2::Arg::Parse(const char* str, size_t n) const {
+  return (*parser_)(str, n, arg_);
+}
+#define MAKE_INTEGER_PARSER(type, name)                    \
+  inline RE2::Arg RE2::Hex(type* ptr) {                    \
+    return RE2::Arg(ptr, RE2::Arg::parse_##name##_hex);    \
+  }                                                        \
+  inline RE2::Arg RE2::Octal(type* ptr) {                  \
+    return RE2::Arg(ptr, RE2::Arg::parse_##name##_octal);  \
+  }                                                        \
+  inline RE2::Arg RE2::CRadix(type* ptr) {                 \
+    return RE2::Arg(ptr, RE2::Arg::parse_##name##_cradix); \
+  }
+MAKE_INTEGER_PARSER(short,              short)
+MAKE_INTEGER_PARSER(unsigned short,     ushort)
+MAKE_INTEGER_PARSER(int,                int)
+MAKE_INTEGER_PARSER(unsigned int,       uint)
+MAKE_INTEGER_PARSER(long,               long)
+MAKE_INTEGER_PARSER(unsigned long,      ulong)
+MAKE_INTEGER_PARSER(long long,          longlong)
+MAKE_INTEGER_PARSER(unsigned long long, ulonglong)
+#undef MAKE_INTEGER_PARSER
+#ifndef SWIG
+#if defined(__clang__)
+#elif defined(__GNUC__) && __GNUC__ >= 6
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+class LazyRE2 {
+ private:
+  struct NoArg {};
+ public:
+  typedef RE2 element_type;  // support std::pointer_traits
+  // Constructor omitted to preserve braced initialization in C++98.
+  // Pretend to be a pointer to Type (never NULL due to on-demand creation):
+  RE2& operator*() const { return *get(); }
+  RE2* operator->() const { return get(); }
+  // Named accessor/initializer:
+  RE2* get() const {
+    std::call_once(once_, &LazyRE2::Init, this);
+    return ptr_;
+  }
+  // All data fields must be public to support {"foo"} initialization.
+  const char* pattern_;
+  RE2::CannedOptions options_;
+  NoArg barrier_against_excess_initializers_;
+  mutable RE2* ptr_;
+  mutable std::once_flag once_;
+ private:
+  static void Init(const LazyRE2* lazy_re2) {
+    lazy_re2->ptr_ = new RE2(lazy_re2->pattern_, lazy_re2->options_);
+  }
+  void operator=(const LazyRE2&);  // disallowed
+};
+#endif  // SWIG
+}  // namespace re2
+using re2::RE2;
+using re2::LazyRE2;
+#endif  // RE2_RE2_H_
 namespace wl
 {
 template<typename T, bool HasVariable>
@@ -4652,11 +5309,13 @@ auto echo(X&& x);
 template<typename X>
 auto print(const X& x)
 {
+    std::cout << x << std::endl;
     return const_null;
 }
 template<typename X>
 auto echo(X&& x)
 {
+    std::cout << x << std::endl;
     return std::forward<decltype(x)>(x);
 }
 #endif
@@ -6042,635 +6701,63 @@ auto matrix_q(X&& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
-#ifndef RE2_RE2_H_
-#define RE2_RE2_H_
-namespace re2 {
-class Prog;
-class Regexp;
-}  // namespace re2
-namespace re2 {
-class RE2 {
- public:
-  // We convert user-passed pointers into special Arg objects
-  class Arg;
-  class Options;
-  // Defined in set.h.
-  class Set;
-  enum ErrorCode {
-    NoError = 0,
-    // Unexpected error
-    ErrorInternal,
-    // Parse errors
-    ErrorBadEscape,          // bad escape sequence
-    ErrorBadCharClass,       // bad character class
-    ErrorBadCharRange,       // bad character class range
-    ErrorMissingBracket,     // missing closing ]
-    ErrorMissingParen,       // missing closing )
-    ErrorTrailingBackslash,  // trailing \ at end of regexp
-    ErrorRepeatArgument,     // repeat argument missing, e.g. "*"
-    ErrorRepeatSize,         // bad repetition argument
-    ErrorRepeatOp,           // bad repetition operator
-    ErrorBadPerlOp,          // bad perl operator
-    ErrorBadUTF8,            // invalid UTF-8 in regexp
-    ErrorBadNamedCapture,    // bad named capture group
-    ErrorPatternTooLarge     // pattern too large (compile failed)
-  };
-  // Predefined common options.
-  // If you need more complicated things, instantiate
-  // an Option class, possibly passing one of these to
-  // the Option constructor, change the settings, and pass that
-  // Option class to the RE2 constructor.
-  enum CannedOptions {
-    DefaultOptions = 0,
-    Latin1, // treat input as Latin-1 (default UTF-8)
-    POSIX, // POSIX syntax, leftmost-longest match
-    Quiet // do not log about regexp parse errors
-  };
-  // Need to have the const char* and const std::string& forms for implicit
-  // conversions when passing string literals to FullMatch and PartialMatch.
-  // Otherwise the StringPiece form would be sufficient.
-#ifndef SWIG
-  RE2(const char* pattern);
-  RE2(const std::string& pattern);
-#endif
-  RE2(const StringPiece& pattern);
-  RE2(const StringPiece& pattern, const Options& options);
-  ~RE2();
-  // Returns whether RE2 was created properly.
-  bool ok() const { return error_code() == NoError; }
-  // The string specification for this RE2.  E.g.
-  //   RE2 re("ab*c?d+");
-  //   re.pattern();    // "ab*c?d+"
-  const std::string& pattern() const { return pattern_; }
-  // If RE2 could not be created properly, returns an error string.
-  // Else returns the empty string.
-  const std::string& error() const { return *error_; }
-  // If RE2 could not be created properly, returns an error code.
-  // Else returns RE2::NoError (== 0).
-  ErrorCode error_code() const { return error_code_; }
-  // If RE2 could not be created properly, returns the offending
-  // portion of the regexp.
-  const std::string& error_arg() const { return error_arg_; }
-  // Returns the program size, a very approximate measure of a regexp's "cost".
-  // Larger numbers are more expensive than smaller numbers.
-  int ProgramSize() const;
-  int ReverseProgramSize() const;
-  // EXPERIMENTAL! SUBJECT TO CHANGE!
-  // Outputs the program fanout as a histogram bucketed by powers of 2.
-  // Returns the number of the largest non-empty bucket.
-  int ProgramFanout(std::map<int, int>* histogram) const;
-  int ReverseProgramFanout(std::map<int, int>* histogram) const;
-  // Returns the underlying Regexp; not for general use.
-  // Returns entire_regexp_ so that callers don't need
-  // to know about prefix_ and prefix_foldcase_.
-  re2::Regexp* Regexp() const { return entire_regexp_; }
-  /***** The array-based matching interface ******/
-  // The functions here have names ending in 'N' and are used to implement
-  // the functions whose names are the prefix before the 'N'. It is sometimes
-  // useful to invoke them directly, but the syntax is awkward, so the 'N'-less
-  // versions should be preferred.
-  static bool FullMatchN(const StringPiece& text, const RE2& re,
-                         const Arg* const args[], int n);
-  static bool PartialMatchN(const StringPiece& text, const RE2& re,
-                            const Arg* const args[], int n);
-  static bool ConsumeN(StringPiece* input, const RE2& re,
-                       const Arg* const args[], int n);
-  static bool FindAndConsumeN(StringPiece* input, const RE2& re,
-                              const Arg* const args[], int n);
-#ifndef SWIG
- private:
-  template <typename F, typename SP>
-  static inline bool Apply(F f, SP sp, const RE2& re) {
-    return f(sp, re, NULL, 0);
-  }
-  template <typename F, typename SP, typename... A>
-  static inline bool Apply(F f, SP sp, const RE2& re, const A&... a) {
-    const Arg* const args[] = {&a...};
-    const int n = sizeof...(a);
-    return f(sp, re, args, n);
-  }
- public:
-  // In order to allow FullMatch() et al. to be called with a varying number
-  // of arguments of varying types, we use two layers of variadic templates.
-  // The first layer constructs the temporary Arg objects. The second layer
-  // (above) constructs the array of pointers to the temporary Arg objects.
-  /***** The useful part: the matching interface *****/
-  // Matches "text" against "re".  If pointer arguments are
-  // supplied, copies matched sub-patterns into them.
-  //
-  // You can pass in a "const char*" or a "std::string" for "text".
-  // You can pass in a "const char*" or a "std::string" or a "RE2" for "re".
-  //
-  // The provided pointer arguments can be pointers to any scalar numeric
-  // type, or one of:
-  //    std::string     (matched piece is copied to string)
-  //    StringPiece     (StringPiece is mutated to point to matched piece)
-  //    T               (where "bool T::ParseFrom(const char*, size_t)" exists)
-  //    (void*)NULL     (the corresponding matched sub-pattern is not copied)
-  //
-  // Returns true iff all of the following conditions are satisfied:
-  //   a. "text" matches "re" exactly
-  //   b. The number of matched sub-patterns is >= number of supplied pointers
-  //   c. The "i"th argument has a suitable type for holding the
-  //      string captured as the "i"th sub-pattern.  If you pass in
-  //      NULL for the "i"th argument, or pass fewer arguments than
-  //      number of sub-patterns, "i"th captured sub-pattern is
-  //      ignored.
-  //
-  // CAVEAT: An optional sub-pattern that does not exist in the
-  // matched string is assigned the empty string.  Therefore, the
-  // following will return false (because the empty string is not a
-  // valid number):
-  //    int number;
-  //    RE2::FullMatch("abc", "[a-z]+(\\d+)?", &number);
-  template <typename... A>
-  static bool FullMatch(const StringPiece& text, const RE2& re, A&&... a) {
-    return Apply(FullMatchN, text, re, Arg(std::forward<A>(a))...);
-  }
-  // Exactly like FullMatch(), except that "re" is allowed to match
-  // a substring of "text".
-  template <typename... A>
-  static bool PartialMatch(const StringPiece& text, const RE2& re, A&&... a) {
-    return Apply(PartialMatchN, text, re, Arg(std::forward<A>(a))...);
-  }
-  // Like FullMatch() and PartialMatch(), except that "re" has to match
-  // a prefix of the text, and "input" is advanced past the matched
-  // text.  Note: "input" is modified iff this routine returns true
-  // and "re" matched a non-empty substring of "text".
-  template <typename... A>
-  static bool Consume(StringPiece* input, const RE2& re, A&&... a) {
-    return Apply(ConsumeN, input, re, Arg(std::forward<A>(a))...);
-  }
-  // Like Consume(), but does not anchor the match at the beginning of
-  // the text.  That is, "re" need not start its match at the beginning
-  // of "input".  For example, "FindAndConsume(s, "(\\w+)", &word)" finds
-  // the next word in "s" and stores it in "word".
-  template <typename... A>
-  static bool FindAndConsume(StringPiece* input, const RE2& re, A&&... a) {
-    return Apply(FindAndConsumeN, input, re, Arg(std::forward<A>(a))...);
-  }
-#endif
-  // Replace the first match of "re" in "str" with "rewrite".
-  // Within "rewrite", backslash-escaped digits (\1 to \9) can be
-  // used to insert text matching corresponding parenthesized group
-  // from the pattern.  \0 in "rewrite" refers to the entire matching
-  // text.  E.g.,
-  //
-  //   std::string s = "yabba dabba doo";
-  //   CHECK(RE2::Replace(&s, "b+", "d"));
-  //
-  // will leave "s" containing "yada dabba doo"
-  //
-  // Returns true if the pattern matches and a replacement occurs,
-  // false otherwise.
-  static bool Replace(std::string* str,
-                      const RE2& re,
-                      const StringPiece& rewrite);
-  // Like Replace(), except replaces successive non-overlapping occurrences
-  // of the pattern in the string with the rewrite. E.g.
-  //
-  //   std::string s = "yabba dabba doo";
-  //   CHECK(RE2::GlobalReplace(&s, "b+", "d"));
-  //
-  // will leave "s" containing "yada dada doo"
-  // Replacements are not subject to re-matching.
-  //
-  // Because GlobalReplace only replaces non-overlapping matches,
-  // replacing "ana" within "banana" makes only one replacement, not two.
-  //
-  // Returns the number of replacements made.
-  static int GlobalReplace(std::string* str,
-                           const RE2& re,
-                           const StringPiece& rewrite);
-  // Like Replace, except that if the pattern matches, "rewrite"
-  // is copied into "out" with substitutions.  The non-matching
-  // portions of "text" are ignored.
-  //
-  // Returns true iff a match occurred and the extraction happened
-  // successfully;  if no match occurs, the string is left unaffected.
-  //
-  // REQUIRES: "text" must not alias any part of "*out".
-  static bool Extract(const StringPiece& text,
-                      const RE2& re,
-                      const StringPiece& rewrite,
-                      std::string* out);
-  // Escapes all potentially meaningful regexp characters in
-  // 'unquoted'.  The returned string, used as a regular expression,
-  // will exactly match the original string.  For example,
-  //           1.5-2.0?
-  // may become:
-  //           1\.5\-2\.0\?
-  static std::string QuoteMeta(const StringPiece& unquoted);
-  // Computes range for any strings matching regexp. The min and max can in
-  // some cases be arbitrarily precise, so the caller gets to specify the
-  // maximum desired length of string returned.
-  //
-  // Assuming PossibleMatchRange(&min, &max, N) returns successfully, any
-  // string s that is an anchored match for this regexp satisfies
-  //   min <= s && s <= max.
-  //
-  // Note that PossibleMatchRange() will only consider the first copy of an
-  // infinitely repeated element (i.e., any regexp element followed by a '*' or
-  // '+' operator). Regexps with "{N}" constructions are not affected, as those
-  // do not compile down to infinite repetitions.
-  //
-  // Returns true on success, false on error.
-  bool PossibleMatchRange(std::string* min, std::string* max,
-                          int maxlen) const;
-  // Generic matching interface
-  // Type of match.
-  enum Anchor {
-    UNANCHORED,         // No anchoring
-    ANCHOR_START,       // Anchor at start only
-    ANCHOR_BOTH         // Anchor at start and end
-  };
-  // Return the number of capturing subpatterns, or -1 if the
-  // regexp wasn't valid on construction.  The overall match ($0)
-  // does not count: if the regexp is "(a)(b)", returns 2.
-  int NumberOfCapturingGroups() const { return num_captures_; }
-  // Return a map from names to capturing indices.
-  // The map records the index of the leftmost group
-  // with the given name.
-  // Only valid until the re is deleted.
-  const std::map<std::string, int>& NamedCapturingGroups() const;
-  // Return a map from capturing indices to names.
-  // The map has no entries for unnamed groups.
-  // Only valid until the re is deleted.
-  const std::map<int, std::string>& CapturingGroupNames() const;
-  // General matching routine.
-  // Match against text starting at offset startpos
-  // and stopping the search at offset endpos.
-  // Returns true if match found, false if not.
-  // On a successful match, fills in submatch[] (up to nsubmatch entries)
-  // with information about submatches.
-  // I.e. matching RE2("(foo)|(bar)baz") on "barbazbla" will return true, with
-  // submatch[0] = "barbaz", submatch[1].data() = NULL, submatch[2] = "bar",
-  // submatch[3].data() = NULL, ..., up to submatch[nsubmatch-1].data() = NULL.
-  // Caveat: submatch[] may be clobbered even on match failure.
-  //
-  // Don't ask for more match information than you will use:
-  // runs much faster with nsubmatch == 1 than nsubmatch > 1, and
-  // runs even faster if nsubmatch == 0.
-  // Doesn't make sense to use nsubmatch > 1 + NumberOfCapturingGroups(),
-  // but will be handled correctly.
-  //
-  // Passing text == StringPiece(NULL, 0) will be handled like any other
-  // empty string, but note that on return, it will not be possible to tell
-  // whether submatch i matched the empty string or did not match:
-  // either way, submatch[i].data() == NULL.
-  bool Match(const StringPiece& text,
-             size_t startpos,
-             size_t endpos,
-             Anchor re_anchor,
-             StringPiece* submatch,
-             int nsubmatch) const;
-  // Check that the given rewrite string is suitable for use with this
-  // regular expression.  It checks that:
-  //   * The regular expression has enough parenthesized subexpressions
-  //     to satisfy all of the \N tokens in rewrite
-  //   * The rewrite string doesn't have any syntax errors.  E.g.,
-  //     '\' followed by anything other than a digit or '\'.
-  // A true return value guarantees that Replace() and Extract() won't
-  // fail because of a bad rewrite string.
-  bool CheckRewriteString(const StringPiece& rewrite,
-                          std::string* error) const;
-  // Returns the maximum submatch needed for the rewrite to be done by
-  // Replace(). E.g. if rewrite == "foo \\2,\\1", returns 2.
-  static int MaxSubmatch(const StringPiece& rewrite);
-  // Append the "rewrite" string, with backslash subsitutions from "vec",
-  // to string "out".
-  // Returns true on success.  This method can fail because of a malformed
-  // rewrite string.  CheckRewriteString guarantees that the rewrite will
-  // be sucessful.
-  bool Rewrite(std::string* out,
-               const StringPiece& rewrite,
-               const StringPiece* vec,
-               int veclen) const;
-  // Constructor options
-  class Options {
-   public:
-    // The options are (defaults in parentheses):
-    //
-    //   utf8             (true)  text and pattern are UTF-8; otherwise Latin-1
-    //   posix_syntax     (false) restrict regexps to POSIX egrep syntax
-    //   longest_match    (false) search for longest match, not first match
-    //   log_errors       (true)  log syntax and execution errors to ERROR
-    //   max_mem          (see below)  approx. max memory footprint of RE2
-    //   literal          (false) interpret string as literal, not regexp
-    //   never_nl         (false) never match \n, even if it is in regexp
-    //   dot_nl           (false) dot matches everything including new line
-    //   never_capture    (false) parse all parens as non-capturing
-    //   case_sensitive   (true)  match is case-sensitive (regexp can override
-    //                              with (?i) unless in posix_syntax mode)
-    //
-    // The following options are only consulted when posix_syntax == true.
-    // When posix_syntax == false, these features are always enabled and
-    // cannot be turned off; to perform multi-line matching in that case,
-    // begin the regexp with (?m).
-    //   perl_classes     (false) allow Perl's \d \s \w \D \S \W
-    //   word_boundary    (false) allow Perl's \b \B (word boundary and not)
-    //   one_line         (false) ^ and $ only match beginning and end of text
-    //
-    // The max_mem option controls how much memory can be used
-    // to hold the compiled form of the regexp (the Prog) and
-    // its cached DFA graphs.  Code Search placed limits on the number
-    // of Prog instructions and DFA states: 10,000 for both.
-    // In RE2, those limits would translate to about 240 KB per Prog
-    // and perhaps 2.5 MB per DFA (DFA state sizes vary by regexp; RE2 does a
-    // better job of keeping them small than Code Search did).
-    // Each RE2 has two Progs (one forward, one reverse), and each Prog
-    // can have two DFAs (one first match, one longest match).
-    // That makes 4 DFAs:
-    //
-    //   forward, first-match    - used for UNANCHORED or ANCHOR_START searches
-    //                               if opt.longest_match() == false
-    //   forward, longest-match  - used for all ANCHOR_BOTH searches,
-    //                               and the other two kinds if
-    //                               opt.longest_match() == true
-    //   reverse, first-match    - never used
-    //   reverse, longest-match  - used as second phase for unanchored searches
-    //
-    // The RE2 memory budget is statically divided between the two
-    // Progs and then the DFAs: two thirds to the forward Prog
-    // and one third to the reverse Prog.  The forward Prog gives half
-    // of what it has left over to each of its DFAs.  The reverse Prog
-    // gives it all to its longest-match DFA.
-    //
-    // Once a DFA fills its budget, it flushes its cache and starts over.
-    // If this happens too often, RE2 falls back on the NFA implementation.
-    // For now, make the default budget something close to Code Search.
-    static const int kDefaultMaxMem = 8<<20;
-    enum Encoding {
-      EncodingUTF8 = 1,
-      EncodingLatin1
-    };
-    Options() :
-      encoding_(EncodingUTF8),
-      posix_syntax_(false),
-      longest_match_(false),
-      log_errors_(true),
-      max_mem_(kDefaultMaxMem),
-      literal_(false),
-      never_nl_(false),
-      dot_nl_(false),
-      never_capture_(false),
-      case_sensitive_(true),
-      perl_classes_(false),
-      word_boundary_(false),
-      one_line_(false) {
-    }
-    /*implicit*/ Options(CannedOptions);
-    Encoding encoding() const { return encoding_; }
-    void set_encoding(Encoding encoding) { encoding_ = encoding; }
-    // Legacy interface to encoding.
-    // TODO(rsc): Remove once clients have been converted.
-    bool utf8() const { return encoding_ == EncodingUTF8; }
-    void set_utf8(bool b) {
-      if (b) {
-        encoding_ = EncodingUTF8;
-      } else {
-        encoding_ = EncodingLatin1;
-      }
-    }
-    bool posix_syntax() const { return posix_syntax_; }
-    void set_posix_syntax(bool b) { posix_syntax_ = b; }
-    bool longest_match() const { return longest_match_; }
-    void set_longest_match(bool b) { longest_match_ = b; }
-    bool log_errors() const { return log_errors_; }
-    void set_log_errors(bool b) { log_errors_ = b; }
-    int64_t max_mem() const { return max_mem_; }
-    void set_max_mem(int64_t m) { max_mem_ = m; }
-    bool literal() const { return literal_; }
-    void set_literal(bool b) { literal_ = b; }
-    bool never_nl() const { return never_nl_; }
-    void set_never_nl(bool b) { never_nl_ = b; }
-    bool dot_nl() const { return dot_nl_; }
-    void set_dot_nl(bool b) { dot_nl_ = b; }
-    bool never_capture() const { return never_capture_; }
-    void set_never_capture(bool b) { never_capture_ = b; }
-    bool case_sensitive() const { return case_sensitive_; }
-    void set_case_sensitive(bool b) { case_sensitive_ = b; }
-    bool perl_classes() const { return perl_classes_; }
-    void set_perl_classes(bool b) { perl_classes_ = b; }
-    bool word_boundary() const { return word_boundary_; }
-    void set_word_boundary(bool b) { word_boundary_ = b; }
-    bool one_line() const { return one_line_; }
-    void set_one_line(bool b) { one_line_ = b; }
-    void Copy(const Options& src) {
-      *this = src;
-    }
-    int ParseFlags() const;
-   private:
-    Encoding encoding_;
-    bool posix_syntax_;
-    bool longest_match_;
-    bool log_errors_;
-    int64_t max_mem_;
-    bool literal_;
-    bool never_nl_;
-    bool dot_nl_;
-    bool never_capture_;
-    bool case_sensitive_;
-    bool perl_classes_;
-    bool word_boundary_;
-    bool one_line_;
-  };
-  // Returns the options set in the constructor.
-  const Options& options() const { return options_; }
-  // Argument converters; see below.
-  static inline Arg CRadix(short* x);
-  static inline Arg CRadix(unsigned short* x);
-  static inline Arg CRadix(int* x);
-  static inline Arg CRadix(unsigned int* x);
-  static inline Arg CRadix(long* x);
-  static inline Arg CRadix(unsigned long* x);
-  static inline Arg CRadix(long long* x);
-  static inline Arg CRadix(unsigned long long* x);
-  static inline Arg Hex(short* x);
-  static inline Arg Hex(unsigned short* x);
-  static inline Arg Hex(int* x);
-  static inline Arg Hex(unsigned int* x);
-  static inline Arg Hex(long* x);
-  static inline Arg Hex(unsigned long* x);
-  static inline Arg Hex(long long* x);
-  static inline Arg Hex(unsigned long long* x);
-  static inline Arg Octal(short* x);
-  static inline Arg Octal(unsigned short* x);
-  static inline Arg Octal(int* x);
-  static inline Arg Octal(unsigned int* x);
-  static inline Arg Octal(long* x);
-  static inline Arg Octal(unsigned long* x);
-  static inline Arg Octal(long long* x);
-  static inline Arg Octal(unsigned long long* x);
- private:
-  void Init(const StringPiece& pattern, const Options& options);
-  bool DoMatch(const StringPiece& text,
-               Anchor re_anchor,
-               size_t* consumed,
-               const Arg* const args[],
-               int n) const;
-  re2::Prog* ReverseProg() const;
-  std::string   pattern_;          // string regular expression
-  Options       options_;          // option flags
-  std::string   prefix_;           // required prefix (before regexp_)
-  bool          prefix_foldcase_;  // prefix is ASCII case-insensitive
-  re2::Regexp*  entire_regexp_;    // parsed regular expression
-  re2::Regexp*  suffix_regexp_;    // parsed regular expression, prefix removed
-  re2::Prog*    prog_;             // compiled program for regexp
-  int           num_captures_;     // Number of capturing groups
-  bool          is_one_pass_;      // can use prog_->SearchOnePass?
-  mutable re2::Prog*          rprog_;    // reverse program for regexp
-  mutable const std::string*  error_;    // Error indicator
-                                         // (or points to empty string)
-  mutable ErrorCode      error_code_;    // Error code
-  mutable std::string    error_arg_;     // Fragment of regexp showing error
-  // Map from capture names to indices
-  mutable const std::map<std::string, int>* named_groups_;
-  // Map from capture indices to names
-  mutable const std::map<int, std::string>* group_names_;
-  // Onces for lazy computations.
-  mutable std::once_flag rprog_once_;
-  mutable std::once_flag named_groups_once_;
-  mutable std::once_flag group_names_once_;
-  RE2(const RE2&) = delete;
-  RE2& operator=(const RE2&) = delete;
-};
-/***** Implementation details *****/
-template <class T>
-class _RE2_MatchObject {
- public:
-  static inline bool Parse(const char* str, size_t n, void* dest) {
-    if (dest == NULL) return true;
-    T* object = reinterpret_cast<T*>(dest);
-    return object->ParseFrom(str, n);
-  }
-};
-class RE2::Arg {
- public:
-  // Empty constructor so we can declare arrays of RE2::Arg
-  Arg();
-  // Constructor specially designed for NULL arguments
-  Arg(void*);
-  Arg(std::nullptr_t);
-  typedef bool (*Parser)(const char* str, size_t n, void* dest);
-#define MAKE_PARSER(type, name)            \
-  Arg(type* p) : arg_(p), parser_(name) {} \
-  Arg(type* p, Parser parser) : arg_(p), parser_(parser) {}
-  MAKE_PARSER(char,               parse_char)
-  MAKE_PARSER(signed char,        parse_schar)
-  MAKE_PARSER(unsigned char,      parse_uchar)
-  MAKE_PARSER(float,              parse_float)
-  MAKE_PARSER(double,             parse_double)
-  MAKE_PARSER(std::string,        parse_string)
-  MAKE_PARSER(StringPiece,        parse_stringpiece)
-  MAKE_PARSER(short,              parse_short)
-  MAKE_PARSER(unsigned short,     parse_ushort)
-  MAKE_PARSER(int,                parse_int)
-  MAKE_PARSER(unsigned int,       parse_uint)
-  MAKE_PARSER(long,               parse_long)
-  MAKE_PARSER(unsigned long,      parse_ulong)
-  MAKE_PARSER(long long,          parse_longlong)
-  MAKE_PARSER(unsigned long long, parse_ulonglong)
-#undef MAKE_PARSER
-  // Generic constructor templates
-  template <class T> Arg(T* p)
-      : arg_(p), parser_(_RE2_MatchObject<T>::Parse) { }
-  template <class T> Arg(T* p, Parser parser)
-      : arg_(p), parser_(parser) { }
-  // Parse the data
-  bool Parse(const char* str, size_t n) const;
- private:
-  void*         arg_;
-  Parser        parser_;
-  static bool parse_null          (const char* str, size_t n, void* dest);
-  static bool parse_char          (const char* str, size_t n, void* dest);
-  static bool parse_schar         (const char* str, size_t n, void* dest);
-  static bool parse_uchar         (const char* str, size_t n, void* dest);
-  static bool parse_float         (const char* str, size_t n, void* dest);
-  static bool parse_double        (const char* str, size_t n, void* dest);
-  static bool parse_string        (const char* str, size_t n, void* dest);
-  static bool parse_stringpiece   (const char* str, size_t n, void* dest);
-#define DECLARE_INTEGER_PARSER(name)                                       \
- private:                                                                  \
-  static bool parse_##name(const char* str, size_t n, void* dest);         \
-  static bool parse_##name##_radix(const char* str, size_t n, void* dest,  \
-                                   int radix);                             \
-                                                                           \
- public:                                                                   \
-  static bool parse_##name##_hex(const char* str, size_t n, void* dest);   \
-  static bool parse_##name##_octal(const char* str, size_t n, void* dest); \
-  static bool parse_##name##_cradix(const char* str, size_t n, void* dest);
-  DECLARE_INTEGER_PARSER(short)
-  DECLARE_INTEGER_PARSER(ushort)
-  DECLARE_INTEGER_PARSER(int)
-  DECLARE_INTEGER_PARSER(uint)
-  DECLARE_INTEGER_PARSER(long)
-  DECLARE_INTEGER_PARSER(ulong)
-  DECLARE_INTEGER_PARSER(longlong)
-  DECLARE_INTEGER_PARSER(ulonglong)
-#undef DECLARE_INTEGER_PARSER
-};
-inline RE2::Arg::Arg() : arg_(NULL), parser_(parse_null) { }
-inline RE2::Arg::Arg(void* p) : arg_(p), parser_(parse_null) { }
-inline RE2::Arg::Arg(std::nullptr_t p) : arg_(p), parser_(parse_null) { }
-inline bool RE2::Arg::Parse(const char* str, size_t n) const {
-  return (*parser_)(str, n, arg_);
+extern "C" void* _re2_RE2_construct_impl(const char* pattern);
+extern "C" void _re2_RE2_destruct_impl(void* object_ptr);
+extern "C" bool _re2_RE2_match_impl(const void* regex_ptr,
+    const void* piece_ptr, size_t startpos, size_t endpos, int re_anchor,
+    void* submatch, int nsubmatch);
+extern "C" bool _re2_RE2_ok(const void* regex_ptr);
+extern "C" void _re2_RE2_error(const void* regex_ptr, char* buffer,
+    const size_t buffer_size);
+namespace re2
+{
+template<typename Regex>
+bool re2_ok(const Regex& regex)
+{
+    return _re2_RE2_ok(static_cast<const void*>(&regex));
 }
-#define MAKE_INTEGER_PARSER(type, name)                    \
-  inline RE2::Arg RE2::Hex(type* ptr) {                    \
-    return RE2::Arg(ptr, RE2::Arg::parse_##name##_hex);    \
-  }                                                        \
-  inline RE2::Arg RE2::Octal(type* ptr) {                  \
-    return RE2::Arg(ptr, RE2::Arg::parse_##name##_octal);  \
-  }                                                        \
-  inline RE2::Arg RE2::CRadix(type* ptr) {                 \
-    return RE2::Arg(ptr, RE2::Arg::parse_##name##_cradix); \
-  }
-MAKE_INTEGER_PARSER(short,              short)
-MAKE_INTEGER_PARSER(unsigned short,     ushort)
-MAKE_INTEGER_PARSER(int,                int)
-MAKE_INTEGER_PARSER(unsigned int,       uint)
-MAKE_INTEGER_PARSER(long,               long)
-MAKE_INTEGER_PARSER(unsigned long,      ulong)
-MAKE_INTEGER_PARSER(long long,          longlong)
-MAKE_INTEGER_PARSER(unsigned long long, ulonglong)
-#undef MAKE_INTEGER_PARSER
-#ifndef SWIG
-#if defined(__clang__)
-#elif defined(__GNUC__) && __GNUC__ >= 6
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#endif
-class LazyRE2 {
- private:
-  struct NoArg {};
- public:
-  typedef RE2 element_type;  // support std::pointer_traits
-  // Constructor omitted to preserve braced initialization in C++98.
-  // Pretend to be a pointer to Type (never NULL due to on-demand creation):
-  RE2& operator*() const { return *get(); }
-  RE2* operator->() const { return get(); }
-  // Named accessor/initializer:
-  RE2* get() const {
-    std::call_once(once_, &LazyRE2::Init, this);
-    return ptr_;
-  }
-  // All data fields must be public to support {"foo"} initialization.
-  const char* pattern_;
-  RE2::CannedOptions options_;
-  NoArg barrier_against_excess_initializers_;
-  mutable RE2* ptr_;
-  mutable std::once_flag once_;
- private:
-  static void Init(const LazyRE2* lazy_re2) {
-    lazy_re2->ptr_ = new RE2(lazy_re2->pattern_, lazy_re2->options_);
-  }
-  void operator=(const LazyRE2&);  // disallowed
-};
-#endif  // SWIG
-}  // namespace re2
-using re2::RE2;
-using re2::LazyRE2;
-#endif  // RE2_RE2_H_
+template<typename Regex>
+std::string re2_error(const Regex& regex)
+{
+    if (re2_ok(regex))
+    {
+        return std::string();
+    }
+    else
+    {
+        constexpr size_t buffer_size = 256u;
+        char buffer[buffer_size];
+        _re2_RE2_error(static_cast<const void*>(&regex), buffer, buffer_size);
+        return std::string(buffer);
+    }
+}
+template<typename CharT,
+    typename = typename std::enable_if<sizeof(CharT) == 1u>::type>
+std::shared_ptr<re2::RE2> re2_new(const CharT* pattern)
+{
+    auto re2_deleter = [](re2::RE2* ptr)
+    {
+        _re2_RE2_destruct_impl(static_cast<void*>(ptr));
+    };
+    auto ptr = static_cast<re2::RE2*>(
+        _re2_RE2_construct_impl(static_cast<const char*>(pattern)));
+    if (!ptr)
+        throw std::bad_alloc();
+    if (!re2_ok(*ptr))
+        throw std::logic_error(re2_error(*ptr));
+    return std::shared_ptr<re2::RE2>(ptr, re2_deleter);
+}
+template<typename Regex,
+    typename = std::enable_if<std::is_same<Regex, re2::RE2>::value>>
+bool re2_match(
+    const Regex& regex, const StringPiece& string_piece, size_t startpos,
+    size_t endpos, RE2::Anchor re_anchor, StringPiece* submatch, int nsubmatch)
+{
+    return _re2_RE2_match_impl(static_cast<const void*>(&regex),
+        static_cast<const void*>(&string_piece), startpos, endpos,
+        int(re_anchor), static_cast<void*>(submatch), nsubmatch);
+}
+}
 namespace wl
 {
 namespace utf8
@@ -6684,6 +6771,7 @@ inline constexpr bool is_ascii(char_t ch)
 }
 inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
 {
+    WL_THROW_IF_ABORT()
 #if defined(__AVX2__) || defined(__SSE4_1__)
     using namespace wl::simd;
 #  if defined(__AVX2__)
@@ -6727,11 +6815,10 @@ inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
         else if (uint8_t(byte) >= 0b1000'0000u)
         {
             ret_ascii_only = false;
-            ++str;
             break;
         }
     }
-    while (*str++)
+    while (*++str)
     {
     }
     return size_t(str - str0);
@@ -6739,6 +6826,7 @@ inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
 }
 inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
 {
+    WL_THROW_IF_ABORT()
 #if defined(__AVX2__) || defined(__SSE4_1__)
     using namespace wl::simd;
 #  if defined(__AVX2__)
@@ -6780,6 +6868,7 @@ inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
 inline size_t _get_string_size_check_valid_impl(
     const char_t* in_str, const size_t ref_byte_size)
 {
+    WL_THROW_IF_ABORT()
     size_t byte_size = 0;
     size_t trailing_size = 0;
     auto str_begin = reinterpret_cast<const int8_t*>(in_str);
@@ -6818,13 +6907,14 @@ inline size_t _get_string_size_check_valid_impl(
 template<bool CheckValid = false>
 size_t get_string_size(const char_t* str, const size_t byte_size)
 {
-    if (CheckValid)
+    if constexpr (CheckValid)
         return _get_string_size_check_valid_impl(str, byte_size);
     else
         return _get_string_size_impl(str, byte_size);
 }
 bool is_ascii_only(const char_t* str, const size_t byte_size)
 {
+    WL_THROW_IF_ABORT()
 #if defined(__AVX2__) || defined(__SSE4_1__)
     using namespace wl::simd;
 #  if defined(__AVX2__)
@@ -7698,7 +7788,7 @@ struct _pattern_alternatives
     static constexpr size_t size = sizeof...(Patterns);
     std::tuple<Patterns...> patterns;
     template<size_t I>
-    auto get() const &
+    auto get() const & -> const auto&
     {
         return std::get<I>(patterns);
     }
@@ -7773,6 +7863,12 @@ auto rule(Left&& left, Right&& right)
     return _pattern_rule<remove_cvref_t<Left>, remove_cvref_t<Right>>{
         std::forward<decltype(left)>(left),
         std::forward<decltype(right)>(right)};
+}
+template<typename Left, typename Right>
+auto rule_delayed(Left&& left, Right&& right)
+{
+    return rule(std::forward<decltype(left)>(left),
+            std::forward<decltype(right)>(right));
 }
 template<typename... Head>
 auto blank(const Head&...)
@@ -13103,9 +13199,9 @@ auto string_length(const X& x)
 {
     WL_TRY_BEGIN()
     static_assert(is_string_type_v<X>, WL_ERROR_STRING_TYPE_ONLY);
-    auto pure = [](const string& x)
+    auto pure = [](const auto& str)
     {
-        return int64_t(x.size());
+        return int64_t(str.size());
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -13227,6 +13323,7 @@ auto string_join(const Args&... args)
     auto [total_size, ascii_only] = _string_join_sizes_by_args(args...);
     auto ret = string(total_size, ascii_only);
     auto ret_data = ret.byte_data();
+    WL_THROW_IF_ABORT()
     _string_join_copy_by_args(ret_data, args...);
     assert(ret.check_validity());
     return ret;
@@ -13469,8 +13566,10 @@ auto _string_take_impl_ascii(const String& str, const Spec& spec)
 template<typename String, typename Spec>
 auto string_take(String&& str, const Spec& spec)
 {
+    WL_TRY_BEGIN()
     using StringT = remove_cvref_t<String>;
     static_assert(is_string_view_v<StringT>, WL_ERROR_STRING_ONLY);
+    WL_THROW_IF_ABORT()
     auto view = u8string_view{};
     if (str.ascii_only())
         view = _string_take_impl_ascii(str, spec);
@@ -13484,6 +13583,7 @@ auto string_take(String&& str, const Spec& spec)
     { // can return a string view
         return view;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<int64_t Id, int64_t... List>
 struct _pattern_id_list_find_impl;
@@ -13660,8 +13760,20 @@ struct _string_expression_match_shortest_tag {};
 template<typename String>
 auto regular_expression(const String& str)
 {
-    return _compiled_pattern<_pattern_condition_list<>, _pattern_id_list<>>{
-        std::make_shared<re2::RE2>(str.c_str())};
+    WL_TRY_BEGIN()
+    using CP = _compiled_pattern<
+        _pattern_condition_list<>, _pattern_id_list<>>;
+    try
+    {
+        WL_THROW_IF_ABORT()
+        return CP{re2::re2_new(str.c_str())};
+    }
+    catch (const std::logic_error& regex_error)
+    {
+        throw std::logic_error(
+            std::string(WL_ERROR_REGEX) + regex_error.what());
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<int64_t Id, typename Pattern, typename State, typename... Tags>
 auto _string_expression_compile(
@@ -13670,16 +13782,16 @@ auto _string_expression_compile(
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
     if constexpr (group_idx < 0)
     { // group does not exist; capture a new group
-        str.join(u8"(");
+        str.join("(");
         auto s1 = std::move(s).append_id(const_int<Id>{});
         auto s2 = _string_expression_compile(
             std::move(p.pattern), str, std::move(s1));
-        str.join(u8")");
+        str.join(")");
         return std::move(s2);
     }
     else
     { // group already exists; refer to that group
-        str.join(u8"(?:\\").join(_to_string(group_idx)).join(u8")");
+        str.join("(?:\\").join(_to_string(group_idx)).join(")");
         return std::move(s);
     }
 }
@@ -13687,7 +13799,7 @@ template<typename... Head, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_blank<Head...>, string& str, State s, Tags...)
 {
-    str.join(u8".");
+    str.join(".");
     return std::move(s);
 }
 template<typename... Head, typename State>
@@ -13695,14 +13807,14 @@ auto _string_expression_compile(
     _pattern_blank_sequence<Head...>, string& str, State s,
     _string_expression_match_shortest_tag)
 {
-    str.join(u8".+?");
+    str.join(".+?");
     return std::move(s);
 }
 template<typename... Head, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_blank_sequence<Head...>, string& str, State s, Tags...)
 {
-    str.join(u8".+");
+    str.join(".+");
     return std::move(s);
 }
 template<typename... Head, typename State>
@@ -13710,26 +13822,26 @@ auto _string_expression_compile(
     _pattern_blank_null_sequence<Head...>, string& str, State s,
     _string_expression_match_shortest_tag)
 {
-    str.join(u8".*?");
+    str.join(".*?");
     return std::move(s);
 }
 template<typename... Head, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_blank_null_sequence<Head...>, string& str, State s, Tags...)
 {
-    str.join(u8".*");
+    str.join(".*");
     return std::move(s);
 }
-template<size_t I, typename... Patterns, typename State, typename... Tags>
+template<size_t I, typename... Patterns, typename State>
 auto _string_expression_compile_impl(
-    _pattern_alternatives<Patterns...> p, string& str, State s, Tags...)
+    _pattern_alternatives<Patterns...> p, string& str, State s)
 {
     if constexpr (I < sizeof...(Patterns))
     {
         auto s1 = _string_expression_compile(
             std::move(p).template get<I>(), str, std::move(s));
         if constexpr (I + 1u < sizeof...(Patterns))
-            str.join(u8"|");
+            str.join("|");
         auto s2 = _string_expression_compile_impl<I + 1u>(
             std::move(p), str, std::move(s1));
         return std::move(s2);
@@ -13739,35 +13851,55 @@ auto _string_expression_compile_impl(
         return std::move(s);
     }
 }
+template<size_t I, typename... Patterns>
+void _string_expression_compile_impl(
+    const _pattern_alternatives<Patterns...>& p, string& str)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        str.join(p.template get<I>());
+        _string_expression_compile_impl<I + 1u>(p, str);
+    }
+}
 template<typename... Patterns, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_alternatives<Patterns...> p, string& str, State s, Tags...)
 {
-    str.join(u8"(?:");
-    auto s1 = _string_expression_compile_impl<0>(p, str, std::move(s));
-    str.join(u8")");
-    return std::move(s1);
+    if (_string_expression_compile_use_bracket(p))
+    {
+        str.join("[");
+        _string_expression_compile_impl<0u>(p, str);
+        str.join("]");
+    }
+    else
+    {
+        str.join("(?:");
+        _string_expression_compile_impl<0u>(p, str, std::move(s));
+        str.join(")");
+    }
+    return decltype(
+        _string_expression_compile_impl<0>(p, str, std::move(s))){};
 }
 template<typename Pattern, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_repeated<Pattern> p, string& str, State s, Tags...)
 {
     if (p.min == 0u)
-        str.join(u8"(?:");
+        str.join("(?:");
     auto s1 = _string_expression_compile(p.pattern, str, std::move(s));
     if (p.min == 0u)
-        str.join(u8")?");
-    str.join(u8"(?:");
+        str.join(")?");
+    str.join("(?:");
     auto s2 = _string_expression_compile(p.pattern, str, std::move(s1));
     if (p.max_is_infinity())
-        str.join(u8")*");
+        str.join(")*");
     else
     {
         if (p.min >= 2u)
-            str.join(u8"){").join(_to_string(p.min - 1u)).join(u8",");
+            str.join("){").join(_to_string(p.min - 1u)).join(",");
         else
-            str.join(u8"){0,");
-        str.join(_to_string(p.max - 1u)).join(u8"}");
+            str.join("){0,");
+        str.join(_to_string(p.max - 1u)).join("}");
     }
     return std::move(s2);
 }
@@ -13777,30 +13909,23 @@ auto _string_expression_compile(
     _string_expression_match_shortest_tag)
 {
     if (p.min == 0u)
-        str.join(u8"(?:");
+        str.join("(?:");
     auto s1 = _string_expression_compile(p.pattern, str, std::move(s));
     if (p.min == 0u)
-        str.join(u8")??");
-    str.join(u8"(?:");
+        str.join(")??");
+    str.join("(?:");
     auto s2 = _string_expression_compile(p.pattern, str, std::move(s1));
     if (p.max_is_infinity())
-        str.join(u8")*");
+        str.join(")*");
     else
     {
         if (p.min >= 2u)
-            str.join(u8"){").join(p.min - 1u).join(u8",");
+            str.join("){").join(p.min - 1u).join(",");
         else
-            str.join(u8"){0,");
-        str.join(p.max - 1u).join(u8"}?");
+            str.join("){0,");
+        str.join(p.max - 1u).join("}?");
     }
     return std::move(s2);
-}
-template<typename Pattern, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_except<Pattern>, string& str, State s, Tags...)
-{
-    assert(false);
-    return std::move(s);
 }
 template<typename Pattern, typename State, typename... Tags>
 auto _string_expression_compile(
@@ -13864,26 +13989,173 @@ inline void _string_expression_compile_impl(
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-    
-    for (; begin < end; ++begin)
+    if (begin == end)
     {
-        if (esc_table[*begin])
-            str.append('\\');
-        str.append(*begin);
+        str.join("(?:)");
     }
-    str.place_null_character();
+    else
+    {
+        for (; begin < end; ++begin)
+        {
+            if (esc_table[*begin])
+                str.append<false, false>('\\');
+            str.append<false, false>(*begin);
+        }
+        str.place_null_character();
+    }
+}
+template<typename String>
+auto _string_is_single_character(const String& s)
+{
+    return (s.byte_size() <= 4u) && (s.size() == 1u);
+}
+template<size_t I, typename... Patterns>
+auto _string_expression_compile_use_bracket_impl(
+    const _pattern_alternatives<Patterns...>& patterns)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        const auto& p = patterns.template get<I>();
+        if constexpr (is_string_view_v<remove_cvref_t<decltype(p)>>)
+            return _string_is_single_character(p) &&
+                _string_expression_compile_use_bracket_impl<I + 1u>(patterns);
+        else
+            return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+template<typename... Patterns>
+auto _string_expression_compile_use_bracket(
+    const _pattern_alternatives<Patterns...>& patterns)
+{
+    return _string_expression_compile_use_bracket_impl<0u>(patterns);
+}
+template<typename Any>
+auto _string_expression_compile_use_bracket(const Any& any)
+{
+    if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
+        return bool(all_true(any, [](const string& s)
+            { return boolean(_string_is_single_character(s)); }));
+    else
+        return false;
+}
+template<typename State, typename... Tags>
+auto _string_expression_compile(
+    const ndarray<string, 1u>& patterns, string& str, State s, Tags...)
+{
+    const auto use_bracket = _string_expression_compile_use_bracket(patterns);
+    auto begin = patterns.begin();
+    auto end = patterns.end();
+    if (use_bracket)
+        str.append('[');
+    else
+        str.join("(?:");
+    for (; begin != end; ++begin)
+    {
+        _string_expression_compile_impl(
+            begin->byte_begin(), begin->byte_end(), str);
+        if (!use_bracket)
+            str.append('|');
+    }
+    if (use_bracket)
+        str.append(']');
+    else
+        str.append(')');
+    return std::move(s);
+}
+template<typename Any, typename State, typename... Tags>
+auto _string_expression_compile(
+    _pattern_except<Any> p, string& str, State s, Tags...)
+{
+    if constexpr (is_string_view_v<Any>)
+    {
+        if (!_string_is_single_character(p.pattern))
+            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+        str.join("[^");
+        _string_expression_compile_impl(
+            p.pattern.byte_begin(), p.pattern.byte_end(), str);
+        str.append(']');
+    }
+    else if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
+    {
+        if (!_string_expression_compile_use_bracket(p.pattern))
+            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+        auto begin = p.pattern.begin();
+        auto end = p.pattern.end();
+        str.join("[^");
+        for (; begin != end; ++begin)
+            _string_expression_compile_impl(
+                begin->byte_begin(), begin->byte_end(), str);
+        str.append(']');
+    }
+    else
+    {
+        static_assert(always_false_v<Any>, WL_ERROR_STRING_EXCEPT);
+    }
+    return std::move(s);
+}
+template<typename... Patterns, typename State, typename... Tags>
+auto _string_expression_compile(
+    _pattern_except<_pattern_alternatives<Patterns...>> p,
+    string& str, State s, Tags...)
+{
+    if (!_string_expression_compile_use_bracket(p.pattern))
+        throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+    str.join("[^");
+    _string_expression_compile_impl<0u>(p.pattern, str);
+    str.join("]");
+    return std::move(s);
 }
 template<typename Any, typename State, typename... Tags>
 auto _string_expression_compile(Any&& any, string& str, State s, Tags...)
 {
-    if constexpr (is_string_view_v<remove_cvref_t<Any>>)
+    using AT = remove_cvref_t<Any>;
+    if constexpr (is_string_view_v<AT>)
     {
         _string_expression_compile_impl(any.byte_begin(), any.byte_end(), str);
         return std::move(s);
     }
+    else if constexpr (array_rank_v<AT> == 1u)
+    {
+        static_assert(is_string_v<value_type_t<AT>>, WL_ERROR_NOT_A_PATTERN);
+        const auto& valany = allows<view_category::Array>(
+            std::forward<decltype(any)>(any));
+        return _string_expression_compile(valany, str, s);
+    }
     else
     {
-        static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
+        static_assert(is_pattern_v<AT>, WL_ERROR_NOT_A_PATTERN);
+        if constexpr (std::is_same_v<AT, _whitespace_type>)
+            str.join("\\s+");
+        else if constexpr (std::is_same_v<AT, _number_string_type>)
+            str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+        else if constexpr (std::is_same_v<AT, _number_string_type>)
+            str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+        else if constexpr (std::is_same_v<AT, _word_character_type>)
+            str.join("[[:alnum:]]");
+        else if constexpr (std::is_same_v<AT, _digit_character_type>)
+            str.join("\\d");
+        else if constexpr (std::is_same_v<AT, _hexadecimal_character_type>)
+            str.join("[[:xdigit:]]");
+        else if constexpr (std::is_same_v<AT, _whitespace_character_type>)
+            str.join("\\s");
+        else if constexpr (std::is_same_v<AT, _punctuation_character_type>)
+            str.join("[[:punct:]]");
+        else if constexpr (std::is_same_v<AT, _word_boundary_type>)
+            str.join("\\b");
+        else if constexpr (std::is_same_v<AT, _start_of_line_type>)
+            str.join("^");
+        else if constexpr (std::is_same_v<AT, _end_of_line_type>)
+            str.join("$");
+        else if constexpr (std::is_same_v<AT, _start_of_string_type>)
+            str.join("\\A");
+        else if constexpr (std::is_same_v<AT, _end_of_string_type>)
+            str.join("\\z");
+        else
+            static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
         return std::move(s);
     }
 }
@@ -13907,11 +14179,11 @@ template<typename... Patterns, typename State, typename FormatIdList>
 auto _string_replacement_compile(_string_expression<Patterns...>&& p,
     string& str, const State& s, FormatIdList f)
 {
-    return _string_expression_compile_impl<0u>(
+    return _string_replacement_compile_impl<0u>(
         std::move(p), str, s, std::move(f));
 }
 template<int64_t Id, typename State, typename FormatIdList>
-auto _string_replacement_compile(const_int<Id>,
+auto _string_replacement_compile(_named_replacement<Id>,
     string& str, const State&, FormatIdList)
 {
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
@@ -13923,6 +14195,7 @@ auto _string_replacement_compile(const_int<Id>,
 inline void _string_replacement_compile_impl(
     const utf8::char_t* begin, const utf8::char_t* end, string& str)
 {
+    WL_THROW_IF_ABORT()
     for (; begin < end; ++begin)
     {
         if (*begin == utf8::char_t('$'))
@@ -13935,7 +14208,8 @@ template<typename Any, typename State, typename FormatIdList>
 auto _string_replacement_compile(
     Any&& any, string& str, const State&, FormatIdList f)
 {
-    if constexpr (is_string_view_v<remove_cvref_t<Any>>)
+    using AT = remove_cvref_t<Any>;
+    if constexpr (is_string_view_v<AT>)
     {
         _string_replacement_compile_impl(
             any.byte_begin(), any.byte_end(), str);
@@ -13943,22 +14217,32 @@ auto _string_replacement_compile(
     }
     else
     {
-        static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
+        static_assert(always_false_v<Any>, WL_ERROR_NOT_A_REPLACEMENT);
         return std::move(f);
     }
 }
 template<typename Expression>
 auto _string_expression_compile(Expression e)
 {
-    auto str = string();
-    auto s1 = _string_expression_compile(e, str, 
+    auto str = string("(?ms)");
+    auto s1 = _string_expression_compile(
+        std::forward<decltype(e)>(e), str, 
         _string_expression_compilation_state<
             _pattern_condition_list<>,
             _pattern_id_list<>
         >{});
-    using PatternIdList = typename decltype(s1)::PatternIdList;
-    return _compiled_pattern<decltype(s1.conditions), PatternIdList>{
-        std::make_shared<re2::RE2>(str.c_str()), std::move(s1.conditions)};
+    using CP = _compiled_pattern<
+        decltype(s1.conditions), typename decltype(s1)::PatternIdList>;
+    try
+    {
+        WL_THROW_IF_ABORT()
+        return CP{re2::re2_new(str.c_str()), std::move(s1.conditions)};
+    }
+    catch (const std::logic_error& regex_error)
+    {
+        throw std::logic_error(std::string(WL_ERROR_INTERNAL) +
+            WL_ERROR_REGEX + regex_error.what());
+    }
 }
 template<typename CL, typename PL>
 auto _string_expression_compile(_compiled_pattern<CL, PL>&& pattern)
@@ -14051,36 +14335,98 @@ inline void _string_expression_format(_regex_match_results<PL> match,
     }
     ret.place_null_character();
 }
+template<typename CL, typename PL>
+auto _pattern_convert_impl(const _compiled_pattern<CL, PL>& pattern)
+{
+    auto regex = pattern.get_regex().pattern();
+    auto ret = string((const utf8::char_t*)regex.c_str(), regex.size());
+    if constexpr (CL::size > 0)
+        ret.join(" [").join(to_string(CL::size)).join("  conditions]");
+    return ret;
+}
+template<typename CP, typename CR>
+auto _pattern_convert_impl(const _compiled_pattern_rule<CP, CR>& rule)
+{
+    auto ret = _pattern_convert_impl(rule.pattern);
+    ret.join(rule.replacement.format);
+    return ret;
+}
+template<typename Any>
+auto _pattern_convert(Any&& any)
+{
+    WL_TRY_BEGIN()
+    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
+        return _pattern_convert_impl(
+            _string_expression_compile(std::forward<decltype(any)>(any)));
+    else
+        return _pattern_convert_impl(std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename CL, typename PL>
+struct _regex_search_state
+{
+    using match_t = typename _compiled_pattern<CL, PL>::match_t;
+    const re2::StringPiece piece_;
+    const _compiled_pattern<CL, PL>& pattern_;
+    match_t match_{};
+    size_t start_position_ = 0u;
+    _regex_search_state(const char* str_data, size_t str_size,
+        const _compiled_pattern<CL, PL>& pattern) :
+        piece_(str_data, str_size), pattern_{pattern}
+    {
+        match_.data()[0] = re2::StringPiece(piece_.begin(), 0u);
+    }
+    auto prefix_data() const
+    {
+        return (const utf8::char_t*)(piece_.begin() + start_position_);
+    }
+    auto prefix_size() const
+    {
+        return size_t((const utf8::char_t*)match_[0].begin() - prefix_data());
+    }
+    auto match() const -> const auto&
+    {
+        return match_;
+    }
+    bool find_next(re2::RE2::Anchor re_anchor = re2::RE2::UNANCHORED)
+    {
+        WL_THROW_IF_ABORT()
+        start_position_ = match_[0].end() - piece_.data();
+        auto new_start_position = start_position_;
+        for (;;)
+        {
+            bool found = re2::re2_match(*pattern_.regex_ptr, piece_,
+                new_start_position, piece_.size(), re_anchor, match_.data(),
+                int(match_.size()));
+            if (!found)
+                return false;
+            if (pattern_.test_match(match_))
+                return true;
+            else
+                new_start_position += utf8::string_iterator(
+                    (const utf8::char_t*)(piece_.begin() + new_start_position)
+                ).num_bytes();
+            if (new_start_position >= piece_.size())
+                return false;
+        }
+    }
+};
+template<typename CL, typename PL>
+auto _regex_search(const char* str_data, size_t str_size,
+    const _compiled_pattern<CL, PL>& pattern)
+{
+    return _regex_search_state<CL, PL>(str_data, str_size, pattern);
+}
 template<typename String, typename CL, typename PL>
 auto _string_count_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
 {
-    using CP = _compiled_pattern<CL, PL>;
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
-    size_t num_matches = 0u;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    int64_t num_matches = 0;
+    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
-        if (!found)
-            break;
-        if (pattern.test_match(match))
-        {
-            ++num_matches;
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        ++num_matches;
     }
     return num_matches;
 }
@@ -14090,10 +14436,10 @@ auto _string_match_q_impl(String&& str,
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
-    const auto piece = re2::StringPiece(str.c_str(), str.byte_size());
     _regex_match_results<PL> match;
-    bool matched = (*pattern.regex_ptr).Match(piece, 0u, str.byte_size(),
-        re2::RE2::ANCHOR_BOTH, match.data(), match.size());
+    bool matched = re2::re2_match(*pattern.regex_ptr,
+        re2::StringPiece(str.c_str(), str.byte_size()), 0u, str.byte_size(),
+        re2::RE2::ANCHOR_BOTH, match.data(), int(match.size()));
     return boolean(matched && pattern.test_match(match));
 }
 template<typename String, typename CP, typename CR>
@@ -14103,65 +14449,27 @@ auto _string_cases_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = rule.pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
-        if (!found)
-            break;
-        if (rule.pattern.test_match(match))
-        {
-            auto str = string();
-            _string_expression_format(match, rule.replacement.format, str);
-            ret.append(std::move(str));
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        auto str = string();
+        _string_expression_format(
+            search.match(), rule.replacement.format, str);
+        ret.append(std::move(str));
     }
     return ret;
 }
 template<typename String, typename CL, typename PL>
 auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
 {
-    using CP = _compiled_pattern<CL, PL>;
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
-        if (!found)
-            break;
-        if (pattern.test_match(match))
-        {
-            ret.append(string((const utf8::char_t*)match[0].begin(),
-                match[0].size()));
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        ret.append(string((const utf8::char_t*)search.match()[0].begin(),
+            search.match()[0].size()));
     }
     return ret;
 }
@@ -14172,101 +14480,126 @@ auto _string_replace_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     string ret;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = rule.pattern.regex_ptr->Match(piece, 0u, piece.size(),
-            re2::RE2::UNANCHORED, match.data(), int(match.size()));
-        if (!found)
-            break;
-        if (rule.pattern.test_match(match))
-        {
-            const auto prefix_begin = begin.get_pointer();
-            const auto prefix_end = (const utf8::char_t*)match[0].begin();
-            ret.append<false>(prefix_begin, size_t(prefix_end - prefix_begin));
-            _string_expression_format(match, rule.replacement.format, ret);
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        ret.append<false>(search.prefix_data(), search.prefix_size());
+        _string_expression_format(
+            search.match(), rule.replacement.format, ret);
     }
-    if (begin < end)
-        ret.append<false>(begin.get_pointer(),
-            size_t(end.byte_difference(begin)));
+    ret.append<false>(search.prefix_data(),
+        str.byte_size() - (search.prefix_data() - str.byte_data()));
+    ret.place_null_character();
     return ret;
 }
-template<typename String, typename Any>
-auto _string_count_impl(String&& str, const Any& any)
+template<typename String, typename CL, typename PL>
+auto _string_split_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
 {
-    static_assert(always_false_v<String>, WL_ERROR_STRING_COUNT_PATTERN);
-    return 0;
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    while (search.find_next())
+    {
+        if (ret.size() > 0u || search.prefix_size() > 0u)
+            ret.append(string(search.prefix_data(), search.prefix_size()));
+    }
+    const auto prefix_size = str.byte_size() -
+        (search.prefix_data() - str.byte_data());
+    if (prefix_size > 0u)
+        ret.append(string(search.prefix_data(), prefix_size));
+    return ret;
 }
-template<typename String, typename Any>
-auto _string_cases_impl(String&& str, const Any& any)
+template<typename String, typename CP, typename CR>
+auto _string_split_impl(String&& str,
+    const _compiled_pattern_rule<CP, CR>& rule)
 {
-    static_assert(always_false_v<String>, WL_ERROR_STRING_CASES_PATTERN);
-    return 0;
-}
-template<typename String, typename Any>
-auto _string_replace_impl(String&& str, const Any& any)
-{
-    static_assert(always_false_v<String>, WL_ERROR_STRING_REPLACE_PATTERN);
-    return 0;
-}
-template<typename String, typename Any>
-auto _string_match_q_impl(String&& str, const Any& any)
-{
-    static_assert(always_false_v<String>, WL_ERROR_STRING_MATCH_Q_PATTERN);
-    return 0;
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    while (search.find_next())
+    {
+        if (ret.size() > 0u || search.prefix_size() > 0u)
+            ret.append(string(search.prefix_data(), search.prefix_size()));
+        auto replaced = string();
+        _string_expression_format(
+            search.match(), rule.replacement.format, replaced);
+        ret.append(std::move(replaced));
+    }
+    const auto prefix_size = str.byte_size() -
+        (search.prefix_data() - str.byte_data());
+    if (prefix_size > 0u)
+        ret.append(string(search.prefix_data(), prefix_size));
+    return ret;
 }
 template<typename String, typename Any>
 auto string_count(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_count_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_count_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename String, typename Any>
 auto string_cases(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_cases_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_cases_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename String, typename Any>
 auto string_replace(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_replace_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_replace_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename String, typename Any>
 auto string_match_q(String&& str, Any&& any)
 {
+    WL_TRY_BEGIN()
     if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
         return _string_match_q_impl(std::forward<decltype(str)>(str),
             _string_expression_compile(std::forward<decltype(any)>(any)));
     else
         return _string_match_q_impl(std::forward<decltype(str)>(str),
             std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename String, typename Any>
+auto string_split(String&& str, Any&& any)
+{
+    WL_TRY_BEGIN()
+    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
+        return _string_split_impl(std::forward<decltype(str)>(str),
+            _string_expression_compile(std::forward<decltype(any)>(any)));
+    else
+        return _string_split_impl(std::forward<decltype(str)>(str),
+            std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename String>
+auto string_split(String&& str)
+{
+    WL_TRY_BEGIN()
+    static auto whitespace = _string_expression_compile(const_whitespace);
+    return _string_split_impl(std::forward<decltype(str)>(str), whitespace);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl

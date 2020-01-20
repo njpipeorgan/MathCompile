@@ -42,6 +42,7 @@ inline constexpr bool is_ascii(char_t ch)
 
 inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
 {
+    WL_THROW_IF_ABORT()
 #if defined(__AVX2__) || defined(__SSE4_1__)
     using namespace wl::simd;
 #  if defined(__AVX2__)
@@ -97,6 +98,7 @@ inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
 
 inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
 {
+    WL_THROW_IF_ABORT()
 #if defined(__AVX2__) || defined(__SSE4_1__)
     using namespace wl::simd;
 #  if defined(__AVX2__)
@@ -139,6 +141,7 @@ inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
 inline size_t _get_string_size_check_valid_impl(
     const char_t* in_str, const size_t ref_byte_size)
 {
+    WL_THROW_IF_ABORT()
     size_t byte_size = 0;
     size_t trailing_size = 0;
     auto str_begin = reinterpret_cast<const int8_t*>(in_str);
@@ -180,7 +183,7 @@ inline size_t _get_string_size_check_valid_impl(
 template<bool CheckValid = false>
 size_t get_string_size(const char_t* str, const size_t byte_size)
 {
-    if (CheckValid)
+    if constexpr (CheckValid)
         return _get_string_size_check_valid_impl(str, byte_size);
     else
         return _get_string_size_impl(str, byte_size);
@@ -188,6 +191,7 @@ size_t get_string_size(const char_t* str, const size_t byte_size)
 
 bool is_ascii_only(const char_t* str, const size_t byte_size)
 {
+    WL_THROW_IF_ABORT()
 #if defined(__AVX2__) || defined(__SSE4_1__)
     using namespace wl::simd;
 #  if defined(__AVX2__)

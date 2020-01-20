@@ -292,6 +292,9 @@ namespace wl
 #define WL_ERROR_NOT_A_REPLACEMENT \
 "The expression does not evaluate to a valid string pattern replacement."
 
+#define WL_ERROR_STRING_EXCEPT \
+"Except only takes a set of characters as its argument in string expressions."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \

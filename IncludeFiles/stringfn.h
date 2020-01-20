@@ -38,9 +38,9 @@ auto string_length(const X& x)
 {
     WL_TRY_BEGIN()
     static_assert(is_string_type_v<X>, WL_ERROR_STRING_TYPE_ONLY);
-    auto pure = [](const string& x)
+    auto pure = [](const auto& str)
     {
-        return int64_t(x.size());
+        return int64_t(str.size());
     };
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -169,6 +169,7 @@ auto string_join(const Args&... args)
     auto [total_size, ascii_only] = _string_join_sizes_by_args(args...);
     auto ret = string(total_size, ascii_only);
     auto ret_data = ret.byte_data();
+    WL_THROW_IF_ABORT()
     _string_join_copy_by_args(ret_data, args...);
     assert(ret.check_validity());
     return ret;
@@ -423,9 +424,11 @@ auto _string_take_impl_ascii(const String& str, const Spec& spec)
 template<typename String, typename Spec>
 auto string_take(String&& str, const Spec& spec)
 {
+    WL_TRY_BEGIN()
     using StringT = remove_cvref_t<String>;
     static_assert(is_string_view_v<StringT>, WL_ERROR_STRING_ONLY);
 
+    WL_THROW_IF_ABORT()
     auto view = u8string_view{};
     if (str.ascii_only())
         view = _string_take_impl_ascii(str, spec);
@@ -440,6 +443,7 @@ auto string_take(String&& str, const Spec& spec)
     { // can return a string view
         return view;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<int64_t Id, int64_t... List>
@@ -652,6 +656,7 @@ auto regular_expression(const String& str)
         _pattern_condition_list<>, _pattern_id_list<>>;
     try
     {
+        WL_THROW_IF_ABORT()
         return CP{re2::re2_new(str.c_str())};
     }
     catch (const std::logic_error& regex_error)
@@ -669,16 +674,16 @@ auto _string_expression_compile(
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
     if constexpr (group_idx < 0)
     { // group does not exist; capture a new group
-        str.join(u8"(");
+        str.join("(");
         auto s1 = std::move(s).append_id(const_int<Id>{});
         auto s2 = _string_expression_compile(
             std::move(p.pattern), str, std::move(s1));
-        str.join(u8")");
+        str.join(")");
         return std::move(s2);
     }
     else
     { // group already exists; refer to that group
-        str.join(u8"(?:\\").join(_to_string(group_idx)).join(u8")");
+        str.join("(?:\\").join(_to_string(group_idx)).join(")");
         return std::move(s);
     }
 }
@@ -687,7 +692,7 @@ template<typename... Head, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_blank<Head...>, string& str, State s, Tags...)
 {
-    str.join(u8".");
+    str.join(".");
     return std::move(s);
 }
 
@@ -696,7 +701,7 @@ auto _string_expression_compile(
     _pattern_blank_sequence<Head...>, string& str, State s,
     _string_expression_match_shortest_tag)
 {
-    str.join(u8".+?");
+    str.join(".+?");
     return std::move(s);
 }
 
@@ -704,7 +709,7 @@ template<typename... Head, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_blank_sequence<Head...>, string& str, State s, Tags...)
 {
-    str.join(u8".+");
+    str.join(".+");
     return std::move(s);
 }
 
@@ -713,7 +718,7 @@ auto _string_expression_compile(
     _pattern_blank_null_sequence<Head...>, string& str, State s,
     _string_expression_match_shortest_tag)
 {
-    str.join(u8".*?");
+    str.join(".*?");
     return std::move(s);
 }
 
@@ -721,20 +726,20 @@ template<typename... Head, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_blank_null_sequence<Head...>, string& str, State s, Tags...)
 {
-    str.join(u8".*");
+    str.join(".*");
     return std::move(s);
 }
 
-template<size_t I, typename... Patterns, typename State, typename... Tags>
+template<size_t I, typename... Patterns, typename State>
 auto _string_expression_compile_impl(
-    _pattern_alternatives<Patterns...> p, string& str, State s, Tags...)
+    _pattern_alternatives<Patterns...> p, string& str, State s)
 {
     if constexpr (I < sizeof...(Patterns))
     {
         auto s1 = _string_expression_compile(
             std::move(p).template get<I>(), str, std::move(s));
         if constexpr (I + 1u < sizeof...(Patterns))
-            str.join(u8"|");
+            str.join("|");
         auto s2 = _string_expression_compile_impl<I + 1u>(
             std::move(p), str, std::move(s1));
         return std::move(s2);
@@ -745,14 +750,35 @@ auto _string_expression_compile_impl(
     }
 }
 
+template<size_t I, typename... Patterns>
+void _string_expression_compile_impl(
+    const _pattern_alternatives<Patterns...>& p, string& str)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        str.join(p.template get<I>());
+        _string_expression_compile_impl<I + 1u>(p, str);
+    }
+}
+
 template<typename... Patterns, typename State, typename... Tags>
 auto _string_expression_compile(
     _pattern_alternatives<Patterns...> p, string& str, State s, Tags...)
 {
-    str.join(u8"(?:");
-    auto s1 = _string_expression_compile_impl<0>(p, str, std::move(s));
-    str.join(u8")");
-    return std::move(s1);
+    if (_string_expression_compile_use_bracket(p))
+    {
+        str.join("[");
+        _string_expression_compile_impl<0u>(p, str);
+        str.join("]");
+    }
+    else
+    {
+        str.join("(?:");
+        _string_expression_compile_impl<0u>(p, str, std::move(s));
+        str.join(")");
+    }
+    return decltype(
+        _string_expression_compile_impl<0>(p, str, std::move(s))){};
 }
 
 template<typename Pattern, typename State, typename... Tags>
@@ -760,21 +786,21 @@ auto _string_expression_compile(
     _pattern_repeated<Pattern> p, string& str, State s, Tags...)
 {
     if (p.min == 0u)
-        str.join(u8"(?:");
+        str.join("(?:");
     auto s1 = _string_expression_compile(p.pattern, str, std::move(s));
     if (p.min == 0u)
-        str.join(u8")?");
-    str.join(u8"(?:");
+        str.join(")?");
+    str.join("(?:");
     auto s2 = _string_expression_compile(p.pattern, str, std::move(s1));
     if (p.max_is_infinity())
-        str.join(u8")*");
+        str.join(")*");
     else
     {
         if (p.min >= 2u)
-            str.join(u8"){").join(_to_string(p.min - 1u)).join(u8",");
+            str.join("){").join(_to_string(p.min - 1u)).join(",");
         else
-            str.join(u8"){0,");
-        str.join(_to_string(p.max - 1u)).join(u8"}");
+            str.join("){0,");
+        str.join(_to_string(p.max - 1u)).join("}");
     }
     return std::move(s2);
 }
@@ -785,31 +811,23 @@ auto _string_expression_compile(
     _string_expression_match_shortest_tag)
 {
     if (p.min == 0u)
-        str.join(u8"(?:");
+        str.join("(?:");
     auto s1 = _string_expression_compile(p.pattern, str, std::move(s));
     if (p.min == 0u)
-        str.join(u8")??");
-    str.join(u8"(?:");
+        str.join(")??");
+    str.join("(?:");
     auto s2 = _string_expression_compile(p.pattern, str, std::move(s1));
     if (p.max_is_infinity())
-        str.join(u8")*");
+        str.join(")*");
     else
     {
         if (p.min >= 2u)
-            str.join(u8"){").join(p.min - 1u).join(u8",");
+            str.join("){").join(p.min - 1u).join(",");
         else
-            str.join(u8"){0,");
-        str.join(p.max - 1u).join(u8"}?");
+            str.join("){0,");
+        str.join(p.max - 1u).join("}?");
     }
     return std::move(s2);
-}
-
-template<typename Pattern, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_except<Pattern>, string& str, State s, Tags...)
-{
-    assert(false);
-    return std::move(s);
 }
 
 template<typename Pattern, typename State, typename... Tags>
@@ -879,14 +897,133 @@ inline void _string_expression_compile_impl(
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-    
-    for (; begin < end; ++begin)
+
+    if (begin == end)
     {
-        if (esc_table[*begin])
-            str.append('\\');
-        str.append(*begin);
+        str.join("(?:)");
     }
-    str.place_null_character();
+    else
+    {
+        for (; begin < end; ++begin)
+        {
+            if (esc_table[*begin])
+                str.append<false, false>('\\');
+            str.append<false, false>(*begin);
+        }
+        str.place_null_character();
+    }
+}
+
+template<typename String>
+auto _string_is_single_character(const String& s)
+{
+    return (s.byte_size() <= 4u) && (s.size() == 1u);
+}
+
+template<size_t I, typename... Patterns>
+auto _string_expression_compile_use_bracket_impl(
+    const _pattern_alternatives<Patterns...>& patterns)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        const auto& p = patterns.template get<I>();
+        if constexpr (is_string_view_v<remove_cvref_t<decltype(p)>>)
+            return _string_is_single_character(p) &&
+                _string_expression_compile_use_bracket_impl<I + 1u>(patterns);
+        else
+            return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+template<typename... Patterns>
+auto _string_expression_compile_use_bracket(
+    const _pattern_alternatives<Patterns...>& patterns)
+{
+    return _string_expression_compile_use_bracket_impl<0u>(patterns);
+}
+
+template<typename Any>
+auto _string_expression_compile_use_bracket(const Any& any)
+{
+    if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
+        return bool(all_true(any, [](const string& s)
+            { return boolean(_string_is_single_character(s)); }));
+    else
+        return false;
+}
+
+template<typename State, typename... Tags>
+auto _string_expression_compile(
+    const ndarray<string, 1u>& patterns, string& str, State s, Tags...)
+{
+    const auto use_bracket = _string_expression_compile_use_bracket(patterns);
+    auto begin = patterns.begin();
+    auto end = patterns.end();
+    if (use_bracket)
+        str.append('[');
+    else
+        str.join("(?:");
+    for (; begin != end; ++begin)
+    {
+        _string_expression_compile_impl(
+            begin->byte_begin(), begin->byte_end(), str);
+        if (!use_bracket)
+            str.append('|');
+    }
+    if (use_bracket)
+        str.append(']');
+    else
+        str.append(')');
+    return std::move(s);
+}
+
+template<typename Any, typename State, typename... Tags>
+auto _string_expression_compile(
+    _pattern_except<Any> p, string& str, State s, Tags...)
+{
+    if constexpr (is_string_view_v<Any>)
+    {
+        if (!_string_is_single_character(p.pattern))
+            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+        str.join("[^");
+        _string_expression_compile_impl(
+            p.pattern.byte_begin(), p.pattern.byte_end(), str);
+        str.append(']');
+    }
+    else if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
+    {
+        if (!_string_expression_compile_use_bracket(p.pattern))
+            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+        auto begin = p.pattern.begin();
+        auto end = p.pattern.end();
+        str.join("[^");
+        for (; begin != end; ++begin)
+            _string_expression_compile_impl(
+                begin->byte_begin(), begin->byte_end(), str);
+        str.append(']');
+    }
+    else
+    {
+        static_assert(always_false_v<Any>, WL_ERROR_STRING_EXCEPT);
+    }
+    return std::move(s);
+}
+
+template<typename... Patterns, typename State, typename... Tags>
+auto _string_expression_compile(
+    _pattern_except<_pattern_alternatives<Patterns...>> p,
+    string& str, State s, Tags...)
+{
+    if (!_string_expression_compile_use_bracket(p.pattern))
+        throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+    str.join("[^");
+    _string_expression_compile_impl<0u>(p.pattern, str);
+    str.join("]");
+    return std::move(s);
 }
 
 template<typename Any, typename State, typename... Tags>
@@ -898,35 +1035,42 @@ auto _string_expression_compile(Any&& any, string& str, State s, Tags...)
         _string_expression_compile_impl(any.byte_begin(), any.byte_end(), str);
         return std::move(s);
     }
+    else if constexpr (array_rank_v<AT> == 1u)
+    {
+        static_assert(is_string_v<value_type_t<AT>>, WL_ERROR_NOT_A_PATTERN);
+        const auto& valany = allows<view_category::Array>(
+            std::forward<decltype(any)>(any));
+        return _string_expression_compile(valany, str, s);
+    }
     else
     {
-        static_assert(is_pattern_v<Any>, WL_ERROR_NOT_A_PATTERN);
+        static_assert(is_pattern_v<AT>, WL_ERROR_NOT_A_PATTERN);
         if constexpr (std::is_same_v<AT, _whitespace_type>)
             str.join("\\s+");
         else if constexpr (std::is_same_v<AT, _number_string_type>)
-            str.join(u8"(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+            str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
         else if constexpr (std::is_same_v<AT, _number_string_type>)
-            str.join(u8"(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+            str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
         else if constexpr (std::is_same_v<AT, _word_character_type>)
-            str.join(u8"[[:alnum:]]");
+            str.join("[[:alnum:]]");
         else if constexpr (std::is_same_v<AT, _digit_character_type>)
-            str.join(u8"\\d");
+            str.join("\\d");
         else if constexpr (std::is_same_v<AT, _hexadecimal_character_type>)
-            str.join(u8"[[:xdigit:]]");
+            str.join("[[:xdigit:]]");
         else if constexpr (std::is_same_v<AT, _whitespace_character_type>)
-            str.join(u8"\\s");
+            str.join("\\s");
         else if constexpr (std::is_same_v<AT, _punctuation_character_type>)
-            str.join(u8"[[:punct:]]");
+            str.join("[[:punct:]]");
         else if constexpr (std::is_same_v<AT, _word_boundary_type>)
-            str.join(u8"\\b");
+            str.join("\\b");
         else if constexpr (std::is_same_v<AT, _start_of_line_type>)
-            str.join(u8"^");
+            str.join("^");
         else if constexpr (std::is_same_v<AT, _end_of_line_type>)
-            str.join(u8"$");
+            str.join("$");
         else if constexpr (std::is_same_v<AT, _start_of_string_type>)
-            str.join(u8"\\A");
+            str.join("\\A");
         else if constexpr (std::is_same_v<AT, _end_of_string_type>)
-            str.join(u8"\\z");
+            str.join("\\z");
         else
             static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
         return std::move(s);
@@ -972,6 +1116,7 @@ auto _string_replacement_compile(_named_replacement<Id>,
 inline void _string_replacement_compile_impl(
     const utf8::char_t* begin, const utf8::char_t* end, string& str)
 {
+    WL_THROW_IF_ABORT()
     for (; begin < end; ++begin)
     {
         if (*begin == utf8::char_t('$'))
@@ -1000,9 +1145,9 @@ auto _string_replacement_compile(
 }
 
 template<typename Expression>
-auto _string_expression_compile(Expression&& e)
+auto _string_expression_compile(Expression e)
 {
-    auto str = string(u8"(?ms)");
+    auto str = string("(?ms)");
     auto s1 = _string_expression_compile(
         std::forward<decltype(e)>(e), str, 
         _string_expression_compilation_state<
@@ -1013,6 +1158,7 @@ auto _string_expression_compile(Expression&& e)
         decltype(s1.conditions), typename decltype(s1)::PatternIdList>;
     try
     {
+        WL_THROW_IF_ABORT()
         return CP{re2::re2_new(str.c_str()), std::move(s1.conditions)};
     }
     catch (const std::logic_error& regex_error)
@@ -1147,37 +1293,78 @@ auto _pattern_convert(Any&& any)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename CL, typename PL>
+struct _regex_search_state
+{
+    using match_t = typename _compiled_pattern<CL, PL>::match_t;
+    const re2::StringPiece piece_;
+    const _compiled_pattern<CL, PL>& pattern_;
+    match_t match_{};
+    size_t start_position_ = 0u;
+
+    _regex_search_state(const char* str_data, size_t str_size,
+        const _compiled_pattern<CL, PL>& pattern) :
+        piece_(str_data, str_size), pattern_{pattern}
+    {
+        match_.data()[0] = re2::StringPiece(piece_.begin(), 0u);
+    }
+
+    auto prefix_data() const
+    {
+        return (const utf8::char_t*)(piece_.begin() + start_position_);
+    }
+
+    auto prefix_size() const
+    {
+        return size_t((const utf8::char_t*)match_[0].begin() - prefix_data());
+    }
+
+    auto match() const -> const auto&
+    {
+        return match_;
+    }
+
+    bool find_next(re2::RE2::Anchor re_anchor = re2::RE2::UNANCHORED)
+    {
+        WL_THROW_IF_ABORT()
+        start_position_ = match_[0].end() - piece_.data();
+        auto new_start_position = start_position_;
+        for (;;)
+        {
+            bool found = re2::re2_match(*pattern_.regex_ptr, piece_,
+                new_start_position, piece_.size(), re_anchor, match_.data(),
+                int(match_.size()));
+            if (!found)
+                return false;
+            if (pattern_.test_match(match_))
+                return true;
+            else
+                new_start_position += utf8::string_iterator(
+                    (const utf8::char_t*)(piece_.begin() + new_start_position)
+                ).num_bytes();
+            if (new_start_position >= piece_.size())
+                return false;
+        }
+    }
+};
+
+template<typename CL, typename PL>
+auto _regex_search(const char* str_data, size_t str_size,
+    const _compiled_pattern<CL, PL>& pattern)
+{
+    return _regex_search_state<CL, PL>(str_data, str_size, pattern);
+}
+
 template<typename String, typename CL, typename PL>
 auto _string_count_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
 {
-    using CP = _compiled_pattern<CL, PL>;
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
-    size_t num_matches = 0u;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    int64_t num_matches = 0;
+    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = re2::re2_match(*pattern.regex_ptr, piece, 0u,
-            piece.size(), re2::RE2::UNANCHORED, match.data(),
-            int(match.size()));
-        if (!found)
-            break;
-        if (pattern.test_match(match))
-        {
-            ++num_matches;
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        ++num_matches;
     }
     return num_matches;
 }
@@ -1188,11 +1375,10 @@ auto _string_match_q_impl(String&& str,
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
-    const auto piece = re2::StringPiece(str.c_str(), str.byte_size());
     _regex_match_results<PL> match;
-    bool matched = re2::re2_match(*pattern.regex_ptr, piece, 0u,
-        str.byte_size(), re2::RE2::ANCHOR_BOTH, match.data(),
-        int(match.size()));
+    bool matched = re2::re2_match(*pattern.regex_ptr,
+        re2::StringPiece(str.c_str(), str.byte_size()), 0u, str.byte_size(),
+        re2::RE2::ANCHOR_BOTH, match.data(), int(match.size()));
     return boolean(matched && pattern.test_match(match));
 }
 
@@ -1203,32 +1389,13 @@ auto _string_cases_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = re2::re2_match(*rule.pattern.regex_ptr, piece, 0u,
-            piece.size(), re2::RE2::UNANCHORED, match.data(),
-            int(match.size()));
-        if (!found)
-            break;
-        if (rule.pattern.test_match(match))
-        {
-            auto str = string();
-            _string_expression_format(match, rule.replacement.format, str);
-            ret.append(std::move(str));
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        auto str = string();
+        _string_expression_format(
+            search.match(), rule.replacement.format, str);
+        ret.append(std::move(str));
     }
     return ret;
 }
@@ -1236,35 +1403,14 @@ auto _string_cases_impl(String&& str,
 template<typename String, typename CL, typename PL>
 auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
 {
-    using CP = _compiled_pattern<CL, PL>;
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = re2::re2_match(*pattern.regex_ptr, piece, 0u,
-            piece.size(), re2::RE2::UNANCHORED, match.data(),
-            int(match.size()));
-        if (!found)
-            break;
-        if (pattern.test_match(match))
-        {
-            ret.append(string((const utf8::char_t*)match[0].begin(),
-                match[0].size()));
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        ret.append(string((const utf8::char_t*)search.match()[0].begin(),
+            search.match()[0].size()));
     }
     return ret;
 }
@@ -1276,37 +1422,59 @@ auto _string_replace_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     string ret;
-    auto begin = str.begin();
-    auto end = str.end();
-    typename CP::match_t match;
-    for (;;)
+    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    while (search.find_next())
     {
-        auto piece = re2::StringPiece(
-            (const char*)begin, end.byte_difference(begin));
-        bool found = re2::re2_match(*rule.pattern.regex_ptr, piece, 0u,
-            piece.size(), re2::RE2::UNANCHORED, match.data(),
-            int(match.size()));
-        if (!found)
-            break;
-        if (rule.pattern.test_match(match))
-        {
-            const auto prefix_begin = begin.get_pointer();
-            const auto prefix_end = (const utf8::char_t*)match[0].begin();
-            ret.append<false>(prefix_begin, size_t(prefix_end - prefix_begin));
-            _string_expression_format(match, rule.replacement.format, ret);
-            begin = match[0].end();
-        }
-        else
-        {
-            begin = match[0].begin();
-            ++begin;
-        }
-        if (begin >= end)
-            break;
+        ret.append<false>(search.prefix_data(), search.prefix_size());
+        _string_expression_format(
+            search.match(), rule.replacement.format, ret);
     }
-    if (begin < end)
-        ret.append<false>(begin.get_pointer(),
-            size_t(end.byte_difference(begin)));
+    ret.append<false>(search.prefix_data(),
+        str.byte_size() - (search.prefix_data() - str.byte_data()));
+    ret.place_null_character();
+    return ret;
+}
+
+template<typename String, typename CL, typename PL>
+auto _string_split_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    while (search.find_next())
+    {
+        if (ret.size() > 0u || search.prefix_size() > 0u)
+            ret.append(string(search.prefix_data(), search.prefix_size()));
+    }
+    const auto prefix_size = str.byte_size() -
+        (search.prefix_data() - str.byte_data());
+    if (prefix_size > 0u)
+        ret.append(string(search.prefix_data(), prefix_size));
+    return ret;
+}
+
+template<typename String, typename CP, typename CR>
+auto _string_split_impl(String&& str,
+    const _compiled_pattern_rule<CP, CR>& rule)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    while (search.find_next())
+    {
+        if (ret.size() > 0u || search.prefix_size() > 0u)
+            ret.append(string(search.prefix_data(), search.prefix_size()));
+        auto replaced = string();
+        _string_expression_format(
+            search.match(), rule.replacement.format, replaced);
+        ret.append(std::move(replaced));
+    }
+    const auto prefix_size = str.byte_size() -
+        (search.prefix_data() - str.byte_data());
+    if (prefix_size > 0u)
+        ret.append(string(search.prefix_data(), prefix_size));
     return ret;
 }
 
@@ -1361,5 +1529,28 @@ auto string_match_q(String&& str, Any&& any)
             std::forward<decltype(any)>(any));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+
+template<typename String, typename Any>
+auto string_split(String&& str, Any&& any)
+{
+    WL_TRY_BEGIN()
+    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
+        return _string_split_impl(std::forward<decltype(str)>(str),
+            _string_expression_compile(std::forward<decltype(any)>(any)));
+    else
+        return _string_split_impl(std::forward<decltype(str)>(str),
+            std::forward<decltype(any)>(any));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename String>
+auto string_split(String&& str)
+{
+    WL_TRY_BEGIN()
+    static auto whitespace = _string_expression_compile(const_whitespace);
+    return _string_split_impl(std::forward<decltype(str)>(str), whitespace);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 
 }

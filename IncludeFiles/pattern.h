@@ -63,7 +63,7 @@ struct _pattern_alternatives
     std::tuple<Patterns...> patterns;
 
     template<size_t I>
-    auto get() const &
+    auto get() const & -> const auto&
     {
         return std::get<I>(patterns);
     }

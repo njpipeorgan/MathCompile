@@ -1045,7 +1045,6 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     mllib=If[StringContainsQ[$SystemID,"MacOSX"],"MLi4","ML"<>ToString[$SystemWordLength]<>"i4"];
     compiler=CCompilerDriver`DefaultCCompiler[];
     opterror=Catch[opt=$compileroptions[compiler,$SystemID];];
-    If[!FileExistsQ[mldir<>"/"<>mllib],Return[$Failed]];
     If[opterror=!=Null,Return[$Failed]];
     lib=Quiet@CCompilerDriver`CreateLibrary[
       MathCompile`$CppSource,funcid,

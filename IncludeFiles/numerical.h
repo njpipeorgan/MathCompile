@@ -431,9 +431,7 @@ auto integer_digits(const X& x, const Y& y, const N& n)
             if (ux == 0u)
                 break;
         }
-        auto ret_begin = ret.data();
-        auto ret_end = ret_begin + ret.size();
-        std::reverse(ret_begin, ret_end);
+        std::reverse(ret.begin(), ret.end());
     }
     return ret;
     WL_TRY_END(__func__, __FILE__, __LINE__)

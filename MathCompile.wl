@@ -1021,7 +1021,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     $CompilerOutput="";
     output=f["output"];
     types=codegen@*type/@f["types"];
-    funcid="f"<>ToString@RandomInteger[{10^8,10^9-1}];
+    funcid="f"<>ToString@RandomInteger[{10^12,10^13-1}];
     workdir=OptionValue["WorkingDirectory"];
     libdir=OptionValue["LibraryDirectory"];
     If[workdir=!=Automatic&&!(StringQ[workdir]&&DirectoryQ[workdir]),

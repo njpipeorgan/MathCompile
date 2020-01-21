@@ -3,18 +3,18 @@
 registertest[test_]:=(AppendTo[$MathCompileTests,test];)
 
 test[name_String,f_,pairs_,cmp_:SameQ]:=(
-  Module[{mf,file},
+  Module[{file},
     $CurrentMathCompileTest=name;
     If[!TrueQ@MatchQ[pairs,{(({___})|({___}->_))..}],
       Echo[name<>" contains zero groups of arguments."];Abort[]];
-    mf=CompileToBinary[f];
-    file=DeleteMissing@{Information[mf]["File"]};
-    If[mf===$Failed||(Or@@(!TrueQ[
-        If[Head[#]===Rule,($LastReturn=(mf@@#[[1]]))~cmp~#[[2]],
-          ($LastReturn=(mf@@#))~cmp~(f@@#)]]&/@pairs)),
+    $CurrentCompiledLibrary=CompileToBinary[f];
+    file=DeleteMissing@{Information[$CurrentCompiledLibrary]["File"]};
+    If[$CurrentCompiledLibrary===$Failed||(Or@@(!TrueQ[
+        If[Head[#]===Rule,($LastReturn=($CurrentCompiledLibrary@@#[[1]]))~cmp~#[[2]],
+          ($LastReturn=($CurrentCompiledLibrary@@#))~cmp~(f@@#)]]&/@pairs)),
       AppendTo[$FailedMathCompileTests,name];
     ];
-    Quiet@LibraryFunctionUnload[mf];
+    If[$CurrentCompiledLibrary=!=$Failed,LibraryFunctionUnload[$CurrentCompiledLibrary]];
     If[FileExistsQ[#],DeleteFile[#]]&/@file;
   ])
 

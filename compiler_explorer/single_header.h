@@ -3869,9 +3869,7 @@ auto integer_digits(const X& x, const Y& y, const N& n)
             if (ux == 0u)
                 break;
         }
-        auto ret_begin = ret.data();
-        auto ret_end = ret_begin + ret.size();
-        std::reverse(ret_begin, ret_end);
+        std::reverse(ret.begin(), ret.end());
     }
     return ret;
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -5614,7 +5612,7 @@ auto count(const X& x, varg_tag, Function f, const_int<I>)
     constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
     constexpr auto XR = array_rank_v<X>;
     static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
-    size_t item_count = 0;
+    int64_t item_count = 0;
     if constexpr (XR == Level)
     {
         using RT = remove_cvref_t<decltype(f(value_type_t<X>{}))>;
@@ -5650,7 +5648,7 @@ auto count(const X& x, const Y& y, const_int<I>)
     constexpr auto XR = array_rank_v<X>;
     constexpr auto YR = array_rank_v<Y>;
     static_assert(1u <= Level && Level + YR == XR, WL_ERROR_BAD_LEVEL);
-    size_t item_count = 0;
+    int64_t item_count = 0;
     const auto& valy = allows<view_category::Array>(y);
     if constexpr (YR == 0u)
     {

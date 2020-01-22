@@ -32,7 +32,7 @@ runtime
 Begin["`Private`"];
 
 
-IndirectReturn[f_][any___]:=Block[{linkreturn},f[any];linkreturn]
+IndirectReturn[f_][any___]:=Block[{linkreturn=$Failed},f[any];linkreturn]
 
 
 $packagepath=DirectoryName[$InputFileName];

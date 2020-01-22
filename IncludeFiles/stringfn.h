@@ -1175,7 +1175,21 @@ auto _string_expression_compile(_compiled_pattern<CL, PL>&& pattern)
 }
 
 template<typename CL, typename PL>
-auto _string_expression_compile(const _compiled_pattern<CL, PL>& pattern)
+const auto& _string_expression_compile(
+    const _compiled_pattern<CL, PL>& pattern)
+{
+    return pattern;
+}
+
+template<typename CP, typename CR>
+auto _string_expression_compile(_compiled_pattern_rule<CP, CR>&& rule)
+{
+    return std::move(rule);
+}
+
+template<typename CP, typename CR>
+const auto& _string_expression_compile(
+    const _compiled_pattern_rule<CP, CR>& rule)
 {
     return pattern;
 }
@@ -1285,11 +1299,8 @@ template<typename Any>
 auto _pattern_convert(Any&& any)
 {
     WL_TRY_BEGIN()
-    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
-        return _pattern_convert_impl(
-            _string_expression_compile(std::forward<decltype(any)>(any)));
-    else
-        return _pattern_convert_impl(std::forward<decltype(any)>(any));
+    return _pattern_convert_impl(_string_expression_compile(
+        std::forward<decltype(any)>(any)));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -1478,79 +1489,57 @@ auto _string_split_impl(String&& str,
     return ret;
 }
 
-template<typename String, typename Any>
-auto string_count(String&& str, Any&& any)
-{
-    WL_TRY_BEGIN()
-    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
-        return _string_count_impl(std::forward<decltype(str)>(str),
-            _string_expression_compile(std::forward<decltype(any)>(any)));
-    else
-        return _string_count_impl(std::forward<decltype(str)>(str),
-            std::forward<decltype(any)>(any));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
+#define WL_DEFINE_STRING_FUNCTION(name, ret_type, takes_list)               \
+template<typename String, typename Any>                                     \
+auto name(String&& str, Any&& any)                                          \
+{                                                                           \
+    WL_TRY_BEGIN()                                                          \
+    using ST = remove_cvref_t<String>;                                      \
+    const auto& pattern = _string_expression_compile(                       \
+        std::forward<decltype(any)>(any));                                  \
+    if constexpr (is_string_view_v<ST>)                                     \
+    {                                                                       \
+        return _##name##_impl(str, pattern);                                \
+    }                                                                       \
+    else if constexpr (takes_list)                                          \
+    {                                                                       \
+        static_assert(is_string_type_v<ST> && array_rank_v<ST> == 1u,       \
+            WL_ERROR_STRING_TYPE_ONLY);                                     \
+        if constexpr (is_movable_v<String> &&                               \
+            std::is_same_v<ret_type, string>)                               \
+        {                                                                   \
+            str.for_each(                                                   \
+                [&](string& s) { s =  _##name##_impl(s, pattern); });       \
+            return std::move(str);                                          \
+        }                                                                   \
+        else                                                                \
+        {                                                                   \
+            ndarray<ret_type, 1u> ret(std::array<size_t, 1u>{str.size()});  \
+            str.for_each([&](const string& s, ret_type& c)                  \
+                { c = _##name##_impl(s, pattern); }, ret.data());           \
+            return ret;                                                     \
+        }                                                                   \
+    }                                                                       \
+    else                                                                    \
+    {                                                                       \
+        static_assert(always_false_v<String>, WL_ERROR_STRING_ONLY);        \
+    }                                                                       \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 
-template<typename String, typename Any>
-auto string_cases(String&& str, Any&& any)
-{
-    WL_TRY_BEGIN()
-    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
-        return _string_cases_impl(std::forward<decltype(str)>(str),
-            _string_expression_compile(std::forward<decltype(any)>(any)));
-    else
-        return _string_cases_impl(std::forward<decltype(str)>(str),
-            std::forward<decltype(any)>(any));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename String, typename Any>
-auto string_replace(String&& str, Any&& any)
-{
-    WL_TRY_BEGIN()
-    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
-        return _string_replace_impl(std::forward<decltype(str)>(str),
-            _string_expression_compile(std::forward<decltype(any)>(any)));
-    else
-        return _string_replace_impl(std::forward<decltype(str)>(str),
-            std::forward<decltype(any)>(any));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename String, typename Any>
-auto string_match_q(String&& str, Any&& any)
-{
-    WL_TRY_BEGIN()
-    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
-        return _string_match_q_impl(std::forward<decltype(str)>(str),
-            _string_expression_compile(std::forward<decltype(any)>(any)));
-    else
-        return _string_match_q_impl(std::forward<decltype(str)>(str),
-            std::forward<decltype(any)>(any));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename String, typename Any>
-auto string_split(String&& str, Any&& any)
-{
-    WL_TRY_BEGIN()
-    if constexpr (!_is_compiled_pattern_v<remove_cvref_t<Any>>)
-        return _string_split_impl(std::forward<decltype(str)>(str),
-            _string_expression_compile(std::forward<decltype(any)>(any)));
-    else
-        return _string_split_impl(std::forward<decltype(str)>(str),
-            std::forward<decltype(any)>(any));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
+WL_DEFINE_STRING_FUNCTION(string_count, int64_t, true)
+WL_DEFINE_STRING_FUNCTION(string_match_q, boolean, true)
+WL_DEFINE_STRING_FUNCTION(string_replace, string, true)
+WL_DEFINE_STRING_FUNCTION(string_cases, int, false)
+WL_DEFINE_STRING_FUNCTION(string_split, int, false)
 
 template<typename String>
 auto string_split(String&& str)
 {
     WL_TRY_BEGIN()
     static auto whitespace = _string_expression_compile(const_whitespace);
-    return _string_split_impl(std::forward<decltype(str)>(str), whitespace);
+    return string_split(std::forward<decltype(str)>(str), whitespace);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-
 
 }

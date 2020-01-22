@@ -287,7 +287,7 @@ namespace wl
 "The number of repetitions should be an integer or a pair of integers."
 
 #define WL_ERROR_STRING_FUNCTION_STRING \
-"The first argument to the function should be a string."
+"The first argument to the function should be a string or a list of strings."
 
 #define WL_ERROR_NOT_A_PATTERN \
 "The expression does not evaluate to a valid string pattern."

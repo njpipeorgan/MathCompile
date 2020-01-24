@@ -863,7 +863,7 @@ codegen[args[vars_,types_],___]:=
   MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
 codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString@CForm[i-1]<>")"
 codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString@CForm[i-1]<>")"
-codegen[argmatch[var_,const[i_]]]:=var<>".get_match<"<>ToString@CForm[i]<>">()"
+codegen[argmatch[var_,const[i_]]]:=var<>"["<>codegen[const[i]]<>"]"
 
 codegen[function[p_][vars_,types_,sequence[exprs___]],any___]:=
   {annotatebegin[p],"[&](",
@@ -1060,7 +1060,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
       "IncludeDirectories"->{mldir,$packagepath<>"/IncludeFiles"},
       "LibraryDirectories"->{mldir,$packagepath<>"/LibraryResources/"<>$SystemID},
-      "Libraries"->{mllib,"re2"},
+      "Libraries"->{mllib,"pcre2-8"},
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
       "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),

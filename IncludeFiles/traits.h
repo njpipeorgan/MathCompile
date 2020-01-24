@@ -123,6 +123,12 @@ struct _condition;
 template<int64_t... Ids>
 struct _pattern_id_list;
 
+template<typename ConditionList, typename PatternIdList_>
+struct _compiled_pattern;
+
+template<typename CompiledPattern, typename CompiledReplacement>
+struct _compiled_pattern_rule;
+
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
 
@@ -354,7 +360,8 @@ template<typename T>
 constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
 
 template<typename T>
-constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
+constexpr auto is_string_type_v =
+    is_string_v<value_type_t<T>> || is_string_view_v<T>;
 
 template<typename T>
 constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||

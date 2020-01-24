@@ -20,14 +20,10 @@
 #include <initializer_list>
 #include <numeric>
 #include <variant>
-#include <stddef.h>
-#include <string.h>
-#include <iosfwd>
-#include <string_view>
 #include <cmath>
-#include <stdint.h>
-#include <map>
-#include <mutex>
+#include <limits.h>
+#include <stdlib.h>
+#include <inttypes.h>
 #include <iostream>
 #include <functional>
 #include <random>
@@ -385,6 +381,10 @@ template<typename Pattern, typename Condition>
 struct _condition;
 template<int64_t... Ids>
 struct _pattern_id_list;
+template<typename ConditionList, typename PatternIdList_>
+struct _compiled_pattern;
+template<typename CompiledPattern, typename CompiledReplacement>
+struct _compiled_pattern_rule;
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
 template<typename T>
@@ -556,7 +556,8 @@ constexpr auto is_numerical_type_v = (array_rank_v<T> == 0u ?
 template<typename T>
 constexpr auto is_boolean_type_v = is_boolean_v<value_type_t<T>>;
 template<typename T>
-constexpr auto is_string_type_v = is_string_v<value_type_t<T>>;
+constexpr auto is_string_type_v =
+    is_string_v<value_type_t<T>> || is_string_view_v<T>;
 template<typename T>
 constexpr auto is_value_type_v = is_arithmetic_v<T> || is_array_v<T> ||
     is_array_view_v<T> || is_boolean_v<T> || is_string_view_v<T> ||
@@ -1367,16 +1368,16 @@ inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
 }
 #endif
 #if defined(WL_USE_MATHLINK) && !defined(NDEBUG)
-#  define WL_TRY_BEGIN()                                        \
-    try                                                         \
+#  define WL_TRY_BEGIN()                                            \
+    try                                                             \
     {
-#  define WL_TRY_END(func, file, line)                          \
-    } catch (std::logic_error& err)                             \
-    {                                                           \
-        throw std::logic_error(err.what() +                     \
-            (std::string("\n>> from function \"") + func +      \
-            "\" in \"" + librarylink::extract_filename(file) +  \
-            "\" line " + std::to_string(line)));                \
+#  define WL_TRY_END(func, file, line)                              \
+    } catch (std::logic_error& err)                                 \
+    {                                                               \
+        throw std::logic_error(err.what() +                         \
+            (std::string("\n>> from function \"") + func +          \
+            "\" in \"" + wl::librarylink::extract_filename(file) +  \
+            "\" line " + std::to_string(line)));                    \
     }
 #else
 #  define WL_TRY_BEGIN() ((void)0);
@@ -1385,7 +1386,7 @@ inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
 #if defined(WL_USE_MATHLINK) && (defined(WL_CHECK_ABORT) || defined(WL_CHECK_ABORT_TEST))
 #  define WL_THROW_IF_ABORT()                                           \
     {                                                                   \
-        if (WL_UNLIKELY(librarylink::global_abort_in_progress))         \
+        if (WL_UNLIKELY(wl::librarylink::global_abort_in_progress))     \
             throw std::logic_error("AbortQ is called.");                \
     }
 #  define WL_CHECK_ABORT_LOOP_BEGIN(n)                                  \
@@ -3337,156 +3338,6 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
 }
 }
 }
-#ifndef RE2_STRINGPIECE_H_
-#define RE2_STRINGPIECE_H_
-#ifndef __has_include
-#define __has_include(x) 0
-#endif
-#if __has_include(<string_view>) && __cplusplus >= 201703L
-#endif
-namespace re2 {
-class StringPiece {
- public:
-  typedef std::char_traits<char> traits_type;
-  typedef char value_type;
-  typedef char* pointer;
-  typedef const char* const_pointer;
-  typedef char& reference;
-  typedef const char& const_reference;
-  typedef const char* const_iterator;
-  typedef const_iterator iterator;
-  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
-  typedef const_reverse_iterator reverse_iterator;
-  typedef size_t size_type;
-  typedef ptrdiff_t difference_type;
-  static const size_type npos = static_cast<size_type>(-1);
-  // We provide non-explicit singleton constructors so users can pass
-  // in a "const char*" or a "string" wherever a "StringPiece" is
-  // expected.
-  StringPiece()
-      : data_(NULL), size_(0) {}
-#if __has_include(<string_view>) && __cplusplus >= 201703L
-  StringPiece(const std::string_view& str)
-      : data_(str.data()), size_(str.size()) {}
-#endif
-  StringPiece(const std::string& str)
-      : data_(str.data()), size_(str.size()) {}
-  StringPiece(const char* str)
-      : data_(str), size_(str == NULL ? 0 : strlen(str)) {}
-  StringPiece(const char* str, size_type len)
-      : data_(str), size_(len) {}
-  const_iterator begin() const { return data_; }
-  const_iterator end() const { return data_ + size_; }
-  const_reverse_iterator rbegin() const {
-    return const_reverse_iterator(data_ + size_);
-  }
-  const_reverse_iterator rend() const {
-    return const_reverse_iterator(data_);
-  }
-  size_type size() const { return size_; }
-  size_type length() const { return size_; }
-  bool empty() const { return size_ == 0; }
-  const_reference operator[](size_type i) const { return data_[i]; }
-  const_pointer data() const { return data_; }
-  void remove_prefix(size_type n) {
-    data_ += n;
-    size_ -= n;
-  }
-  void remove_suffix(size_type n) {
-    size_ -= n;
-  }
-  void set(const char* str) {
-    data_ = str;
-    size_ = str == NULL ? 0 : strlen(str);
-  }
-  void set(const char* str, size_type len) {
-    data_ = str;
-    size_ = len;
-  }
-  // Converts to `std::basic_string`.
-  template <typename A>
-  explicit operator std::basic_string<char, traits_type, A>() const {
-    if (!data_) return {};
-    return std::basic_string<char, traits_type, A>(data_, size_);
-  }
-  std::string as_string() const {
-    return std::string(data_, size_);
-  }
-  // We also define ToString() here, since many other string-like
-  // interfaces name the routine that converts to a C++ string
-  // "ToString", and it's confusing to have the method that does that
-  // for a StringPiece be called "as_string()".  We also leave the
-  // "as_string()" method defined here for existing code.
-  std::string ToString() const {
-    return std::string(data_, size_);
-  }
-  void CopyToString(std::string* target) const {
-    target->assign(data_, size_);
-  }
-  void AppendToString(std::string* target) const {
-    target->append(data_, size_);
-  }
-  size_type copy(char* buf, size_type n, size_type pos = 0) const;
-  StringPiece substr(size_type pos = 0, size_type n = npos) const;
-  int compare(const StringPiece& x) const {
-    size_type min_size = std::min(size(), x.size());
-    if (min_size > 0) {
-      int r = memcmp(data(), x.data(), min_size);
-      if (r < 0) return -1;
-      if (r > 0) return 1;
-    }
-    if (size() < x.size()) return -1;
-    if (size() > x.size()) return 1;
-    return 0;
-  }
-  // Does "this" start with "x"?
-  bool starts_with(const StringPiece& x) const {
-    return x.empty() ||
-           (size() >= x.size() && memcmp(data(), x.data(), x.size()) == 0);
-  }
-  // Does "this" end with "x"?
-  bool ends_with(const StringPiece& x) const {
-    return x.empty() ||
-           (size() >= x.size() &&
-            memcmp(data() + (size() - x.size()), x.data(), x.size()) == 0);
-  }
-  bool contains(const StringPiece& s) const {
-    return find(s) != npos;
-  }
-  size_type find(const StringPiece& s, size_type pos = 0) const;
-  size_type find(char c, size_type pos = 0) const;
-  size_type rfind(const StringPiece& s, size_type pos = npos) const;
-  size_type rfind(char c, size_type pos = npos) const;
- private:
-  const_pointer data_;
-  size_type size_;
-};
-inline bool operator==(const StringPiece& x, const StringPiece& y) {
-  StringPiece::size_type len = x.size();
-  if (len != y.size()) return false;
-  return x.data() == y.data() || len == 0 ||
-         memcmp(x.data(), y.data(), len) == 0;
-}
-inline bool operator!=(const StringPiece& x, const StringPiece& y) {
-  return !(x == y);
-}
-inline bool operator<(const StringPiece& x, const StringPiece& y) {
-  StringPiece::size_type min_size = std::min(x.size(), y.size());
-  int r = min_size == 0 ? 0 : memcmp(x.data(), y.data(), min_size);
-  return (r < 0) || (r == 0 && x.size() < y.size());
-}
-inline bool operator>(const StringPiece& x, const StringPiece& y) {
-  return y < x;
-}
-inline bool operator<=(const StringPiece& x, const StringPiece& y) {
-  return !(x > y);
-}
-inline bool operator>=(const StringPiece& x, const StringPiece& y) {
-  return !(x < y);
-}
-std::ostream& operator<<(std::ostream& o, const StringPiece& p);
-}  // namespace re2
-#endif  // RE2_STRINGPIECE_H_
 namespace wl
 {
 template<typename X>
@@ -4253,635 +4104,1879 @@ auto chop(X&& x, const Y& y)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
-#ifndef RE2_RE2_H_
-#define RE2_RE2_H_
-namespace re2 {
-class Prog;
-class Regexp;
-}  // namespace re2
-namespace re2 {
-class RE2 {
- public:
-  // We convert user-passed pointers into special Arg objects
-  class Arg;
-  class Options;
-  // Defined in set.h.
-  class Set;
-  enum ErrorCode {
-    NoError = 0,
-    // Unexpected error
-    ErrorInternal,
-    // Parse errors
-    ErrorBadEscape,          // bad escape sequence
-    ErrorBadCharClass,       // bad character class
-    ErrorBadCharRange,       // bad character class range
-    ErrorMissingBracket,     // missing closing ]
-    ErrorMissingParen,       // missing closing )
-    ErrorTrailingBackslash,  // trailing \ at end of regexp
-    ErrorRepeatArgument,     // repeat argument missing, e.g. "*"
-    ErrorRepeatSize,         // bad repetition argument
-    ErrorRepeatOp,           // bad repetition operator
-    ErrorBadPerlOp,          // bad perl operator
-    ErrorBadUTF8,            // invalid UTF-8 in regexp
-    ErrorBadNamedCapture,    // bad named capture group
-    ErrorPatternTooLarge     // pattern too large (compile failed)
-  };
-  // Predefined common options.
-  // If you need more complicated things, instantiate
-  // an Option class, possibly passing one of these to
-  // the Option constructor, change the settings, and pass that
-  // Option class to the RE2 constructor.
-  enum CannedOptions {
-    DefaultOptions = 0,
-    Latin1, // treat input as Latin-1 (default UTF-8)
-    POSIX, // POSIX syntax, leftmost-longest match
-    Quiet // do not log about regexp parse errors
-  };
-  // Need to have the const char* and const std::string& forms for implicit
-  // conversions when passing string literals to FullMatch and PartialMatch.
-  // Otherwise the StringPiece form would be sufficient.
-#ifndef SWIG
-  RE2(const char* pattern);
-  RE2(const std::string& pattern);
+/*************************************************
+*       Perl-Compatible Regular Expressions      *
+*************************************************/
+/* This is the public header file for the PCRE library, second API, to be
+#included by applications that call PCRE2 functions.
+           Copyright (c) 2016-2019 University of Cambridge
+-----------------------------------------------------------------------------
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the University of Cambridge nor the names of its
+      contributors may be used to endorse or promote products derived from
+      this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+-----------------------------------------------------------------------------
+*/
+#ifndef PCRE2_H_IDEMPOTENT_GUARD
+#define PCRE2_H_IDEMPOTENT_GUARD
+/* The current PCRE version information. */
+#define PCRE2_MAJOR           10
+#define PCRE2_MINOR           34
+#define PCRE2_PRERELEASE      
+#define PCRE2_DATE            2019-11-21
+/* When an application links to a PCRE DLL in Windows, the symbols that are
+imported have to be identified as such. When building PCRE2, the appropriate
+export setting is defined in pcre2_internal.h, which includes this file. So we
+don't change existing definitions of PCRE2_EXP_DECL. */
+#if defined(_WIN32) && !defined(PCRE2_STATIC)
+#  ifndef PCRE2_EXP_DECL
+#    define PCRE2_EXP_DECL  extern __declspec(dllimport)
+#  endif
 #endif
-  RE2(const StringPiece& pattern);
-  RE2(const StringPiece& pattern, const Options& options);
-  ~RE2();
-  // Returns whether RE2 was created properly.
-  bool ok() const { return error_code() == NoError; }
-  // The string specification for this RE2.  E.g.
-  //   RE2 re("ab*c?d+");
-  //   re.pattern();    // "ab*c?d+"
-  const std::string& pattern() const { return pattern_; }
-  // If RE2 could not be created properly, returns an error string.
-  // Else returns the empty string.
-  const std::string& error() const { return *error_; }
-  // If RE2 could not be created properly, returns an error code.
-  // Else returns RE2::NoError (== 0).
-  ErrorCode error_code() const { return error_code_; }
-  // If RE2 could not be created properly, returns the offending
-  // portion of the regexp.
-  const std::string& error_arg() const { return error_arg_; }
-  // Returns the program size, a very approximate measure of a regexp's "cost".
-  // Larger numbers are more expensive than smaller numbers.
-  int ProgramSize() const;
-  int ReverseProgramSize() const;
-  // EXPERIMENTAL! SUBJECT TO CHANGE!
-  // Outputs the program fanout as a histogram bucketed by powers of 2.
-  // Returns the number of the largest non-empty bucket.
-  int ProgramFanout(std::map<int, int>* histogram) const;
-  int ReverseProgramFanout(std::map<int, int>* histogram) const;
-  // Returns the underlying Regexp; not for general use.
-  // Returns entire_regexp_ so that callers don't need
-  // to know about prefix_ and prefix_foldcase_.
-  re2::Regexp* Regexp() const { return entire_regexp_; }
-  /***** The array-based matching interface ******/
-  // The functions here have names ending in 'N' and are used to implement
-  // the functions whose names are the prefix before the 'N'. It is sometimes
-  // useful to invoke them directly, but the syntax is awkward, so the 'N'-less
-  // versions should be preferred.
-  static bool FullMatchN(const StringPiece& text, const RE2& re,
-                         const Arg* const args[], int n);
-  static bool PartialMatchN(const StringPiece& text, const RE2& re,
-                            const Arg* const args[], int n);
-  static bool ConsumeN(StringPiece* input, const RE2& re,
-                       const Arg* const args[], int n);
-  static bool FindAndConsumeN(StringPiece* input, const RE2& re,
-                              const Arg* const args[], int n);
-#ifndef SWIG
- private:
-  template <typename F, typename SP>
-  static inline bool Apply(F f, SP sp, const RE2& re) {
-    return f(sp, re, NULL, 0);
-  }
-  template <typename F, typename SP, typename... A>
-  static inline bool Apply(F f, SP sp, const RE2& re, const A&... a) {
-    const Arg* const args[] = {&a...};
-    const int n = sizeof...(a);
-    return f(sp, re, args, n);
-  }
- public:
-  // In order to allow FullMatch() et al. to be called with a varying number
-  // of arguments of varying types, we use two layers of variadic templates.
-  // The first layer constructs the temporary Arg objects. The second layer
-  // (above) constructs the array of pointers to the temporary Arg objects.
-  /***** The useful part: the matching interface *****/
-  // Matches "text" against "re".  If pointer arguments are
-  // supplied, copies matched sub-patterns into them.
-  //
-  // You can pass in a "const char*" or a "std::string" for "text".
-  // You can pass in a "const char*" or a "std::string" or a "RE2" for "re".
-  //
-  // The provided pointer arguments can be pointers to any scalar numeric
-  // type, or one of:
-  //    std::string     (matched piece is copied to string)
-  //    StringPiece     (StringPiece is mutated to point to matched piece)
-  //    T               (where "bool T::ParseFrom(const char*, size_t)" exists)
-  //    (void*)NULL     (the corresponding matched sub-pattern is not copied)
-  //
-  // Returns true iff all of the following conditions are satisfied:
-  //   a. "text" matches "re" exactly
-  //   b. The number of matched sub-patterns is >= number of supplied pointers
-  //   c. The "i"th argument has a suitable type for holding the
-  //      string captured as the "i"th sub-pattern.  If you pass in
-  //      NULL for the "i"th argument, or pass fewer arguments than
-  //      number of sub-patterns, "i"th captured sub-pattern is
-  //      ignored.
-  //
-  // CAVEAT: An optional sub-pattern that does not exist in the
-  // matched string is assigned the empty string.  Therefore, the
-  // following will return false (because the empty string is not a
-  // valid number):
-  //    int number;
-  //    RE2::FullMatch("abc", "[a-z]+(\\d+)?", &number);
-  template <typename... A>
-  static bool FullMatch(const StringPiece& text, const RE2& re, A&&... a) {
-    return Apply(FullMatchN, text, re, Arg(std::forward<A>(a))...);
-  }
-  // Exactly like FullMatch(), except that "re" is allowed to match
-  // a substring of "text".
-  template <typename... A>
-  static bool PartialMatch(const StringPiece& text, const RE2& re, A&&... a) {
-    return Apply(PartialMatchN, text, re, Arg(std::forward<A>(a))...);
-  }
-  // Like FullMatch() and PartialMatch(), except that "re" has to match
-  // a prefix of the text, and "input" is advanced past the matched
-  // text.  Note: "input" is modified iff this routine returns true
-  // and "re" matched a non-empty substring of "text".
-  template <typename... A>
-  static bool Consume(StringPiece* input, const RE2& re, A&&... a) {
-    return Apply(ConsumeN, input, re, Arg(std::forward<A>(a))...);
-  }
-  // Like Consume(), but does not anchor the match at the beginning of
-  // the text.  That is, "re" need not start its match at the beginning
-  // of "input".  For example, "FindAndConsume(s, "(\\w+)", &word)" finds
-  // the next word in "s" and stores it in "word".
-  template <typename... A>
-  static bool FindAndConsume(StringPiece* input, const RE2& re, A&&... a) {
-    return Apply(FindAndConsumeN, input, re, Arg(std::forward<A>(a))...);
-  }
+/* By default, we use the standard "extern" declarations. */
+#ifndef PCRE2_EXP_DECL
+#  ifdef __cplusplus
+#    define PCRE2_EXP_DECL  extern "C"
+#  else
+#    define PCRE2_EXP_DECL  extern
+#  endif
 #endif
-  // Replace the first match of "re" in "str" with "rewrite".
-  // Within "rewrite", backslash-escaped digits (\1 to \9) can be
-  // used to insert text matching corresponding parenthesized group
-  // from the pattern.  \0 in "rewrite" refers to the entire matching
-  // text.  E.g.,
-  //
-  //   std::string s = "yabba dabba doo";
-  //   CHECK(RE2::Replace(&s, "b+", "d"));
-  //
-  // will leave "s" containing "yada dabba doo"
-  //
-  // Returns true if the pattern matches and a replacement occurs,
-  // false otherwise.
-  static bool Replace(std::string* str,
-                      const RE2& re,
-                      const StringPiece& rewrite);
-  // Like Replace(), except replaces successive non-overlapping occurrences
-  // of the pattern in the string with the rewrite. E.g.
-  //
-  //   std::string s = "yabba dabba doo";
-  //   CHECK(RE2::GlobalReplace(&s, "b+", "d"));
-  //
-  // will leave "s" containing "yada dada doo"
-  // Replacements are not subject to re-matching.
-  //
-  // Because GlobalReplace only replaces non-overlapping matches,
-  // replacing "ana" within "banana" makes only one replacement, not two.
-  //
-  // Returns the number of replacements made.
-  static int GlobalReplace(std::string* str,
-                           const RE2& re,
-                           const StringPiece& rewrite);
-  // Like Replace, except that if the pattern matches, "rewrite"
-  // is copied into "out" with substitutions.  The non-matching
-  // portions of "text" are ignored.
-  //
-  // Returns true iff a match occurred and the extraction happened
-  // successfully;  if no match occurs, the string is left unaffected.
-  //
-  // REQUIRES: "text" must not alias any part of "*out".
-  static bool Extract(const StringPiece& text,
-                      const RE2& re,
-                      const StringPiece& rewrite,
-                      std::string* out);
-  // Escapes all potentially meaningful regexp characters in
-  // 'unquoted'.  The returned string, used as a regular expression,
-  // will exactly match the original string.  For example,
-  //           1.5-2.0?
-  // may become:
-  //           1\.5\-2\.0\?
-  static std::string QuoteMeta(const StringPiece& unquoted);
-  // Computes range for any strings matching regexp. The min and max can in
-  // some cases be arbitrarily precise, so the caller gets to specify the
-  // maximum desired length of string returned.
-  //
-  // Assuming PossibleMatchRange(&min, &max, N) returns successfully, any
-  // string s that is an anchored match for this regexp satisfies
-  //   min <= s && s <= max.
-  //
-  // Note that PossibleMatchRange() will only consider the first copy of an
-  // infinitely repeated element (i.e., any regexp element followed by a '*' or
-  // '+' operator). Regexps with "{N}" constructions are not affected, as those
-  // do not compile down to infinite repetitions.
-  //
-  // Returns true on success, false on error.
-  bool PossibleMatchRange(std::string* min, std::string* max,
-                          int maxlen) const;
-  // Generic matching interface
-  // Type of match.
-  enum Anchor {
-    UNANCHORED,         // No anchoring
-    ANCHOR_START,       // Anchor at start only
-    ANCHOR_BOTH         // Anchor at start and end
-  };
-  // Return the number of capturing subpatterns, or -1 if the
-  // regexp wasn't valid on construction.  The overall match ($0)
-  // does not count: if the regexp is "(a)(b)", returns 2.
-  int NumberOfCapturingGroups() const { return num_captures_; }
-  // Return a map from names to capturing indices.
-  // The map records the index of the leftmost group
-  // with the given name.
-  // Only valid until the re is deleted.
-  const std::map<std::string, int>& NamedCapturingGroups() const;
-  // Return a map from capturing indices to names.
-  // The map has no entries for unnamed groups.
-  // Only valid until the re is deleted.
-  const std::map<int, std::string>& CapturingGroupNames() const;
-  // General matching routine.
-  // Match against text starting at offset startpos
-  // and stopping the search at offset endpos.
-  // Returns true if match found, false if not.
-  // On a successful match, fills in submatch[] (up to nsubmatch entries)
-  // with information about submatches.
-  // I.e. matching RE2("(foo)|(bar)baz") on "barbazbla" will return true, with
-  // submatch[0] = "barbaz", submatch[1].data() = NULL, submatch[2] = "bar",
-  // submatch[3].data() = NULL, ..., up to submatch[nsubmatch-1].data() = NULL.
-  // Caveat: submatch[] may be clobbered even on match failure.
-  //
-  // Don't ask for more match information than you will use:
-  // runs much faster with nsubmatch == 1 than nsubmatch > 1, and
-  // runs even faster if nsubmatch == 0.
-  // Doesn't make sense to use nsubmatch > 1 + NumberOfCapturingGroups(),
-  // but will be handled correctly.
-  //
-  // Passing text == StringPiece(NULL, 0) will be handled like any other
-  // empty string, but note that on return, it will not be possible to tell
-  // whether submatch i matched the empty string or did not match:
-  // either way, submatch[i].data() == NULL.
-  bool Match(const StringPiece& text,
-             size_t startpos,
-             size_t endpos,
-             Anchor re_anchor,
-             StringPiece* submatch,
-             int nsubmatch) const;
-  // Check that the given rewrite string is suitable for use with this
-  // regular expression.  It checks that:
-  //   * The regular expression has enough parenthesized subexpressions
-  //     to satisfy all of the \N tokens in rewrite
-  //   * The rewrite string doesn't have any syntax errors.  E.g.,
-  //     '\' followed by anything other than a digit or '\'.
-  // A true return value guarantees that Replace() and Extract() won't
-  // fail because of a bad rewrite string.
-  bool CheckRewriteString(const StringPiece& rewrite,
-                          std::string* error) const;
-  // Returns the maximum submatch needed for the rewrite to be done by
-  // Replace(). E.g. if rewrite == "foo \\2,\\1", returns 2.
-  static int MaxSubmatch(const StringPiece& rewrite);
-  // Append the "rewrite" string, with backslash subsitutions from "vec",
-  // to string "out".
-  // Returns true on success.  This method can fail because of a malformed
-  // rewrite string.  CheckRewriteString guarantees that the rewrite will
-  // be sucessful.
-  bool Rewrite(std::string* out,
-               const StringPiece& rewrite,
-               const StringPiece* vec,
-               int veclen) const;
-  // Constructor options
-  class Options {
-   public:
-    // The options are (defaults in parentheses):
-    //
-    //   utf8             (true)  text and pattern are UTF-8; otherwise Latin-1
-    //   posix_syntax     (false) restrict regexps to POSIX egrep syntax
-    //   longest_match    (false) search for longest match, not first match
-    //   log_errors       (true)  log syntax and execution errors to ERROR
-    //   max_mem          (see below)  approx. max memory footprint of RE2
-    //   literal          (false) interpret string as literal, not regexp
-    //   never_nl         (false) never match \n, even if it is in regexp
-    //   dot_nl           (false) dot matches everything including new line
-    //   never_capture    (false) parse all parens as non-capturing
-    //   case_sensitive   (true)  match is case-sensitive (regexp can override
-    //                              with (?i) unless in posix_syntax mode)
-    //
-    // The following options are only consulted when posix_syntax == true.
-    // When posix_syntax == false, these features are always enabled and
-    // cannot be turned off; to perform multi-line matching in that case,
-    // begin the regexp with (?m).
-    //   perl_classes     (false) allow Perl's \d \s \w \D \S \W
-    //   word_boundary    (false) allow Perl's \b \B (word boundary and not)
-    //   one_line         (false) ^ and $ only match beginning and end of text
-    //
-    // The max_mem option controls how much memory can be used
-    // to hold the compiled form of the regexp (the Prog) and
-    // its cached DFA graphs.  Code Search placed limits on the number
-    // of Prog instructions and DFA states: 10,000 for both.
-    // In RE2, those limits would translate to about 240 KB per Prog
-    // and perhaps 2.5 MB per DFA (DFA state sizes vary by regexp; RE2 does a
-    // better job of keeping them small than Code Search did).
-    // Each RE2 has two Progs (one forward, one reverse), and each Prog
-    // can have two DFAs (one first match, one longest match).
-    // That makes 4 DFAs:
-    //
-    //   forward, first-match    - used for UNANCHORED or ANCHOR_START searches
-    //                               if opt.longest_match() == false
-    //   forward, longest-match  - used for all ANCHOR_BOTH searches,
-    //                               and the other two kinds if
-    //                               opt.longest_match() == true
-    //   reverse, first-match    - never used
-    //   reverse, longest-match  - used as second phase for unanchored searches
-    //
-    // The RE2 memory budget is statically divided between the two
-    // Progs and then the DFAs: two thirds to the forward Prog
-    // and one third to the reverse Prog.  The forward Prog gives half
-    // of what it has left over to each of its DFAs.  The reverse Prog
-    // gives it all to its longest-match DFA.
-    //
-    // Once a DFA fills its budget, it flushes its cache and starts over.
-    // If this happens too often, RE2 falls back on the NFA implementation.
-    // For now, make the default budget something close to Code Search.
-    static const int kDefaultMaxMem = 8<<20;
-    enum Encoding {
-      EncodingUTF8 = 1,
-      EncodingLatin1
-    };
-    Options() :
-      encoding_(EncodingUTF8),
-      posix_syntax_(false),
-      longest_match_(false),
-      log_errors_(true),
-      max_mem_(kDefaultMaxMem),
-      literal_(false),
-      never_nl_(false),
-      dot_nl_(false),
-      never_capture_(false),
-      case_sensitive_(true),
-      perl_classes_(false),
-      word_boundary_(false),
-      one_line_(false) {
-    }
-    /*implicit*/ Options(CannedOptions);
-    Encoding encoding() const { return encoding_; }
-    void set_encoding(Encoding encoding) { encoding_ = encoding; }
-    // Legacy interface to encoding.
-    // TODO(rsc): Remove once clients have been converted.
-    bool utf8() const { return encoding_ == EncodingUTF8; }
-    void set_utf8(bool b) {
-      if (b) {
-        encoding_ = EncodingUTF8;
-      } else {
-        encoding_ = EncodingLatin1;
-      }
-    }
-    bool posix_syntax() const { return posix_syntax_; }
-    void set_posix_syntax(bool b) { posix_syntax_ = b; }
-    bool longest_match() const { return longest_match_; }
-    void set_longest_match(bool b) { longest_match_ = b; }
-    bool log_errors() const { return log_errors_; }
-    void set_log_errors(bool b) { log_errors_ = b; }
-    int64_t max_mem() const { return max_mem_; }
-    void set_max_mem(int64_t m) { max_mem_ = m; }
-    bool literal() const { return literal_; }
-    void set_literal(bool b) { literal_ = b; }
-    bool never_nl() const { return never_nl_; }
-    void set_never_nl(bool b) { never_nl_ = b; }
-    bool dot_nl() const { return dot_nl_; }
-    void set_dot_nl(bool b) { dot_nl_ = b; }
-    bool never_capture() const { return never_capture_; }
-    void set_never_capture(bool b) { never_capture_ = b; }
-    bool case_sensitive() const { return case_sensitive_; }
-    void set_case_sensitive(bool b) { case_sensitive_ = b; }
-    bool perl_classes() const { return perl_classes_; }
-    void set_perl_classes(bool b) { perl_classes_ = b; }
-    bool word_boundary() const { return word_boundary_; }
-    void set_word_boundary(bool b) { word_boundary_ = b; }
-    bool one_line() const { return one_line_; }
-    void set_one_line(bool b) { one_line_ = b; }
-    void Copy(const Options& src) {
-      *this = src;
-    }
-    int ParseFlags() const;
-   private:
-    Encoding encoding_;
-    bool posix_syntax_;
-    bool longest_match_;
-    bool log_errors_;
-    int64_t max_mem_;
-    bool literal_;
-    bool never_nl_;
-    bool dot_nl_;
-    bool never_capture_;
-    bool case_sensitive_;
-    bool perl_classes_;
-    bool word_boundary_;
-    bool one_line_;
-  };
-  // Returns the options set in the constructor.
-  const Options& options() const { return options_; }
-  // Argument converters; see below.
-  static inline Arg CRadix(short* x);
-  static inline Arg CRadix(unsigned short* x);
-  static inline Arg CRadix(int* x);
-  static inline Arg CRadix(unsigned int* x);
-  static inline Arg CRadix(long* x);
-  static inline Arg CRadix(unsigned long* x);
-  static inline Arg CRadix(long long* x);
-  static inline Arg CRadix(unsigned long long* x);
-  static inline Arg Hex(short* x);
-  static inline Arg Hex(unsigned short* x);
-  static inline Arg Hex(int* x);
-  static inline Arg Hex(unsigned int* x);
-  static inline Arg Hex(long* x);
-  static inline Arg Hex(unsigned long* x);
-  static inline Arg Hex(long long* x);
-  static inline Arg Hex(unsigned long long* x);
-  static inline Arg Octal(short* x);
-  static inline Arg Octal(unsigned short* x);
-  static inline Arg Octal(int* x);
-  static inline Arg Octal(unsigned int* x);
-  static inline Arg Octal(long* x);
-  static inline Arg Octal(unsigned long* x);
-  static inline Arg Octal(long long* x);
-  static inline Arg Octal(unsigned long long* x);
- private:
-  void Init(const StringPiece& pattern, const Options& options);
-  bool DoMatch(const StringPiece& text,
-               Anchor re_anchor,
-               size_t* consumed,
-               const Arg* const args[],
-               int n) const;
-  re2::Prog* ReverseProg() const;
-  std::string   pattern_;          // string regular expression
-  Options       options_;          // option flags
-  std::string   prefix_;           // required prefix (before regexp_)
-  bool          prefix_foldcase_;  // prefix is ASCII case-insensitive
-  re2::Regexp*  entire_regexp_;    // parsed regular expression
-  re2::Regexp*  suffix_regexp_;    // parsed regular expression, prefix removed
-  re2::Prog*    prog_;             // compiled program for regexp
-  int           num_captures_;     // Number of capturing groups
-  bool          is_one_pass_;      // can use prog_->SearchOnePass?
-  mutable re2::Prog*          rprog_;    // reverse program for regexp
-  mutable const std::string*  error_;    // Error indicator
-                                         // (or points to empty string)
-  mutable ErrorCode      error_code_;    // Error code
-  mutable std::string    error_arg_;     // Fragment of regexp showing error
-  // Map from capture names to indices
-  mutable const std::map<std::string, int>* named_groups_;
-  // Map from capture indices to names
-  mutable const std::map<int, std::string>* group_names_;
-  // Onces for lazy computations.
-  mutable std::once_flag rprog_once_;
-  mutable std::once_flag named_groups_once_;
-  mutable std::once_flag group_names_once_;
-  RE2(const RE2&) = delete;
-  RE2& operator=(const RE2&) = delete;
-};
-/***** Implementation details *****/
-template <class T>
-class _RE2_MatchObject {
- public:
-  static inline bool Parse(const char* str, size_t n, void* dest) {
-    if (dest == NULL) return true;
-    T* object = reinterpret_cast<T*>(dest);
-    return object->ParseFrom(str, n);
-  }
-};
-class RE2::Arg {
- public:
-  // Empty constructor so we can declare arrays of RE2::Arg
-  Arg();
-  // Constructor specially designed for NULL arguments
-  Arg(void*);
-  Arg(std::nullptr_t);
-  typedef bool (*Parser)(const char* str, size_t n, void* dest);
-#define MAKE_PARSER(type, name)            \
-  Arg(type* p) : arg_(p), parser_(name) {} \
-  Arg(type* p, Parser parser) : arg_(p), parser_(parser) {}
-  MAKE_PARSER(char,               parse_char)
-  MAKE_PARSER(signed char,        parse_schar)
-  MAKE_PARSER(unsigned char,      parse_uchar)
-  MAKE_PARSER(float,              parse_float)
-  MAKE_PARSER(double,             parse_double)
-  MAKE_PARSER(std::string,        parse_string)
-  MAKE_PARSER(StringPiece,        parse_stringpiece)
-  MAKE_PARSER(short,              parse_short)
-  MAKE_PARSER(unsigned short,     parse_ushort)
-  MAKE_PARSER(int,                parse_int)
-  MAKE_PARSER(unsigned int,       parse_uint)
-  MAKE_PARSER(long,               parse_long)
-  MAKE_PARSER(unsigned long,      parse_ulong)
-  MAKE_PARSER(long long,          parse_longlong)
-  MAKE_PARSER(unsigned long long, parse_ulonglong)
-#undef MAKE_PARSER
-  // Generic constructor templates
-  template <class T> Arg(T* p)
-      : arg_(p), parser_(_RE2_MatchObject<T>::Parse) { }
-  template <class T> Arg(T* p, Parser parser)
-      : arg_(p), parser_(parser) { }
-  // Parse the data
-  bool Parse(const char* str, size_t n) const;
- private:
-  void*         arg_;
-  Parser        parser_;
-  static bool parse_null          (const char* str, size_t n, void* dest);
-  static bool parse_char          (const char* str, size_t n, void* dest);
-  static bool parse_schar         (const char* str, size_t n, void* dest);
-  static bool parse_uchar         (const char* str, size_t n, void* dest);
-  static bool parse_float         (const char* str, size_t n, void* dest);
-  static bool parse_double        (const char* str, size_t n, void* dest);
-  static bool parse_string        (const char* str, size_t n, void* dest);
-  static bool parse_stringpiece   (const char* str, size_t n, void* dest);
-#define DECLARE_INTEGER_PARSER(name)                                       \
- private:                                                                  \
-  static bool parse_##name(const char* str, size_t n, void* dest);         \
-  static bool parse_##name##_radix(const char* str, size_t n, void* dest,  \
-                                   int radix);                             \
-                                                                           \
- public:                                                                   \
-  static bool parse_##name##_hex(const char* str, size_t n, void* dest);   \
-  static bool parse_##name##_octal(const char* str, size_t n, void* dest); \
-  static bool parse_##name##_cradix(const char* str, size_t n, void* dest);
-  DECLARE_INTEGER_PARSER(short)
-  DECLARE_INTEGER_PARSER(ushort)
-  DECLARE_INTEGER_PARSER(int)
-  DECLARE_INTEGER_PARSER(uint)
-  DECLARE_INTEGER_PARSER(long)
-  DECLARE_INTEGER_PARSER(ulong)
-  DECLARE_INTEGER_PARSER(longlong)
-  DECLARE_INTEGER_PARSER(ulonglong)
-#undef DECLARE_INTEGER_PARSER
-};
-inline RE2::Arg::Arg() : arg_(NULL), parser_(parse_null) { }
-inline RE2::Arg::Arg(void* p) : arg_(p), parser_(parse_null) { }
-inline RE2::Arg::Arg(std::nullptr_t p) : arg_(p), parser_(parse_null) { }
-inline bool RE2::Arg::Parse(const char* str, size_t n) const {
-  return (*parser_)(str, n, arg_);
+/* When compiling with the MSVC compiler, it is sometimes necessary to include
+a "calling convention" before exported function names. (This is secondhand
+information; I know nothing about MSVC myself). For example, something like
+  void __cdecl function(....)
+might be needed. In order so make this easy, all the exported functions have
+PCRE2_CALL_CONVENTION just before their names. It is rarely needed; if not
+set, we ensure here that it has no effect. */
+#ifndef PCRE2_CALL_CONVENTION
+#define PCRE2_CALL_CONVENTION
+#endif
+/* Have to include limits.h, stdlib.h, and inttypes.h to ensure that size_t and
+uint8_t, UCHAR_MAX, etc are defined. Some systems that do have inttypes.h do
+not have stdint.h, which is why we use inttypes.h, which according to the C
+standard is a superset of stdint.h. If none of these headers are available,
+the relevant values must be provided by some other means. */
+/* Allow for C++ users compiling this directly. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+/* The following option bits can be passed to pcre2_compile(), pcre2_match(),
+or pcre2_dfa_match(). PCRE2_NO_UTF_CHECK affects only the function to which it
+is passed. Put these bits at the most significant end of the options word so
+others can be added next to them */
+#define PCRE2_ANCHORED            0x80000000u
+#define PCRE2_NO_UTF_CHECK        0x40000000u
+#define PCRE2_ENDANCHORED         0x20000000u
+/* The following option bits can be passed only to pcre2_compile(). However,
+they may affect compilation, JIT compilation, and/or interpretive execution.
+The following tags indicate which:
+C   alters what is compiled by pcre2_compile()
+J   alters what is compiled by pcre2_jit_compile()
+M   is inspected during pcre2_match() execution
+D   is inspected during pcre2_dfa_match() execution
+*/
+#define PCRE2_ALLOW_EMPTY_CLASS   0x00000001u  /* C       */
+#define PCRE2_ALT_BSUX            0x00000002u  /* C       */
+#define PCRE2_AUTO_CALLOUT        0x00000004u  /* C       */
+#define PCRE2_CASELESS            0x00000008u  /* C       */
+#define PCRE2_DOLLAR_ENDONLY      0x00000010u  /*   J M D */
+#define PCRE2_DOTALL              0x00000020u  /* C       */
+#define PCRE2_DUPNAMES            0x00000040u  /* C       */
+#define PCRE2_EXTENDED            0x00000080u  /* C       */
+#define PCRE2_FIRSTLINE           0x00000100u  /*   J M D */
+#define PCRE2_MATCH_UNSET_BACKREF 0x00000200u  /* C J M   */
+#define PCRE2_MULTILINE           0x00000400u  /* C       */
+#define PCRE2_NEVER_UCP           0x00000800u  /* C       */
+#define PCRE2_NEVER_UTF           0x00001000u  /* C       */
+#define PCRE2_NO_AUTO_CAPTURE     0x00002000u  /* C       */
+#define PCRE2_NO_AUTO_POSSESS     0x00004000u  /* C       */
+#define PCRE2_NO_DOTSTAR_ANCHOR   0x00008000u  /* C       */
+#define PCRE2_NO_START_OPTIMIZE   0x00010000u  /*   J M D */
+#define PCRE2_UCP                 0x00020000u  /* C J M D */
+#define PCRE2_UNGREEDY            0x00040000u  /* C       */
+#define PCRE2_UTF                 0x00080000u  /* C J M D */
+#define PCRE2_NEVER_BACKSLASH_C   0x00100000u  /* C       */
+#define PCRE2_ALT_CIRCUMFLEX      0x00200000u  /*   J M D */
+#define PCRE2_ALT_VERBNAMES       0x00400000u  /* C       */
+#define PCRE2_USE_OFFSET_LIMIT    0x00800000u  /*   J M D */
+#define PCRE2_EXTENDED_MORE       0x01000000u  /* C       */
+#define PCRE2_LITERAL             0x02000000u  /* C       */
+#define PCRE2_MATCH_INVALID_UTF   0x04000000u  /*   J M D */
+/* An additional compile options word is available in the compile context. */
+#define PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES  0x00000001u  /* C */
+#define PCRE2_EXTRA_BAD_ESCAPE_IS_LITERAL    0x00000002u  /* C */
+#define PCRE2_EXTRA_MATCH_WORD               0x00000004u  /* C */
+#define PCRE2_EXTRA_MATCH_LINE               0x00000008u  /* C */
+#define PCRE2_EXTRA_ESCAPED_CR_IS_LF         0x00000010u  /* C */
+#define PCRE2_EXTRA_ALT_BSUX                 0x00000020u  /* C */
+/* These are for pcre2_jit_compile(). */
+#define PCRE2_JIT_COMPLETE        0x00000001u  /* For full matching */
+#define PCRE2_JIT_PARTIAL_SOFT    0x00000002u
+#define PCRE2_JIT_PARTIAL_HARD    0x00000004u
+#define PCRE2_JIT_INVALID_UTF     0x00000100u
+/* These are for pcre2_match(), pcre2_dfa_match(), pcre2_jit_match(), and
+pcre2_substitute(). Some are allowed only for one of the functions, and in
+these cases it is noted below. Note that PCRE2_ANCHORED, PCRE2_ENDANCHORED and
+PCRE2_NO_UTF_CHECK can also be passed to these functions (though
+pcre2_jit_match() ignores the latter since it bypasses all sanity checks). */
+#define PCRE2_NOTBOL                      0x00000001u
+#define PCRE2_NOTEOL                      0x00000002u
+#define PCRE2_NOTEMPTY                    0x00000004u  /* ) These two must be kept */
+#define PCRE2_NOTEMPTY_ATSTART            0x00000008u  /* ) adjacent to each other. */
+#define PCRE2_PARTIAL_SOFT                0x00000010u
+#define PCRE2_PARTIAL_HARD                0x00000020u
+#define PCRE2_DFA_RESTART                 0x00000040u  /* pcre2_dfa_match() only */
+#define PCRE2_DFA_SHORTEST                0x00000080u  /* pcre2_dfa_match() only */
+#define PCRE2_SUBSTITUTE_GLOBAL           0x00000100u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_EXTENDED         0x00000200u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_UNSET_EMPTY      0x00000400u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_UNKNOWN_UNSET    0x00000800u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_OVERFLOW_LENGTH  0x00001000u  /* pcre2_substitute() only */
+#define PCRE2_NO_JIT                      0x00002000u  /* Not for pcre2_dfa_match() */
+#define PCRE2_COPY_MATCHED_SUBJECT        0x00004000u
+/* Options for pcre2_pattern_convert(). */
+#define PCRE2_CONVERT_UTF                    0x00000001u
+#define PCRE2_CONVERT_NO_UTF_CHECK           0x00000002u
+#define PCRE2_CONVERT_POSIX_BASIC            0x00000004u
+#define PCRE2_CONVERT_POSIX_EXTENDED         0x00000008u
+#define PCRE2_CONVERT_GLOB                   0x00000010u
+#define PCRE2_CONVERT_GLOB_NO_WILD_SEPARATOR 0x00000030u
+#define PCRE2_CONVERT_GLOB_NO_STARSTAR       0x00000050u
+/* Newline and \R settings, for use in compile contexts. The newline values
+must be kept in step with values set in config.h and both sets must all be
+greater than zero. */
+#define PCRE2_NEWLINE_CR          1
+#define PCRE2_NEWLINE_LF          2
+#define PCRE2_NEWLINE_CRLF        3
+#define PCRE2_NEWLINE_ANY         4
+#define PCRE2_NEWLINE_ANYCRLF     5
+#define PCRE2_NEWLINE_NUL         6
+#define PCRE2_BSR_UNICODE         1
+#define PCRE2_BSR_ANYCRLF         2
+/* Error codes for pcre2_compile(). Some of these are also used by
+pcre2_pattern_convert(). */
+#define PCRE2_ERROR_END_BACKSLASH                  101
+#define PCRE2_ERROR_END_BACKSLASH_C                102
+#define PCRE2_ERROR_UNKNOWN_ESCAPE                 103
+#define PCRE2_ERROR_QUANTIFIER_OUT_OF_ORDER        104
+#define PCRE2_ERROR_QUANTIFIER_TOO_BIG             105
+#define PCRE2_ERROR_MISSING_SQUARE_BRACKET         106
+#define PCRE2_ERROR_ESCAPE_INVALID_IN_CLASS        107
+#define PCRE2_ERROR_CLASS_RANGE_ORDER              108
+#define PCRE2_ERROR_QUANTIFIER_INVALID             109
+#define PCRE2_ERROR_INTERNAL_UNEXPECTED_REPEAT     110
+#define PCRE2_ERROR_INVALID_AFTER_PARENS_QUERY     111
+#define PCRE2_ERROR_POSIX_CLASS_NOT_IN_CLASS       112
+#define PCRE2_ERROR_POSIX_NO_SUPPORT_COLLATING     113
+#define PCRE2_ERROR_MISSING_CLOSING_PARENTHESIS    114
+#define PCRE2_ERROR_BAD_SUBPATTERN_REFERENCE       115
+#define PCRE2_ERROR_NULL_PATTERN                   116
+#define PCRE2_ERROR_BAD_OPTIONS                    117
+#define PCRE2_ERROR_MISSING_COMMENT_CLOSING        118
+#define PCRE2_ERROR_PARENTHESES_NEST_TOO_DEEP      119
+#define PCRE2_ERROR_PATTERN_TOO_LARGE              120
+#define PCRE2_ERROR_HEAP_FAILED                    121
+#define PCRE2_ERROR_UNMATCHED_CLOSING_PARENTHESIS  122
+#define PCRE2_ERROR_INTERNAL_CODE_OVERFLOW         123
+#define PCRE2_ERROR_MISSING_CONDITION_CLOSING      124
+#define PCRE2_ERROR_LOOKBEHIND_NOT_FIXED_LENGTH    125
+#define PCRE2_ERROR_ZERO_RELATIVE_REFERENCE        126
+#define PCRE2_ERROR_TOO_MANY_CONDITION_BRANCHES    127
+#define PCRE2_ERROR_CONDITION_ASSERTION_EXPECTED   128
+#define PCRE2_ERROR_BAD_RELATIVE_REFERENCE         129
+#define PCRE2_ERROR_UNKNOWN_POSIX_CLASS            130
+#define PCRE2_ERROR_INTERNAL_STUDY_ERROR           131
+#define PCRE2_ERROR_UNICODE_NOT_SUPPORTED          132
+#define PCRE2_ERROR_PARENTHESES_STACK_CHECK        133
+#define PCRE2_ERROR_CODE_POINT_TOO_BIG             134
+#define PCRE2_ERROR_LOOKBEHIND_TOO_COMPLICATED     135
+#define PCRE2_ERROR_LOOKBEHIND_INVALID_BACKSLASH_C 136
+#define PCRE2_ERROR_UNSUPPORTED_ESCAPE_SEQUENCE    137
+#define PCRE2_ERROR_CALLOUT_NUMBER_TOO_BIG         138
+#define PCRE2_ERROR_MISSING_CALLOUT_CLOSING        139
+#define PCRE2_ERROR_ESCAPE_INVALID_IN_VERB         140
+#define PCRE2_ERROR_UNRECOGNIZED_AFTER_QUERY_P     141
+#define PCRE2_ERROR_MISSING_NAME_TERMINATOR        142
+#define PCRE2_ERROR_DUPLICATE_SUBPATTERN_NAME      143
+#define PCRE2_ERROR_INVALID_SUBPATTERN_NAME        144
+#define PCRE2_ERROR_UNICODE_PROPERTIES_UNAVAILABLE 145
+#define PCRE2_ERROR_MALFORMED_UNICODE_PROPERTY     146
+#define PCRE2_ERROR_UNKNOWN_UNICODE_PROPERTY       147
+#define PCRE2_ERROR_SUBPATTERN_NAME_TOO_LONG       148
+#define PCRE2_ERROR_TOO_MANY_NAMED_SUBPATTERNS     149
+#define PCRE2_ERROR_CLASS_INVALID_RANGE            150
+#define PCRE2_ERROR_OCTAL_BYTE_TOO_BIG             151
+#define PCRE2_ERROR_INTERNAL_OVERRAN_WORKSPACE     152
+#define PCRE2_ERROR_INTERNAL_MISSING_SUBPATTERN    153
+#define PCRE2_ERROR_DEFINE_TOO_MANY_BRANCHES       154
+#define PCRE2_ERROR_BACKSLASH_O_MISSING_BRACE      155
+#define PCRE2_ERROR_INTERNAL_UNKNOWN_NEWLINE       156
+#define PCRE2_ERROR_BACKSLASH_G_SYNTAX             157
+#define PCRE2_ERROR_PARENS_QUERY_R_MISSING_CLOSING 158
+/* Error 159 is obsolete and should now never occur */
+#define PCRE2_ERROR_VERB_ARGUMENT_NOT_ALLOWED      159
+#define PCRE2_ERROR_VERB_UNKNOWN                   160
+#define PCRE2_ERROR_SUBPATTERN_NUMBER_TOO_BIG      161
+#define PCRE2_ERROR_SUBPATTERN_NAME_EXPECTED       162
+#define PCRE2_ERROR_INTERNAL_PARSED_OVERFLOW       163
+#define PCRE2_ERROR_INVALID_OCTAL                  164
+#define PCRE2_ERROR_SUBPATTERN_NAMES_MISMATCH      165
+#define PCRE2_ERROR_MARK_MISSING_ARGUMENT          166
+#define PCRE2_ERROR_INVALID_HEXADECIMAL            167
+#define PCRE2_ERROR_BACKSLASH_C_SYNTAX             168
+#define PCRE2_ERROR_BACKSLASH_K_SYNTAX             169
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_LOOKBEHINDS  170
+#define PCRE2_ERROR_BACKSLASH_N_IN_CLASS           171
+#define PCRE2_ERROR_CALLOUT_STRING_TOO_LONG        172
+#define PCRE2_ERROR_UNICODE_DISALLOWED_CODE_POINT  173
+#define PCRE2_ERROR_UTF_IS_DISABLED                174
+#define PCRE2_ERROR_UCP_IS_DISABLED                175
+#define PCRE2_ERROR_VERB_NAME_TOO_LONG             176
+#define PCRE2_ERROR_BACKSLASH_U_CODE_POINT_TOO_BIG 177
+#define PCRE2_ERROR_MISSING_OCTAL_OR_HEX_DIGITS    178
+#define PCRE2_ERROR_VERSION_CONDITION_SYNTAX       179
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_AUTO_POSSESS 180
+#define PCRE2_ERROR_CALLOUT_NO_STRING_DELIMITER    181
+#define PCRE2_ERROR_CALLOUT_BAD_STRING_DELIMITER   182
+#define PCRE2_ERROR_BACKSLASH_C_CALLER_DISABLED    183
+#define PCRE2_ERROR_QUERY_BARJX_NEST_TOO_DEEP      184
+#define PCRE2_ERROR_BACKSLASH_C_LIBRARY_DISABLED   185
+#define PCRE2_ERROR_PATTERN_TOO_COMPLICATED        186
+#define PCRE2_ERROR_LOOKBEHIND_TOO_LONG            187
+#define PCRE2_ERROR_PATTERN_STRING_TOO_LONG        188
+#define PCRE2_ERROR_INTERNAL_BAD_CODE              189
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_IN_SKIP      190
+#define PCRE2_ERROR_NO_SURROGATES_IN_UTF16         191
+#define PCRE2_ERROR_BAD_LITERAL_OPTIONS            192
+#define PCRE2_ERROR_SUPPORTED_ONLY_IN_UNICODE      193
+#define PCRE2_ERROR_INVALID_HYPHEN_IN_OPTIONS      194
+#define PCRE2_ERROR_ALPHA_ASSERTION_UNKNOWN        195
+#define PCRE2_ERROR_SCRIPT_RUN_NOT_AVAILABLE       196
+#define PCRE2_ERROR_TOO_MANY_CAPTURES              197
+#define PCRE2_ERROR_CONDITION_ATOMIC_ASSERTION_EXPECTED  198
+/* "Expected" matching error codes: no match and partial match. */
+#define PCRE2_ERROR_NOMATCH          (-1)
+#define PCRE2_ERROR_PARTIAL          (-2)
+/* Error codes for UTF-8 validity checks */
+#define PCRE2_ERROR_UTF8_ERR1        (-3)
+#define PCRE2_ERROR_UTF8_ERR2        (-4)
+#define PCRE2_ERROR_UTF8_ERR3        (-5)
+#define PCRE2_ERROR_UTF8_ERR4        (-6)
+#define PCRE2_ERROR_UTF8_ERR5        (-7)
+#define PCRE2_ERROR_UTF8_ERR6        (-8)
+#define PCRE2_ERROR_UTF8_ERR7        (-9)
+#define PCRE2_ERROR_UTF8_ERR8       (-10)
+#define PCRE2_ERROR_UTF8_ERR9       (-11)
+#define PCRE2_ERROR_UTF8_ERR10      (-12)
+#define PCRE2_ERROR_UTF8_ERR11      (-13)
+#define PCRE2_ERROR_UTF8_ERR12      (-14)
+#define PCRE2_ERROR_UTF8_ERR13      (-15)
+#define PCRE2_ERROR_UTF8_ERR14      (-16)
+#define PCRE2_ERROR_UTF8_ERR15      (-17)
+#define PCRE2_ERROR_UTF8_ERR16      (-18)
+#define PCRE2_ERROR_UTF8_ERR17      (-19)
+#define PCRE2_ERROR_UTF8_ERR18      (-20)
+#define PCRE2_ERROR_UTF8_ERR19      (-21)
+#define PCRE2_ERROR_UTF8_ERR20      (-22)
+#define PCRE2_ERROR_UTF8_ERR21      (-23)
+/* Error codes for UTF-16 validity checks */
+#define PCRE2_ERROR_UTF16_ERR1      (-24)
+#define PCRE2_ERROR_UTF16_ERR2      (-25)
+#define PCRE2_ERROR_UTF16_ERR3      (-26)
+/* Error codes for UTF-32 validity checks */
+#define PCRE2_ERROR_UTF32_ERR1      (-27)
+#define PCRE2_ERROR_UTF32_ERR2      (-28)
+/* Miscellaneous error codes for pcre2[_dfa]_match(), substring extraction
+functions, context functions, and serializing functions. They are in numerical
+order. Originally they were in alphabetical order too, but now that PCRE2 is
+released, the numbers must not be changed. */
+#define PCRE2_ERROR_BADDATA           (-29)
+#define PCRE2_ERROR_MIXEDTABLES       (-30)  /* Name was changed */
+#define PCRE2_ERROR_BADMAGIC          (-31)
+#define PCRE2_ERROR_BADMODE           (-32)
+#define PCRE2_ERROR_BADOFFSET         (-33)
+#define PCRE2_ERROR_BADOPTION         (-34)
+#define PCRE2_ERROR_BADREPLACEMENT    (-35)
+#define PCRE2_ERROR_BADUTFOFFSET      (-36)
+#define PCRE2_ERROR_CALLOUT           (-37)  /* Never used by PCRE2 itself */
+#define PCRE2_ERROR_DFA_BADRESTART    (-38)
+#define PCRE2_ERROR_DFA_RECURSE       (-39)
+#define PCRE2_ERROR_DFA_UCOND         (-40)
+#define PCRE2_ERROR_DFA_UFUNC         (-41)
+#define PCRE2_ERROR_DFA_UITEM         (-42)
+#define PCRE2_ERROR_DFA_WSSIZE        (-43)
+#define PCRE2_ERROR_INTERNAL          (-44)
+#define PCRE2_ERROR_JIT_BADOPTION     (-45)
+#define PCRE2_ERROR_JIT_STACKLIMIT    (-46)
+#define PCRE2_ERROR_MATCHLIMIT        (-47)
+#define PCRE2_ERROR_NOMEMORY          (-48)
+#define PCRE2_ERROR_NOSUBSTRING       (-49)
+#define PCRE2_ERROR_NOUNIQUESUBSTRING (-50)
+#define PCRE2_ERROR_NULL              (-51)
+#define PCRE2_ERROR_RECURSELOOP       (-52)
+#define PCRE2_ERROR_DEPTHLIMIT        (-53)
+#define PCRE2_ERROR_RECURSIONLIMIT    (-53)  /* Obsolete synonym */
+#define PCRE2_ERROR_UNAVAILABLE       (-54)
+#define PCRE2_ERROR_UNSET             (-55)
+#define PCRE2_ERROR_BADOFFSETLIMIT    (-56)
+#define PCRE2_ERROR_BADREPESCAPE      (-57)
+#define PCRE2_ERROR_REPMISSINGBRACE   (-58)
+#define PCRE2_ERROR_BADSUBSTITUTION   (-59)
+#define PCRE2_ERROR_BADSUBSPATTERN    (-60)
+#define PCRE2_ERROR_TOOMANYREPLACE    (-61)
+#define PCRE2_ERROR_BADSERIALIZEDDATA (-62)
+#define PCRE2_ERROR_HEAPLIMIT         (-63)
+#define PCRE2_ERROR_CONVERT_SYNTAX    (-64)
+#define PCRE2_ERROR_INTERNAL_DUPMATCH (-65)
+#define PCRE2_ERROR_DFA_UINVALID_UTF  (-66)
+/* Request types for pcre2_pattern_info() */
+#define PCRE2_INFO_ALLOPTIONS            0
+#define PCRE2_INFO_ARGOPTIONS            1
+#define PCRE2_INFO_BACKREFMAX            2
+#define PCRE2_INFO_BSR                   3
+#define PCRE2_INFO_CAPTURECOUNT          4
+#define PCRE2_INFO_FIRSTCODEUNIT         5
+#define PCRE2_INFO_FIRSTCODETYPE         6
+#define PCRE2_INFO_FIRSTBITMAP           7
+#define PCRE2_INFO_HASCRORLF             8
+#define PCRE2_INFO_JCHANGED              9
+#define PCRE2_INFO_JITSIZE              10
+#define PCRE2_INFO_LASTCODEUNIT         11
+#define PCRE2_INFO_LASTCODETYPE         12
+#define PCRE2_INFO_MATCHEMPTY           13
+#define PCRE2_INFO_MATCHLIMIT           14
+#define PCRE2_INFO_MAXLOOKBEHIND        15
+#define PCRE2_INFO_MINLENGTH            16
+#define PCRE2_INFO_NAMECOUNT            17
+#define PCRE2_INFO_NAMEENTRYSIZE        18
+#define PCRE2_INFO_NAMETABLE            19
+#define PCRE2_INFO_NEWLINE              20
+#define PCRE2_INFO_DEPTHLIMIT           21
+#define PCRE2_INFO_RECURSIONLIMIT       21  /* Obsolete synonym */
+#define PCRE2_INFO_SIZE                 22
+#define PCRE2_INFO_HASBACKSLASHC        23
+#define PCRE2_INFO_FRAMESIZE            24
+#define PCRE2_INFO_HEAPLIMIT            25
+#define PCRE2_INFO_EXTRAOPTIONS         26
+/* Request types for pcre2_config(). */
+#define PCRE2_CONFIG_BSR                     0
+#define PCRE2_CONFIG_JIT                     1
+#define PCRE2_CONFIG_JITTARGET               2
+#define PCRE2_CONFIG_LINKSIZE                3
+#define PCRE2_CONFIG_MATCHLIMIT              4
+#define PCRE2_CONFIG_NEWLINE                 5
+#define PCRE2_CONFIG_PARENSLIMIT             6
+#define PCRE2_CONFIG_DEPTHLIMIT              7
+#define PCRE2_CONFIG_RECURSIONLIMIT          7  /* Obsolete synonym */
+#define PCRE2_CONFIG_STACKRECURSE            8  /* Obsolete */
+#define PCRE2_CONFIG_UNICODE                 9
+#define PCRE2_CONFIG_UNICODE_VERSION        10
+#define PCRE2_CONFIG_VERSION                11
+#define PCRE2_CONFIG_HEAPLIMIT              12
+#define PCRE2_CONFIG_NEVER_BACKSLASH_C      13
+#define PCRE2_CONFIG_COMPILED_WIDTHS        14
+/* Types for code units in patterns and subject strings. */
+typedef uint8_t  PCRE2_UCHAR8;
+typedef uint16_t PCRE2_UCHAR16;
+typedef uint32_t PCRE2_UCHAR32;
+typedef const PCRE2_UCHAR8  *PCRE2_SPTR8;
+typedef const PCRE2_UCHAR16 *PCRE2_SPTR16;
+typedef const PCRE2_UCHAR32 *PCRE2_SPTR32;
+/* The PCRE2_SIZE type is used for all string lengths and offsets in PCRE2,
+including pattern offsets for errors and subject offsets after a match. We
+define special values to indicate zero-terminated strings and unset offsets in
+the offset vector (ovector). */
+#define PCRE2_SIZE            size_t
+#define PCRE2_SIZE_MAX        SIZE_MAX
+#define PCRE2_ZERO_TERMINATED (~(PCRE2_SIZE)0)
+#define PCRE2_UNSET           (~(PCRE2_SIZE)0)
+/* Generic types for opaque structures and JIT callback functions. These
+declarations are defined in a macro that is expanded for each width later. */
+#define PCRE2_TYPES_LIST \
+struct pcre2_real_general_context; \
+typedef struct pcre2_real_general_context pcre2_general_context; \
+\
+struct pcre2_real_compile_context; \
+typedef struct pcre2_real_compile_context pcre2_compile_context; \
+\
+struct pcre2_real_match_context; \
+typedef struct pcre2_real_match_context pcre2_match_context; \
+\
+struct pcre2_real_convert_context; \
+typedef struct pcre2_real_convert_context pcre2_convert_context; \
+\
+struct pcre2_real_code; \
+typedef struct pcre2_real_code pcre2_code; \
+\
+struct pcre2_real_match_data; \
+typedef struct pcre2_real_match_data pcre2_match_data; \
+\
+struct pcre2_real_jit_stack; \
+typedef struct pcre2_real_jit_stack pcre2_jit_stack; \
+\
+typedef pcre2_jit_stack *(*pcre2_jit_callback)(void *);
+/* The structures for passing out data via callout functions. We use structures
+so that new fields can be added on the end in future versions, without changing
+the API of the function, thereby allowing old clients to work without
+modification. Define the generic versions in a macro; the width-specific
+versions are generated from this macro below. */
+/* Flags for the callout_flags field. These are cleared after a callout. */
+#define PCRE2_CALLOUT_STARTMATCH    0x00000001u  /* Set for each bumpalong */
+#define PCRE2_CALLOUT_BACKTRACK     0x00000002u  /* Set after a backtrack */
+#define PCRE2_STRUCTURE_LIST \
+typedef struct pcre2_callout_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  uint32_t      callout_number;    /* Number compiled into pattern */ \
+  uint32_t      capture_top;       /* Max current capture */ \
+  uint32_t      capture_last;      /* Most recently closed capture */ \
+  PCRE2_SIZE   *offset_vector;     /* The offset vector */ \
+  PCRE2_SPTR    mark;              /* Pointer to current mark or NULL */ \
+  PCRE2_SPTR    subject;           /* The subject being matched */ \
+  PCRE2_SIZE    subject_length;    /* The length of the subject */ \
+  PCRE2_SIZE    start_match;       /* Offset to start of this match attempt */ \
+  PCRE2_SIZE    current_position;  /* Where we currently are in the subject */ \
+  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
+  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
+  /* ------------------- Added for Version 1 -------------------------- */ \
+  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
+  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
+  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
+  /* ------------------- Added for Version 2 -------------------------- */ \
+  uint32_t      callout_flags;     /* See above for list */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_callout_block; \
+\
+typedef struct pcre2_callout_enumerate_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
+  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
+  uint32_t      callout_number;    /* Number compiled into pattern */ \
+  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
+  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
+  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_callout_enumerate_block; \
+\
+typedef struct pcre2_substitute_callout_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  PCRE2_SPTR    input;             /* Pointer to input subject string */ \
+  PCRE2_SPTR    output;            /* Pointer to output buffer */ \
+  PCRE2_SIZE    output_offsets[2]; /* Changed portion of the output */ \
+  PCRE2_SIZE   *ovector;           /* Pointer to current ovector */ \
+  uint32_t      oveccount;         /* Count of pairs set in ovector */ \
+  uint32_t      subscount;         /* Substitution number */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_substitute_callout_block;
+/* List the generic forms of all other functions in macros, which will be
+expanded for each width below. Start with functions that give general
+information. */
+#define PCRE2_GENERAL_INFO_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION pcre2_config(uint32_t, void *);
+/* Functions for manipulating contexts. */
+#define PCRE2_GENERAL_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
+  *pcre2_general_context_copy(pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
+  *pcre2_general_context_create(void *(*)(PCRE2_SIZE, void *), \
+    void (*)(void *, void *), void *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_general_context_free(pcre2_general_context *);
+#define PCRE2_COMPILE_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
+  *pcre2_compile_context_copy(pcre2_compile_context *); \
+PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
+  *pcre2_compile_context_create(pcre2_general_context *);\
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_compile_context_free(pcre2_compile_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_bsr(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_character_tables(pcre2_compile_context *, const uint8_t *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_compile_extra_options(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_max_pattern_length(pcre2_compile_context *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_newline(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_parens_nest_limit(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_compile_recursion_guard(pcre2_compile_context *, \
+    int (*)(uint32_t, void *), void *);
+#define PCRE2_MATCH_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
+  *pcre2_match_context_copy(pcre2_match_context *); \
+PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
+  *pcre2_match_context_create(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_match_context_free(pcre2_match_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_callout(pcre2_match_context *, \
+    int (*)(pcre2_callout_block *, void *), void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_substitute_callout(pcre2_match_context *, \
+    int (*)(pcre2_substitute_callout_block *, void *), void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_depth_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_heap_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_match_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_offset_limit(pcre2_match_context *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_recursion_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_recursion_memory_management(pcre2_match_context *, \
+    void *(*)(PCRE2_SIZE, void *), void (*)(void *, void *), void *);
+#define PCRE2_CONVERT_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
+  *pcre2_convert_context_copy(pcre2_convert_context *); \
+PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
+  *pcre2_convert_context_create(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_convert_context_free(pcre2_convert_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_glob_escape(pcre2_convert_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_glob_separator(pcre2_convert_context *, uint32_t);
+/* Functions concerned with compiling a pattern to PCRE internal code. */
+#define PCRE2_COMPILE_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_compile(PCRE2_SPTR, PCRE2_SIZE, uint32_t, int *, PCRE2_SIZE *, \
+    pcre2_compile_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_code_free(pcre2_code *); \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_code_copy(const pcre2_code *); \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_code_copy_with_tables(const pcre2_code *);
+/* Functions that give information about a compiled pattern. */
+#define PCRE2_PATTERN_INFO_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_pattern_info(const pcre2_code *, uint32_t, void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_callout_enumerate(const pcre2_code *, \
+    int (*)(pcre2_callout_enumerate_block *, void *), void *);
+/* Functions for running a match and inspecting the result. */
+#define PCRE2_MATCH_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
+  *pcre2_match_data_create(uint32_t, pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
+  *pcre2_match_data_create_from_pattern(const pcre2_code *, \
+    pcre2_general_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_dfa_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *, int *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_match_data_free(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SPTR PCRE2_CALL_CONVENTION \
+  pcre2_get_mark(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  pcre2_get_match_data_size(pcre2_match_data *); \
+PCRE2_EXP_DECL uint32_t PCRE2_CALL_CONVENTION \
+  pcre2_get_ovector_count(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  *pcre2_get_ovector_pointer(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  pcre2_get_startchar(pcre2_match_data *);
+/* Convenience functions for handling matched substrings. */
+#define PCRE2_SUBSTRING_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_copy_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR *, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_copy_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR *, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_substring_free(PCRE2_UCHAR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_get_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR **, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_get_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR **, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_length_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_length_bynumber(pcre2_match_data *, uint32_t, PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_nametable_scan(const pcre2_code *, PCRE2_SPTR, PCRE2_SPTR *, \
+    PCRE2_SPTR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_number_from_name(const pcre2_code *, PCRE2_SPTR); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_substring_list_free(PCRE2_SPTR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_list_get(pcre2_match_data *, PCRE2_UCHAR ***, PCRE2_SIZE **);
+/* Functions for serializing / deserializing compiled patterns. */
+#define PCRE2_SERIALIZE_FUNCTIONS \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_encode(const pcre2_code **, int32_t, uint8_t **, \
+    PCRE2_SIZE *, pcre2_general_context *); \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_decode(pcre2_code **, int32_t, const uint8_t *, \
+    pcre2_general_context *); \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_get_number_of_codes(const uint8_t *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_serialize_free(uint8_t *);
+/* Convenience function for match + substitute. */
+#define PCRE2_SUBSTITUTE_FUNCTION \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substitute(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *, PCRE2_SPTR, \
+    PCRE2_SIZE, PCRE2_UCHAR *, PCRE2_SIZE *);
+/* Functions for converting pattern source strings. */
+#define PCRE2_CONVERT_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_pattern_convert(PCRE2_SPTR, PCRE2_SIZE, uint32_t, PCRE2_UCHAR **, \
+    PCRE2_SIZE *, pcre2_convert_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_converted_pattern_free(PCRE2_UCHAR *);
+/* Functions for JIT processing */
+#define PCRE2_JIT_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_jit_compile(pcre2_code *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_jit_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_free_unused_memory(pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_jit_stack PCRE2_CALL_CONVENTION \
+  *pcre2_jit_stack_create(PCRE2_SIZE, PCRE2_SIZE, pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_stack_assign(pcre2_match_context *, pcre2_jit_callback, void *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_stack_free(pcre2_jit_stack *);
+/* Other miscellaneous functions. */
+#define PCRE2_OTHER_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_get_error_message(int, PCRE2_UCHAR *, PCRE2_SIZE); \
+PCRE2_EXP_DECL const uint8_t PCRE2_CALL_CONVENTION \
+  *pcre2_maketables(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_maketables_free(pcre2_general_context *, const uint8_t *);
+/* Define macros that generate width-specific names from generic versions. The
+three-level macro scheme is necessary to get the macros expanded when we want
+them to be. First we get the width from PCRE2_LOCAL_WIDTH, which is used for
+generating three versions of everything below. After that, PCRE2_SUFFIX will be
+re-defined to use PCRE2_CODE_UNIT_WIDTH, for use when macros such as
+pcre2_compile are called by application code. */
+#define PCRE2_JOIN(a,b) a ## b
+#define PCRE2_GLUE(a,b) PCRE2_JOIN(a,b)
+#define PCRE2_SUFFIX(a) PCRE2_GLUE(a,PCRE2_LOCAL_WIDTH)
+/* Data types */
+#define PCRE2_UCHAR                 PCRE2_SUFFIX(PCRE2_UCHAR)
+#define PCRE2_SPTR                  PCRE2_SUFFIX(PCRE2_SPTR)
+#define pcre2_code                  PCRE2_SUFFIX(pcre2_code_)
+#define pcre2_jit_callback          PCRE2_SUFFIX(pcre2_jit_callback_)
+#define pcre2_jit_stack             PCRE2_SUFFIX(pcre2_jit_stack_)
+#define pcre2_real_code             PCRE2_SUFFIX(pcre2_real_code_)
+#define pcre2_real_general_context  PCRE2_SUFFIX(pcre2_real_general_context_)
+#define pcre2_real_compile_context  PCRE2_SUFFIX(pcre2_real_compile_context_)
+#define pcre2_real_convert_context  PCRE2_SUFFIX(pcre2_real_convert_context_)
+#define pcre2_real_match_context    PCRE2_SUFFIX(pcre2_real_match_context_)
+#define pcre2_real_jit_stack        PCRE2_SUFFIX(pcre2_real_jit_stack_)
+#define pcre2_real_match_data       PCRE2_SUFFIX(pcre2_real_match_data_)
+/* Data blocks */
+#define pcre2_callout_block            PCRE2_SUFFIX(pcre2_callout_block_)
+#define pcre2_callout_enumerate_block  PCRE2_SUFFIX(pcre2_callout_enumerate_block_)
+#define pcre2_substitute_callout_block PCRE2_SUFFIX(pcre2_substitute_callout_block_)
+#define pcre2_general_context          PCRE2_SUFFIX(pcre2_general_context_)
+#define pcre2_compile_context          PCRE2_SUFFIX(pcre2_compile_context_)
+#define pcre2_convert_context          PCRE2_SUFFIX(pcre2_convert_context_)
+#define pcre2_match_context            PCRE2_SUFFIX(pcre2_match_context_)
+#define pcre2_match_data               PCRE2_SUFFIX(pcre2_match_data_)
+/* Functions: the complete list in alphabetical order */
+#define pcre2_callout_enumerate               PCRE2_SUFFIX(pcre2_callout_enumerate_)
+#define pcre2_code_copy                       PCRE2_SUFFIX(pcre2_code_copy_)
+#define pcre2_code_copy_with_tables           PCRE2_SUFFIX(pcre2_code_copy_with_tables_)
+#define pcre2_code_free                       PCRE2_SUFFIX(pcre2_code_free_)
+#define pcre2_compile                         PCRE2_SUFFIX(pcre2_compile_)
+#define pcre2_compile_context_copy            PCRE2_SUFFIX(pcre2_compile_context_copy_)
+#define pcre2_compile_context_create          PCRE2_SUFFIX(pcre2_compile_context_create_)
+#define pcre2_compile_context_free            PCRE2_SUFFIX(pcre2_compile_context_free_)
+#define pcre2_config                          PCRE2_SUFFIX(pcre2_config_)
+#define pcre2_convert_context_copy            PCRE2_SUFFIX(pcre2_convert_context_copy_)
+#define pcre2_convert_context_create          PCRE2_SUFFIX(pcre2_convert_context_create_)
+#define pcre2_convert_context_free            PCRE2_SUFFIX(pcre2_convert_context_free_)
+#define pcre2_converted_pattern_free          PCRE2_SUFFIX(pcre2_converted_pattern_free_)
+#define pcre2_dfa_match                       PCRE2_SUFFIX(pcre2_dfa_match_)
+#define pcre2_general_context_copy            PCRE2_SUFFIX(pcre2_general_context_copy_)
+#define pcre2_general_context_create          PCRE2_SUFFIX(pcre2_general_context_create_)
+#define pcre2_general_context_free            PCRE2_SUFFIX(pcre2_general_context_free_)
+#define pcre2_get_error_message               PCRE2_SUFFIX(pcre2_get_error_message_)
+#define pcre2_get_mark                        PCRE2_SUFFIX(pcre2_get_mark_)
+#define pcre2_get_match_data_size             PCRE2_SUFFIX(pcre2_get_match_data_size_)
+#define pcre2_get_ovector_pointer             PCRE2_SUFFIX(pcre2_get_ovector_pointer_)
+#define pcre2_get_ovector_count               PCRE2_SUFFIX(pcre2_get_ovector_count_)
+#define pcre2_get_startchar                   PCRE2_SUFFIX(pcre2_get_startchar_)
+#define pcre2_jit_compile                     PCRE2_SUFFIX(pcre2_jit_compile_)
+#define pcre2_jit_match                       PCRE2_SUFFIX(pcre2_jit_match_)
+#define pcre2_jit_free_unused_memory          PCRE2_SUFFIX(pcre2_jit_free_unused_memory_)
+#define pcre2_jit_stack_assign                PCRE2_SUFFIX(pcre2_jit_stack_assign_)
+#define pcre2_jit_stack_create                PCRE2_SUFFIX(pcre2_jit_stack_create_)
+#define pcre2_jit_stack_free                  PCRE2_SUFFIX(pcre2_jit_stack_free_)
+#define pcre2_maketables                      PCRE2_SUFFIX(pcre2_maketables_)
+#define pcre2_maketables_free                 PCRE2_SUFFIX(pcre2_maketables_free_)
+#define pcre2_match                           PCRE2_SUFFIX(pcre2_match_)
+#define pcre2_match_context_copy              PCRE2_SUFFIX(pcre2_match_context_copy_)
+#define pcre2_match_context_create            PCRE2_SUFFIX(pcre2_match_context_create_)
+#define pcre2_match_context_free              PCRE2_SUFFIX(pcre2_match_context_free_)
+#define pcre2_match_data_create               PCRE2_SUFFIX(pcre2_match_data_create_)
+#define pcre2_match_data_create_from_pattern  PCRE2_SUFFIX(pcre2_match_data_create_from_pattern_)
+#define pcre2_match_data_free                 PCRE2_SUFFIX(pcre2_match_data_free_)
+#define pcre2_pattern_convert                 PCRE2_SUFFIX(pcre2_pattern_convert_)
+#define pcre2_pattern_info                    PCRE2_SUFFIX(pcre2_pattern_info_)
+#define pcre2_serialize_decode                PCRE2_SUFFIX(pcre2_serialize_decode_)
+#define pcre2_serialize_encode                PCRE2_SUFFIX(pcre2_serialize_encode_)
+#define pcre2_serialize_free                  PCRE2_SUFFIX(pcre2_serialize_free_)
+#define pcre2_serialize_get_number_of_codes   PCRE2_SUFFIX(pcre2_serialize_get_number_of_codes_)
+#define pcre2_set_bsr                         PCRE2_SUFFIX(pcre2_set_bsr_)
+#define pcre2_set_callout                     PCRE2_SUFFIX(pcre2_set_callout_)
+#define pcre2_set_character_tables            PCRE2_SUFFIX(pcre2_set_character_tables_)
+#define pcre2_set_compile_extra_options       PCRE2_SUFFIX(pcre2_set_compile_extra_options_)
+#define pcre2_set_compile_recursion_guard     PCRE2_SUFFIX(pcre2_set_compile_recursion_guard_)
+#define pcre2_set_depth_limit                 PCRE2_SUFFIX(pcre2_set_depth_limit_)
+#define pcre2_set_glob_escape                 PCRE2_SUFFIX(pcre2_set_glob_escape_)
+#define pcre2_set_glob_separator              PCRE2_SUFFIX(pcre2_set_glob_separator_)
+#define pcre2_set_heap_limit                  PCRE2_SUFFIX(pcre2_set_heap_limit_)
+#define pcre2_set_match_limit                 PCRE2_SUFFIX(pcre2_set_match_limit_)
+#define pcre2_set_max_pattern_length          PCRE2_SUFFIX(pcre2_set_max_pattern_length_)
+#define pcre2_set_newline                     PCRE2_SUFFIX(pcre2_set_newline_)
+#define pcre2_set_parens_nest_limit           PCRE2_SUFFIX(pcre2_set_parens_nest_limit_)
+#define pcre2_set_offset_limit                PCRE2_SUFFIX(pcre2_set_offset_limit_)
+#define pcre2_set_substitute_callout          PCRE2_SUFFIX(pcre2_set_substitute_callout_)
+#define pcre2_substitute                      PCRE2_SUFFIX(pcre2_substitute_)
+#define pcre2_substring_copy_byname           PCRE2_SUFFIX(pcre2_substring_copy_byname_)
+#define pcre2_substring_copy_bynumber         PCRE2_SUFFIX(pcre2_substring_copy_bynumber_)
+#define pcre2_substring_free                  PCRE2_SUFFIX(pcre2_substring_free_)
+#define pcre2_substring_get_byname            PCRE2_SUFFIX(pcre2_substring_get_byname_)
+#define pcre2_substring_get_bynumber          PCRE2_SUFFIX(pcre2_substring_get_bynumber_)
+#define pcre2_substring_length_byname         PCRE2_SUFFIX(pcre2_substring_length_byname_)
+#define pcre2_substring_length_bynumber       PCRE2_SUFFIX(pcre2_substring_length_bynumber_)
+#define pcre2_substring_list_get              PCRE2_SUFFIX(pcre2_substring_list_get_)
+#define pcre2_substring_list_free             PCRE2_SUFFIX(pcre2_substring_list_free_)
+#define pcre2_substring_nametable_scan        PCRE2_SUFFIX(pcre2_substring_nametable_scan_)
+#define pcre2_substring_number_from_name      PCRE2_SUFFIX(pcre2_substring_number_from_name_)
+/* Keep this old function name for backwards compatibility */
+#define pcre2_set_recursion_limit PCRE2_SUFFIX(pcre2_set_recursion_limit_)
+/* Keep this obsolete function for backwards compatibility: it is now a noop. */
+#define pcre2_set_recursion_memory_management PCRE2_SUFFIX(pcre2_set_recursion_memory_management_)
+/* Now generate all three sets of width-specific structures and function
+prototypes. */
+#define PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS \
+PCRE2_TYPES_LIST \
+PCRE2_STRUCTURE_LIST \
+PCRE2_GENERAL_INFO_FUNCTIONS \
+PCRE2_GENERAL_CONTEXT_FUNCTIONS \
+PCRE2_COMPILE_CONTEXT_FUNCTIONS \
+PCRE2_CONVERT_CONTEXT_FUNCTIONS \
+PCRE2_CONVERT_FUNCTIONS \
+PCRE2_MATCH_CONTEXT_FUNCTIONS \
+PCRE2_COMPILE_FUNCTIONS \
+PCRE2_PATTERN_INFO_FUNCTIONS \
+PCRE2_MATCH_FUNCTIONS \
+PCRE2_SUBSTRING_FUNCTIONS \
+PCRE2_SERIALIZE_FUNCTIONS \
+PCRE2_SUBSTITUTE_FUNCTION \
+PCRE2_JIT_FUNCTIONS \
+PCRE2_OTHER_FUNCTIONS
+#define PCRE2_LOCAL_WIDTH 8
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+#define PCRE2_LOCAL_WIDTH 16
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+#define PCRE2_LOCAL_WIDTH 32
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+/* Undefine the list macros; they are no longer needed. */
+#undef PCRE2_TYPES_LIST
+#undef PCRE2_STRUCTURE_LIST
+#undef PCRE2_GENERAL_INFO_FUNCTIONS
+#undef PCRE2_GENERAL_CONTEXT_FUNCTIONS
+#undef PCRE2_COMPILE_CONTEXT_FUNCTIONS
+#undef PCRE2_CONVERT_CONTEXT_FUNCTIONS
+#undef PCRE2_MATCH_CONTEXT_FUNCTIONS
+#undef PCRE2_COMPILE_FUNCTIONS
+#undef PCRE2_PATTERN_INFO_FUNCTIONS
+#undef PCRE2_MATCH_FUNCTIONS
+#undef PCRE2_SUBSTRING_FUNCTIONS
+#undef PCRE2_SERIALIZE_FUNCTIONS
+#undef PCRE2_SUBSTITUTE_FUNCTION
+#undef PCRE2_JIT_FUNCTIONS
+#undef PCRE2_OTHER_FUNCTIONS
+#undef PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+/* PCRE2_CODE_UNIT_WIDTH must be defined. If it is 8, 16, or 32, redefine
+PCRE2_SUFFIX to use it. If it is 0, undefine the other macros and make
+PCRE2_SUFFIX a no-op. Otherwise, generate an error. */
+#undef PCRE2_SUFFIX
+#ifndef PCRE2_CODE_UNIT_WIDTH
+#error PCRE2_CODE_UNIT_WIDTH must be defined before including pcre2.h.
+#error Use 8, 16, or 32; or 0 for a multi-width application.
+#else  /* PCRE2_CODE_UNIT_WIDTH is defined */
+#if PCRE2_CODE_UNIT_WIDTH == 8 || \
+    PCRE2_CODE_UNIT_WIDTH == 16 || \
+    PCRE2_CODE_UNIT_WIDTH == 32
+#define PCRE2_SUFFIX(a) PCRE2_GLUE(a, PCRE2_CODE_UNIT_WIDTH)
+#elif PCRE2_CODE_UNIT_WIDTH == 0
+#undef PCRE2_JOIN
+#undef PCRE2_GLUE
+#define PCRE2_SUFFIX(a) a
+#else
+#error PCRE2_CODE_UNIT_WIDTH must be 0, 8, 16, or 32.
+#endif
+#endif  /* PCRE2_CODE_UNIT_WIDTH is defined */
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif
+#endif  /* PCRE2_H_IDEMPOTENT_GUARD */
+/* End of pcre2.h */
+namespace wl
+{
+namespace utf8
+{
+using char_t   = uint8_t;
+using char21_t = uint32_t;
+constexpr char_t null_character = '\0';
+inline constexpr bool is_ascii(char_t ch)
+{
+    return ch < char_t(0b1000'0000);
 }
-#define MAKE_INTEGER_PARSER(type, name)                    \
-  inline RE2::Arg RE2::Hex(type* ptr) {                    \
-    return RE2::Arg(ptr, RE2::Arg::parse_##name##_hex);    \
-  }                                                        \
-  inline RE2::Arg RE2::Octal(type* ptr) {                  \
-    return RE2::Arg(ptr, RE2::Arg::parse_##name##_octal);  \
-  }                                                        \
-  inline RE2::Arg RE2::CRadix(type* ptr) {                 \
-    return RE2::Arg(ptr, RE2::Arg::parse_##name##_cradix); \
-  }
-MAKE_INTEGER_PARSER(short,              short)
-MAKE_INTEGER_PARSER(unsigned short,     ushort)
-MAKE_INTEGER_PARSER(int,                int)
-MAKE_INTEGER_PARSER(unsigned int,       uint)
-MAKE_INTEGER_PARSER(long,               long)
-MAKE_INTEGER_PARSER(unsigned long,      ulong)
-MAKE_INTEGER_PARSER(long long,          longlong)
-MAKE_INTEGER_PARSER(unsigned long long, ulonglong)
-#undef MAKE_INTEGER_PARSER
-#ifndef SWIG
-#if defined(__clang__)
-#elif defined(__GNUC__) && __GNUC__ >= 6
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
+{
+    WL_THROW_IF_ABORT()
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#  endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    size_t i_byte = 0u;
+    bool ascii_only = true;
+    int zmask = 0;
+    M data;
+    for (; true; str += sizeof(M), i_byte += sizeof(M))
+    {
+        data = loadu<M>(str);
+        zmask = movemask_epi8(cmpeq_epi8(data, zero<M>()));
+        if (zmask)
+            break;
+        if (ascii_only && movemask_epi8(data))
+            ascii_only = false;
+    }
+    auto excess_byte = utils::tzcnt_u64(uint64_t(unsigned(zmask)));
+    if (ascii_only && excess_byte > 0)
+    {
+        auto nmask = uint64_t(unsigned(movemask_epi8(data)));
+        ascii_only = !bool(nmask << (64u - excess_byte));
+    }
+    ret_ascii_only = ascii_only;
+    return i_byte + excess_byte;
+#else
+    auto str0 = str;
+    bool ascii_only = true;
+    for (; ascii_only; ++str)
+    {
+        auto byte = *str;
+        if (!byte)
+        {
+            ret_ascii_only = true;
+            return size_t(str - str0);
+        }
+        else if (uint8_t(byte) >= 0b1000'0000u)
+        {
+            ret_ascii_only = false;
+            break;
+        }
+    }
+    while (*++str)
+    {
+    }
+    return size_t(str - str0);
 #endif
-class LazyRE2 {
- private:
-  struct NoArg {};
- public:
-  typedef RE2 element_type;  // support std::pointer_traits
-  // Constructor omitted to preserve braced initialization in C++98.
-  // Pretend to be a pointer to Type (never NULL due to on-demand creation):
-  RE2& operator*() const { return *get(); }
-  RE2* operator->() const { return get(); }
-  // Named accessor/initializer:
-  RE2* get() const {
-    std::call_once(once_, &LazyRE2::Init, this);
-    return ptr_;
-  }
-  // All data fields must be public to support {"foo"} initialization.
-  const char* pattern_;
-  RE2::CannedOptions options_;
-  NoArg barrier_against_excess_initializers_;
-  mutable RE2* ptr_;
-  mutable std::once_flag once_;
- private:
-  static void Init(const LazyRE2* lazy_re2) {
-    lazy_re2->ptr_ = new RE2(lazy_re2->pattern_, lazy_re2->options_);
-  }
-  void operator=(const LazyRE2&);  // disallowed
+}
+inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
+{
+    WL_THROW_IF_ABORT()
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#  endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    auto trailing = zero<M>();
+    size_t trailing_size = 0u;
+    size_t i_byte = 0u;
+    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
+        ++i, str += sizeof(M), i_byte += sizeof(M))
+    {
+        trailing = sub_epi8(trailing, cmpgt_epi8(upper, loadu<M>(str)));
+        if (i >= 100u)
+        {
+            trailing_size += hsum_epi8(trailing);
+            trailing = zero<M>();
+            i = 0u;
+        }
+    }
+    auto tmask = unsigned(movemask_epi8(cmpgt_epi8(upper, loadu<M>(str))));
+    auto excess_trailing = utils::_popcnt(
+        uint64_t(tmask) << (64u - (byte_size - i_byte)));
+    trailing_size += hsum_epi8(trailing);
+    trailing_size += excess_trailing;
+    return byte_size - trailing_size;
+#else
+    size_t trailing_size = 0u;
+    for (size_t i = 0; i < byte_size; ++i)
+    {
+        if (int8_t(str[i]) < int8_t(0b1100'0000))
+            ++trailing_size;
+    }
+    return byte_size - trailing_size;
+#endif
+}
+inline size_t _get_string_size_check_valid_impl(
+    const char_t* in_str, const size_t ref_byte_size)
+{
+    WL_THROW_IF_ABORT()
+    size_t byte_size = 0;
+    size_t trailing_size = 0;
+    auto str_begin = reinterpret_cast<const int8_t*>(in_str);
+    auto str = str_begin;
+    for (;;)
+    {
+        size_t n_bytes = 0u;
+        char_t byte = *str++;
+        if (!byte)
+        {
+            if (byte_size != ref_byte_size)
+                throw std::logic_error(WL_ERROR_INTERNAL);
+            return byte_size - trailing_size;
+        }
+        if (byte_size >= ref_byte_size)
+            throw std::logic_error(WL_ERROR_BAD_UTF8_NULL_TERMINATED);
+        if (byte < 0b1000'0000u)
+            n_bytes = 1u;
+        else if ((byte & 0b1110'0000u) == 0b1100'0000u)
+            n_bytes = 2u;
+        else if ((byte & 0b1111'0000u) == 0b1110'0000u)
+            n_bytes = 3u;
+        else if ((byte & 0b1111'1000u) == 0b1111'0000u)
+            n_bytes = 4u;
+        else
+            throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
+        for (size_t i = 1u; i < n_bytes; ++i)
+        {
+            if ((*str++ & 0b1100'0000u) != 0b1000'0000u)
+                throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
+        }
+        trailing_size += n_bytes - 1u;
+        byte_size += n_bytes;
+    }
+}
+template<bool CheckValid = false>
+size_t get_string_size(const char_t* str, const size_t byte_size)
+{
+    if constexpr (CheckValid)
+        return _get_string_size_check_valid_impl(str, byte_size);
+    else
+        return _get_string_size_impl(str, byte_size);
+}
+bool is_ascii_only(const char_t* str, const size_t byte_size)
+{
+    WL_THROW_IF_ABORT()
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    size_t i_byte = 0u;
+    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
+        ++i, str += sizeof(M), i_byte += sizeof(M))
+    {
+        auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
+        if (tmask)
+            return false;
+    }
+    auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
+    return !bool(uint64_t(tmask) << (64u - (byte_size - i_byte)));
+#else
+    size_t trailing_size = 0u;
+    for (size_t i = 0; i < byte_size; ++i)
+    {
+        if (int8_t(str[i]) < int8_t(0b1100'0000))
+            return true;
+    }
+    return false;
+#endif
+}
+struct string_iterator
+{
+    using iterator_category = std::bidirectional_iterator_tag;
+    using value_type = char21_t;
+    using difference_type = ptrdiff_t;
+    using pointer = void;
+    using reference = char21_t;
+    const char_t* ptr_;
+    string_iterator() : ptr_{nullptr}
+    {
+    }
+    string_iterator(const char_t* ptr) : ptr_{ptr}
+    {
+    }
+    WL_INLINE static bool _is_valid_codepoint_leading(uint8_t byte)
+    {
+        return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
+    }
+    WL_INLINE static bool _is_valid_codepoint_tailing(uint8_t byte)
+    {
+        return (byte & 0b1100'0000u) == 0b1000'0000u;
+    }
+    const char_t* get_pointer() const
+    {
+        return ptr_;
+    }
+    operator const char*() const
+    {
+        return (const char*)ptr_;
+    }
+    string_iterator& operator=(const utf8::char_t* other)
+    {
+        ptr_ = other;
+        return *this;
+    }
+    string_iterator& operator=(const char* other)
+    {
+        *this = (const utf8::char_t*)other;
+        return *this;
+    }
+    string_iterator& operator++()
+    {
+        ptr_ += num_bytes();
+        return *this;
+    }
+    string_iterator& operator--()
+    {
+        ptr_ -= previous_num_bytes();
+        return *this;
+    }
+    string_iterator operator++(int)
+    {
+        const auto copy = *this;
+        ++(*this);
+        return copy;
+    }
+    string_iterator operator--(int)
+    {
+        const auto copy = *this;
+        --(*this);
+        return copy;
+    }
+    string_iterator& operator+=(ptrdiff_t n)
+    {
+        apply_offset(n);
+        return *this;
+    }
+    string_iterator& operator-=(ptrdiff_t n)
+    {
+        apply_offset(-n);
+        return *this;
+    }
+    bool operator==(const string_iterator& other) const
+    {
+        return this->ptr_ == other.ptr_;
+    }
+    bool operator!=(const string_iterator& other) const
+    {
+        return this->ptr_ != other.ptr_;
+    }
+    bool operator<(const string_iterator& other) const
+    {
+        return this->ptr_ < other.ptr_;
+    }
+    bool operator>(const string_iterator& other) const
+    {
+        return this->ptr_ > other.ptr_;
+    }
+    bool operator<=(const string_iterator& other) const
+    {
+        return this->ptr_ <= other.ptr_;
+    }
+    bool operator>=(const string_iterator& other) const
+    {
+        return this->ptr_ >= other.ptr_;
+    }
+    ptrdiff_t operator-(const string_iterator& other) const
+    {
+        bool this_is_behind = this->ptr_ > other.ptr_;
+        const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
+        const auto* end = this_is_behind ? this->ptr_ : other.ptr_;
+        assert(_is_valid_codepoint_leading(*begin));
+        assert(_is_valid_codepoint_leading(*end));
+        ptrdiff_t n = 0;
+        for (; begin != end; ++begin)
+            n += ptrdiff_t(_is_valid_codepoint_leading(*begin));
+        return this_is_behind ? n : -n;
+    }
+    char21_t operator*() const
+    {
+        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
+        switch (num_bytes())
+        {
+        case 1:
+            return char21_t(ptr_[0]);
+        case 2:
+            return char21_t(
+                ((ptr_[0] & 0b0001'1111) << 6) |
+                ((ptr_[1] & 0b0011'1111)));
+        case 3:
+            return char21_t(
+                ((ptr_[0] & 0b0000'1111) << 12) |
+                ((ptr_[1] & 0b0011'1111) << 6) |
+                ((ptr_[2] & 0b0011'1111)));
+        case 4:
+            return char21_t(
+                ((ptr_[0] & 0b0000'0111) << 18) |
+                ((ptr_[1] & 0b0011'1111) << 12) |
+                ((ptr_[2] & 0b0011'1111) << 6) |
+                ((ptr_[2] & 0b0011'1111)));
+        default:
+            return char21_t(0);
+        }
+    }
+    ptrdiff_t byte_difference(const string_iterator& other) const
+    {
+        return ptrdiff_t(this->ptr_ - other.ptr_);
+    }
+    void apply_offset(ptrdiff_t n)
+    {
+        if (n >= 0)
+        {
+            for (ptrdiff_t i = 0u; i < n;)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
+        }
+        else
+        {
+            for (ptrdiff_t i = 0u; i < n;)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
+        }
+    }
+    void apply_offset(ptrdiff_t n, const string_iterator& end)
+    {
+        if (n >= 0)
+        {
+            for (ptrdiff_t i = 0u; (i < n) && (ptr_ <= end.ptr_);)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
+        }
+        else
+        {
+            for (ptrdiff_t i = 0u; (i < -n) && (ptr_ >= end.ptr_);)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
+        }
+    }
+    size_t previous_num_bytes() const
+    {
+        if (ptr_[-1] < 0b1000'0000u)
+        {
+            return 1u;
+        }
+        else if (ptr_[-2] >= 0b1100'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[-1]));
+            return 2u;
+        }
+        else if (ptr_[-3] >= 0b1100'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[-1]));
+            assert(_is_valid_codepoint_tailing(ptr_[-2]));
+            return 3u;
+        }
+        else
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[-1]));
+            assert(_is_valid_codepoint_tailing(ptr_[-2]));
+            assert(_is_valid_codepoint_tailing(ptr_[-3]));
+            assert((*ptr_ > 0u) && _is_valid_codepoint_leading(ptr_[-4]));
+            return 4u;
+        }
+    }
+    size_t num_bytes() const
+    {
+        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
+        if (*ptr_ < 0b1000'0000u)
+        {
+            return 1u;
+        }
+        else if (*ptr_ < 0b1110'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[1]));
+            return 2u;
+        }
+        else if (*ptr_ < 0b1111'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[1]));
+            assert(_is_valid_codepoint_tailing(ptr_[2]));
+            return 3u;
+        }
+        else
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[1]));
+            assert(_is_valid_codepoint_tailing(ptr_[2]));
+            assert(_is_valid_codepoint_tailing(ptr_[3]));
+            return 4u;
+        }
+    }
 };
-#endif  // SWIG
-}  // namespace re2
-using re2::RE2;
-using re2::LazyRE2;
-#endif  // RE2_RE2_H_
+}
+enum class trilean_t : uint8_t
+{
+    True,
+    False,
+    Unknown
+};
+struct u8string_view
+{
+    using iterator = utf8::string_iterator;
+    static constexpr ptrdiff_t string_size_unknown = -1;
+    iterator begin_{};
+    iterator end_{};
+    mutable trilean_t ascii_only_ = trilean_t::Unknown;
+    mutable ptrdiff_t string_size_ = string_size_unknown;
+    u8string_view() = default;
+    u8string_view(iterator begin, iterator end) :
+        begin_{begin}, end_{end}
+    {
+        assert(begin <= end);
+    }
+    u8string_view(iterator begin, iterator end, bool ascii_only) :
+        u8string_view{begin, end}
+    {
+        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
+        if (ascii_only)
+            string_size_ = byte_size();
+    }
+    u8string_view(iterator begin, iterator end, size_t string_size) :
+        u8string_view{begin, end}
+    {
+        string_size_ = string_size;
+        ascii_only_ = (size() == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+    }
+    template<typename CharT>
+    u8string_view(const CharT* begin, const CharT* end) :
+        begin_{(const utf8::char_t*)begin}, end_{(const utf8::char_t*)end}
+    {
+        static_assert(sizeof(CharT) == 1u, WL_ERROR_INTERNAL);
+    }
+    const utf8::char_t* byte_data() const
+    {
+        return begin_.get_pointer();
+    }
+    size_t byte_size() const
+    {
+        return size_t(end_.byte_difference(begin_));
+    }
+    const utf8::char_t* byte_begin() const
+    {
+        return byte_data();
+    }
+    const utf8::char_t* byte_end() const
+    {
+        return byte_data() + byte_size();
+    }
+    size_t size() const
+    {
+        if (string_size_ == string_size_unknown)
+            string_size_ = utf8::get_string_size(byte_data(), byte_size());
+        ascii_only_ = (string_size_ == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+        return string_size_;
+    }
+    const char* c_str() const
+    {
+        return reinterpret_cast<const char*>(byte_data());
+    }
+    iterator begin() const
+    {
+        return begin_;
+    }
+    iterator end() const
+    {
+        return end_;
+    }
+    WL_INLINE trilean_t* _ascii_only_ptr() const
+    {
+        return &ascii_only_;
+    }
+    bool ascii_only() const
+    {
+        auto only = _ascii_only_ptr();
+        if (*only == trilean_t::Unknown)
+        {
+            if (utf8::is_ascii_only(byte_data(), byte_size()))
+                *only = trilean_t::True;
+            else
+                *only = trilean_t::False;
+        }
+        return *only == trilean_t::True ? true : false;
+    }
+};
+union u8string
+{
+    static constexpr size_t small_string_byte_size = 28u; // excluding \0
+    static_assert(sizeof(char) == 1u, WL_ERROR_SIZEOF_CHAR);
+    using iterator = utf8::string_iterator;
+    
+    struct static_t
+    {
+        static constexpr size_t capacity_ = small_string_byte_size;
+        bool is_static_ = true;
+        mutable trilean_t ascii_only_ = trilean_t::Unknown;
+        uint8_t byte_size_ = 0u;
+        utf8::char_t string_[small_string_byte_size + 1u];
+        static_t() = default;
+        static_t(size_t byte_size, trilean_t ascii_only) :
+            byte_size_{uint8_t(byte_size)}, ascii_only_{ascii_only}
+        {
+            assert(byte_size_ <= capacity_);
+        }
+        void place_null_character()
+        {
+            string_[byte_size_] = utf8::null_character;
+        }
+        template<bool PlaceNull = true, bool UpdateASCII = true>
+        void push(utf8::char_t ch)
+        {
+            assert(byte_size_ + 1u <= size_t(capacity_));
+            string_[byte_size_++] = ch;
+            if constexpr (UpdateASCII)
+                if (!utf8::is_ascii(ch))
+                    ascii_only_ = trilean_t::False;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+        template<bool PlaceNull = true>
+        void push(const utf8::char_t* ch, size_t size)
+        {
+            assert(byte_size_ + size <= size_t(capacity_));
+            utils::restrict_copy_n(ch, size, string_ + byte_size_);
+            byte_size_ += uint8_t(size);
+            ascii_only_ = trilean_t::Unknown;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+    };
+    struct dynamic_t
+    {
+        bool is_static_ = false;
+        mutable trilean_t ascii_only_ = trilean_t::Unknown;
+        uint64_t byte_size_ = 0u;
+        uint64_t capacity_ = 0u;
+        utf8::char_t* string_ = nullptr;
+        dynamic_t(size_t byte_size, trilean_t ascii_only) :
+            byte_size_{byte_size}, ascii_only_{ascii_only}
+        {
+            resize_buffer(byte_size_);
+        }
+        dynamic_t(size_t byte_size, size_t capacity, trilean_t ascii_only) :
+            byte_size_{byte_size}, ascii_only_{ascii_only}
+        {
+            capacity = std::max(byte_size, capacity);
+            resize_buffer(capacity);
+        }
+        ~dynamic_t()
+        {
+            free_buffer();
+        }
+        dynamic_t(const dynamic_t& other)
+        {
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            resize_buffer(byte_size_);
+            std::copy_n(other.string_, byte_size_ + 1u, string_);
+        }
+        dynamic_t(dynamic_t&& other)
+        {
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            std::swap(string_, other.string_);
+            std::swap(capacity_, other.capacity_);
+        }
+        dynamic_t& operator=(const dynamic_t& other)
+        {
+            free_buffer();
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            resize_buffer(byte_size_);
+            std::copy_n(other.string_, byte_size_ + 1u, string_);
+            return *this;
+        }
+        dynamic_t& operator=(dynamic_t&& other)
+        {
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            std::swap(string_, other.string_);
+            std::swap(capacity_, other.capacity_);
+            return *this;
+        }
+        void place_null_character()
+        {
+            string_[byte_size_] = utf8::null_character;
+        }
+        template<bool PlaceNull = true, bool UpdateASCII = true>
+        void push(utf8::char_t ch)
+        {
+            if (byte_size_ >= capacity_)
+                grow_buffer();
+            assert(byte_size_ + 1u <= capacity_);
+            string_[byte_size_++] = ch;
+            if constexpr (UpdateASCII)
+                if (!utf8::is_ascii(ch))
+                    ascii_only_ = trilean_t::False;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+        template<bool PlaceNull = true>
+        void push(const utf8::char_t* ch, size_t size)
+        {
+            if (byte_size_ + size > capacity_)
+                grow_buffer(size);
+            assert(byte_size_ + size <= capacity_);
+            utils::restrict_copy_n(ch, size, string_ + byte_size_);
+            byte_size_ += uint8_t(size);
+            ascii_only_ = trilean_t::Unknown;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+        void resize_buffer(size_t new_capacity)
+        {
+            if (new_capacity <= capacity_)
+                return;
+            auto new_buffer_size = new_capacity + 1u;
+            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
+            if (!storage)
+                throw std::bad_alloc();
+            string_ = storage;
+            capacity_ = new_capacity;
+        }
+        void grow_buffer(size_t extra = 0u)
+        {
+            auto new_buffer_size = capacity_ + 1u;
+            new_buffer_size += std::max(size_t(capacity_ + 1u), extra);
+            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
+            if (!storage)
+                throw std::bad_alloc();
+            string_ = storage;
+            capacity_ = new_buffer_size - 1u;
+        }
+        void free_buffer()
+        {
+            assert(string_);
+            std::free(string_);
+            string_ = nullptr;
+            capacity_ = 0u;
+        }
+    };
+    
+    static_assert(sizeof(bool) == 1u, WL_ERROR_INTERNAL);
+    static_assert(sizeof(static_t) == 32u, WL_ERROR_INTERNAL);
+    static_assert(sizeof(dynamic_t) == 32u, WL_ERROR_INTERNAL);
+    static_t  static_;
+    dynamic_t dynamic_;
+    u8string()
+    {
+        new(&static_) static_t(0u, trilean_t::True);
+        static_.place_null_character();
+        assert(check_validity());
+    }
+    explicit u8string(size_t byte_size)
+    {
+        if (byte_size <= small_string_byte_size)
+        {
+            new(&static_) static_t(byte_size, trilean_t::Unknown);
+            static_.place_null_character();
+        }
+        else
+        {
+            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
+            dynamic_.place_null_character();
+        }
+    }
+    explicit u8string(size_t byte_size, bool ascii_only) : u8string(byte_size)
+    {
+        set_ascii_only(ascii_only);
+    }
+    u8string(const iterator& begin, const iterator& end) :
+        u8string(begin.get_pointer(), end.byte_difference(begin))
+    {
+    }
+    u8string(const iterator& begin, const iterator& end, bool ascii_only) :
+        u8string(begin.get_pointer(), end.byte_difference(begin), ascii_only)
+    {
+    }
+    u8string(const utf8::char_t* str, const size_t byte_size)
+    {
+        assert(ptrdiff_t(byte_size) >= 0);
+        if (byte_size <= small_string_byte_size)
+        {
+            new(&static_) static_t(byte_size, trilean_t::Unknown);
+            if (byte_size > 0)
+                utils::restrict_copy_n(str, byte_size, static_.string_);
+            static_.place_null_character();
+        }
+        else
+        {
+            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
+            utils::restrict_copy_n(str, byte_size, dynamic_.string_);
+            dynamic_.place_null_character();
+        }
+        assert(check_validity());
+    }
+    u8string(const utf8::char_t* str, const size_t byte_size,
+        bool ascii_only) : u8string(str, byte_size)
+    {
+        set_ascii_only(ascii_only);
+        assert(check_validity());
+    }
+    template<size_t N>
+    explicit u8string(const char(&str)[N]) :
+        u8string((const utf8::char_t*)str, N - 1u)
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        assert(check_validity());
+    }
+    template<size_t N>
+    explicit u8string(const char(&str)[N], bool ascii_only) : u8string(str)
+    {
+        set_ascii_only(ascii_only);
+        assert(check_validity());
+    }
+    explicit u8string(const u8string_view& other) :
+        u8string(other.byte_begin(), other.byte_size())
+    {
+    }
+    u8string(const u8string& other) : u8string()
+    {
+        copy_from(other);
+        assert(check_validity());
+    }
+    u8string(u8string&& other) : u8string()
+    {
+        swap_with(other);
+        assert(check_validity());
+    }
+    ~u8string()
+    {
+        destroy();
+    }
+    u8string& operator=(const u8string& other)
+    {
+        destroy();
+        copy_from(other);
+        return *this;
+    }
+    u8string& operator=(u8string&& other)
+    {
+        swap_with(other);
+        return *this;
+    }
+    void destroy()
+    {
+        if (!is_static())
+            dynamic_.~dynamic_t();
+    }
+    void swap_with(u8string& other)
+    {
+        char buffer[sizeof(u8string)];
+        std::memcpy(buffer, &other, sizeof(u8string));
+        std::memcpy(&other, this, sizeof(u8string));
+        std::memcpy(this, buffer, sizeof(u8string));
+    }
+    void copy_from(const u8string& other)
+    {
+        if (other.is_static())
+        {
+            new(&static_) static_t(other.static_);
+        }
+        else
+        {
+            const auto byte_size = other.byte_size();
+            if (byte_size <= small_string_byte_size)
+            { // convert to static
+                new(&static_) static_t(byte_size, other.static_.ascii_only_);
+                utils::restrict_copy_n(
+                    other.byte_data(), byte_size + 1u, byte_data());
+            }
+            else
+            { // remain dynamic
+                new(&dynamic_) dynamic_t(byte_size, other.static_.ascii_only_);
+                utils::restrict_copy_n(
+                    other.byte_data(), byte_size + 1u, byte_data());
+            }
+        }
+    }
+    void set_dynamic_capacity(size_t capacity)
+    {
+        if (is_static())
+        {
+            const auto copy = static_;
+            const auto byte_size = copy.byte_size_;
+            const auto ascii_only = copy.ascii_only_;
+            new(&dynamic_) dynamic_t(byte_size, capacity, ascii_only);
+            utils::restrict_copy_n(
+                copy.string_, size_t(byte_size) + 1u, dynamic_.string_);
+            dynamic_.ascii_only_ = copy.ascii_only_;
+        }
+        else
+        {
+            dynamic_.resize_buffer(capacity);
+        }
+    }
+    WL_INLINE bool is_static() const
+    {
+        bool value;
+        std::memcpy(&value, &static_.is_static_, sizeof(bool));
+        return value;
+    }
+    WL_INLINE size_t byte_size() const
+    {
+        return is_static() ? static_.byte_size_ : dynamic_.byte_size_;
+    }
+    WL_INLINE size_t capacity() const
+    {
+        return is_static() ? static_.capacity_ : dynamic_.capacity_;
+    }
+    WL_INLINE size_t size() const
+    {
+        size_t string_size = 0;
+        if (is_static())
+        {
+            if (static_.ascii_only_ == trilean_t::True)
+                return static_.byte_size_;
+            else
+                string_size = utf8::get_string_size(
+                    static_.string_, static_.byte_size_);
+        }
+        else
+        {
+            if (dynamic_.ascii_only_ == trilean_t::True)
+                return dynamic_.byte_size_;
+            else
+                string_size = utf8::get_string_size(
+                    dynamic_.string_, dynamic_.byte_size_);
+        }
+        set_ascii_only(string_size == byte_size());
+        return string_size;
+    }
+    WL_INLINE utf8::char_t* byte_data()
+    {
+        return is_static() ? static_.string_ : dynamic_.string_;
+    }
+    WL_INLINE const utf8::char_t* byte_data() const
+    {
+        return is_static() ? static_.string_ : dynamic_.string_;
+    }
+    WL_INLINE const char* c_str() const
+    {
+        return reinterpret_cast<const char*>(byte_data());
+    }
+    WL_INLINE trilean_t* _ascii_only_ptr() const
+    {
+        return is_static() ? &static_.ascii_only_ : &dynamic_.ascii_only_;
+    }
+    bool ascii_only() const
+    {
+        auto only = _ascii_only_ptr();
+        if (*only == trilean_t::Unknown)
+        {
+            if (utf8::is_ascii_only(byte_data(), byte_size()))
+                *only = trilean_t::True;
+            else
+                *only = trilean_t::False;
+        }
+        return *only == trilean_t::True ? true : false;
+    }
+    void set_ascii_only(bool ascii_only) const
+    {
+        *_ascii_only_ptr() = ascii_only ? trilean_t::True : trilean_t::False;
+    }
+    utf8::char_t* byte_begin()
+    {
+        return byte_data();
+    }
+    utf8::char_t* byte_end()
+    {
+        return byte_data() + byte_size();
+    }
+    const utf8::char_t* byte_begin() const
+    {
+        return byte_data();
+    }
+    const utf8::char_t* byte_end() const
+    {
+        return byte_data() + byte_size();
+    }
+    iterator begin() const
+    {
+        return iterator{byte_begin()};
+    }
+    iterator end() const
+    {
+        return iterator{byte_end()};
+    }
+    operator u8string_view() const
+    {
+        return u8string_view{begin(), end()};
+    }
+    void place_null_character()
+    {
+        if (is_static())
+            static_.place_null_character();
+        else
+            dynamic_.place_null_character();
+    }
+    template<bool PlaceNull = true>
+    void append(const utf8::char_t* str, const size_t append_size)
+    {
+        const size_t new_byte_size = byte_size() + append_size;
+        if (is_static())
+        {
+            if (new_byte_size > small_string_byte_size)
+            {
+                set_dynamic_capacity(new_byte_size);
+                assert(!is_static());
+                dynamic_.push<PlaceNull>(str, append_size);
+            }
+            else
+            {
+                static_.push<PlaceNull>(str, append_size);
+            }
+        }
+        else
+        {
+            dynamic_.push<PlaceNull>(str, append_size);
+        }
+    }
+    template<bool PlaceNull = true, bool UpdateASCII = true>
+    void append(const utf8::char_t ch)
+    {
+        const size_t new_byte_size = byte_size() + 1u;
+        if (is_static())
+        {
+            if (new_byte_size > small_string_byte_size)
+            {
+                set_dynamic_capacity(new_byte_size);
+                assert(!is_static());
+                dynamic_.push<PlaceNull, UpdateASCII>(ch);
+            }
+            else
+            {
+                static_.push<PlaceNull, UpdateASCII>(ch);
+            }
+        }
+        else
+        {
+            dynamic_.push<PlaceNull, UpdateASCII>(ch);
+        }
+    }
+    template<bool PlaceNull = true>
+    u8string& join(const u8string& other)
+    {
+        append<PlaceNull>(other.byte_data(), other.byte_size());
+        return *this;
+    }
+    template<bool PlaceNull = true, size_t N>
+    u8string& join(const char(&str)[N])
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        append<PlaceNull>((const utf8::char_t*)str, N - 1u);
+        return *this;
+    }
+    template<bool PlaceNull = true>
+    u8string& join(const u8string_view& other)
+    {
+        append<PlaceNull>(other.byte_data(), other.byte_size());
+        return *this;
+    }
+    bool check_validity() const
+    {
+        if (capacity() < byte_size())
+        {
+            return false;
+        }
+        try
+        {
+            utf8::get_string_size<true>(byte_data(), byte_size());
+            return true;
+        }
+        catch (std::logic_error&)
+        {
+            return false;
+        }
+    }
+    std::string _ascii_string() const
+    {
+        std::string str(size(), ' ');
+        const size_t size = this->size();
+        auto begin = this->begin();
+        auto end = this->end();
+        for (size_t i = 0; i < size; ++i, ++begin)
+        {
+            const auto cp = *begin;
+            str[i] = cp > 128u ? '?' : char(cp);
+        }
+        assert(begin == end);
+        return str;
+    }
+    std::string _string_info() const
+    {
+        std::string info = "{ ";
+        info += "is_static=" +
+            std::string(is_static() ? "true" : "false") + ", ";
+        info += "ascii_only=" +
+            std::string(ascii_only() ? "true" : "false") + ", ";
+        info += "size=" + std::to_string(size()) + ", ";
+        info += "byte_size=" + std::to_string(byte_size()) + ", ";
+        info += "capacity=" + std::to_string(capacity()) + ", ";
+        info += "content=";
+        info += _ascii_string();
+        info += " }";
+        return info;
+    }
+};
+}
 namespace wl
 {
 template<typename T, bool HasVariable>
@@ -6702,1061 +7797,6 @@ auto matrix_q(X&& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
-extern "C" void* _re2_RE2_construct_impl(const char* pattern);
-extern "C" void _re2_RE2_destruct_impl(void* object_ptr);
-extern "C" bool _re2_RE2_match_impl(const void* regex_ptr,
-    const void* piece_ptr, size_t startpos, size_t endpos, int re_anchor,
-    void* submatch, int nsubmatch);
-extern "C" bool _re2_RE2_ok(const void* regex_ptr);
-extern "C" void _re2_RE2_error(const void* regex_ptr, char* buffer,
-    const size_t buffer_size);
-namespace re2
-{
-template<typename Regex>
-bool re2_ok(const Regex& regex)
-{
-    return _re2_RE2_ok(static_cast<const void*>(&regex));
-}
-template<typename Regex>
-std::string re2_error(const Regex& regex)
-{
-    if (re2_ok(regex))
-    {
-        return std::string();
-    }
-    else
-    {
-        constexpr size_t buffer_size = 256u;
-        char buffer[buffer_size];
-        _re2_RE2_error(static_cast<const void*>(&regex), buffer, buffer_size);
-        return std::string(buffer);
-    }
-}
-template<typename CharT,
-    typename = typename std::enable_if<sizeof(CharT) == 1u>::type>
-std::shared_ptr<re2::RE2> re2_new(const CharT* pattern)
-{
-    auto re2_deleter = [](re2::RE2* ptr)
-    {
-        _re2_RE2_destruct_impl(static_cast<void*>(ptr));
-    };
-    auto ptr = static_cast<re2::RE2*>(
-        _re2_RE2_construct_impl(static_cast<const char*>(pattern)));
-    if (!ptr)
-        throw std::bad_alloc();
-    if (!re2_ok(*ptr))
-        throw std::logic_error(re2_error(*ptr));
-    return std::shared_ptr<re2::RE2>(ptr, re2_deleter);
-}
-template<typename Regex,
-    typename = std::enable_if<std::is_same<Regex, re2::RE2>::value>>
-bool re2_match(
-    const Regex& regex, const StringPiece& string_piece, size_t startpos,
-    size_t endpos, RE2::Anchor re_anchor, StringPiece* submatch, int nsubmatch)
-{
-    return _re2_RE2_match_impl(static_cast<const void*>(&regex),
-        static_cast<const void*>(&string_piece), startpos, endpos,
-        int(re_anchor), static_cast<void*>(submatch), nsubmatch);
-}
-}
-namespace wl
-{
-namespace utf8
-{
-using char_t   = uint8_t;
-using char21_t = uint32_t;
-constexpr char_t null_character = '\0';
-inline constexpr bool is_ascii(char_t ch)
-{
-    return ch < char_t(0b1000'0000);
-}
-inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
-{
-    WL_THROW_IF_ABORT()
-#if defined(__AVX2__) || defined(__SSE4_1__)
-    using namespace wl::simd;
-#  if defined(__AVX2__)
-    using M = __m256i;
-#  else
-    using M = __m128i;
-#  endif
-    const auto upper = set1<M>(int8_t(0b1100'0000));
-    size_t i_byte = 0u;
-    bool ascii_only = true;
-    int zmask = 0;
-    M data;
-    for (; true; str += sizeof(M), i_byte += sizeof(M))
-    {
-        data = loadu<M>(str);
-        zmask = movemask_epi8(cmpeq_epi8(data, zero<M>()));
-        if (zmask)
-            break;
-        if (ascii_only && movemask_epi8(data))
-            ascii_only = false;
-    }
-    auto excess_byte = utils::tzcnt_u64(uint64_t(unsigned(zmask)));
-    if (ascii_only && excess_byte > 0)
-    {
-        auto nmask = uint64_t(unsigned(movemask_epi8(data)));
-        ascii_only = !bool(nmask << (64u - excess_byte));
-    }
-    ret_ascii_only = ascii_only;
-    return i_byte + excess_byte;
-#else
-    auto str0 = str;
-    bool ascii_only = true;
-    for (; ascii_only; ++str)
-    {
-        auto byte = *str;
-        if (!byte)
-        {
-            ret_ascii_only = true;
-            return size_t(str - str0);
-        }
-        else if (uint8_t(byte) >= 0b1000'0000u)
-        {
-            ret_ascii_only = false;
-            break;
-        }
-    }
-    while (*++str)
-    {
-    }
-    return size_t(str - str0);
-#endif
-}
-inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
-{
-    WL_THROW_IF_ABORT()
-#if defined(__AVX2__) || defined(__SSE4_1__)
-    using namespace wl::simd;
-#  if defined(__AVX2__)
-    using M = __m256i;
-#  else
-    using M = __m128i;
-#  endif
-    const auto upper = set1<M>(int8_t(0b1100'0000));
-    auto trailing = zero<M>();
-    size_t trailing_size = 0u;
-    size_t i_byte = 0u;
-    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
-        ++i, str += sizeof(M), i_byte += sizeof(M))
-    {
-        trailing = sub_epi8(trailing, cmpgt_epi8(upper, loadu<M>(str)));
-        if (i >= 100u)
-        {
-            trailing_size += hsum_epi8(trailing);
-            trailing = zero<M>();
-            i = 0u;
-        }
-    }
-    auto tmask = unsigned(movemask_epi8(cmpgt_epi8(upper, loadu<M>(str))));
-    auto excess_trailing = utils::_popcnt(
-        uint64_t(tmask) << (64u - (byte_size - i_byte)));
-    trailing_size += hsum_epi8(trailing);
-    trailing_size += excess_trailing;
-    return byte_size - trailing_size;
-#else
-    size_t trailing_size = 0u;
-    for (size_t i = 0; i < byte_size; ++i)
-    {
-        if (int8_t(str[i]) < int8_t(0b1100'0000))
-            ++trailing_size;
-    }
-    return byte_size - trailing_size;
-#endif
-}
-inline size_t _get_string_size_check_valid_impl(
-    const char_t* in_str, const size_t ref_byte_size)
-{
-    WL_THROW_IF_ABORT()
-    size_t byte_size = 0;
-    size_t trailing_size = 0;
-    auto str_begin = reinterpret_cast<const int8_t*>(in_str);
-    auto str = str_begin;
-    for (;;)
-    {
-        size_t n_bytes = 0u;
-        char_t byte = *str++;
-        if (!byte)
-        {
-            if (byte_size != ref_byte_size)
-                throw std::logic_error(WL_ERROR_INTERNAL);
-            return byte_size - trailing_size;
-        }
-        if (byte_size >= ref_byte_size)
-            throw std::logic_error(WL_ERROR_BAD_UTF8_NULL_TERMINATED);
-        if (byte < 0b1000'0000u)
-            n_bytes = 1u;
-        else if ((byte & 0b1110'0000u) == 0b1100'0000u)
-            n_bytes = 2u;
-        else if ((byte & 0b1111'0000u) == 0b1110'0000u)
-            n_bytes = 3u;
-        else if ((byte & 0b1111'1000u) == 0b1111'0000u)
-            n_bytes = 4u;
-        else
-            throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
-        for (size_t i = 1u; i < n_bytes; ++i)
-        {
-            if ((*str++ & 0b1100'0000u) != 0b1000'0000u)
-                throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
-        }
-        trailing_size += n_bytes - 1u;
-        byte_size += n_bytes;
-    }
-}
-template<bool CheckValid = false>
-size_t get_string_size(const char_t* str, const size_t byte_size)
-{
-    if constexpr (CheckValid)
-        return _get_string_size_check_valid_impl(str, byte_size);
-    else
-        return _get_string_size_impl(str, byte_size);
-}
-bool is_ascii_only(const char_t* str, const size_t byte_size)
-{
-    WL_THROW_IF_ABORT()
-#if defined(__AVX2__) || defined(__SSE4_1__)
-    using namespace wl::simd;
-#  if defined(__AVX2__)
-    using M = __m256i;
-#  else
-    using M = __m128i;
-#endif
-    const auto upper = set1<M>(int8_t(0b1100'0000));
-    size_t i_byte = 0u;
-    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
-        ++i, str += sizeof(M), i_byte += sizeof(M))
-    {
-        auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
-        if (tmask)
-            return false;
-    }
-    auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
-    return !bool(uint64_t(tmask) << (64u - (byte_size - i_byte)));
-#else
-    size_t trailing_size = 0u;
-    for (size_t i = 0; i < byte_size; ++i)
-    {
-        if (int8_t(str[i]) < int8_t(0b1100'0000))
-            return true;
-    }
-    return false;
-#endif
-}
-struct string_iterator
-{
-    using iterator_category = std::bidirectional_iterator_tag;
-    using value_type = char21_t;
-    using difference_type = ptrdiff_t;
-    using pointer = void;
-    using reference = char21_t;
-    const char_t* ptr_;
-    string_iterator() : ptr_{nullptr}
-    {
-    }
-    string_iterator(const char_t* ptr) : ptr_{ptr}
-    {
-    }
-    WL_INLINE static bool _is_valid_codepoint_leading(uint8_t byte)
-    {
-        return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
-    }
-    WL_INLINE static bool _is_valid_codepoint_tailing(uint8_t byte)
-    {
-        return (byte & 0b1100'0000u) == 0b1000'0000u;
-    }
-    const char_t* get_pointer() const
-    {
-        return ptr_;
-    }
-    operator const char*() const
-    {
-        return (const char*)ptr_;
-    }
-    string_iterator& operator=(const utf8::char_t* other)
-    {
-        ptr_ = other;
-        return *this;
-    }
-    string_iterator& operator=(const char* other)
-    {
-        *this = (const utf8::char_t*)other;
-        return *this;
-    }
-    string_iterator& operator++()
-    {
-        ptr_ += num_bytes();
-        return *this;
-    }
-    string_iterator& operator--()
-    {
-        ptr_ -= previous_num_bytes();
-        return *this;
-    }
-    string_iterator operator++(int)
-    {
-        const auto copy = *this;
-        ++(*this);
-        return copy;
-    }
-    string_iterator operator--(int)
-    {
-        const auto copy = *this;
-        --(*this);
-        return copy;
-    }
-    string_iterator& operator+=(ptrdiff_t n)
-    {
-        apply_offset(n);
-        return *this;
-    }
-    string_iterator& operator-=(ptrdiff_t n)
-    {
-        apply_offset(-n);
-        return *this;
-    }
-    bool operator==(const string_iterator& other) const
-    {
-        return this->ptr_ == other.ptr_;
-    }
-    bool operator!=(const string_iterator& other) const
-    {
-        return this->ptr_ != other.ptr_;
-    }
-    bool operator<(const string_iterator& other) const
-    {
-        return this->ptr_ < other.ptr_;
-    }
-    bool operator>(const string_iterator& other) const
-    {
-        return this->ptr_ > other.ptr_;
-    }
-    bool operator<=(const string_iterator& other) const
-    {
-        return this->ptr_ <= other.ptr_;
-    }
-    bool operator>=(const string_iterator& other) const
-    {
-        return this->ptr_ >= other.ptr_;
-    }
-    ptrdiff_t operator-(const string_iterator& other) const
-    {
-        bool this_is_behind = this->ptr_ > other.ptr_;
-        const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
-        const auto* end = this_is_behind ? this->ptr_ : other.ptr_;
-        assert(_is_valid_codepoint_leading(*begin));
-        assert(_is_valid_codepoint_leading(*end));
-        ptrdiff_t n = 0;
-        for (; begin != end; ++begin)
-            n += ptrdiff_t(_is_valid_codepoint_leading(*begin));
-        return this_is_behind ? n : -n;
-    }
-    char21_t operator*() const
-    {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
-        switch (num_bytes())
-        {
-        case 1:
-            return char21_t(ptr_[0]);
-        case 2:
-            return char21_t(
-                ((ptr_[0] & 0b0001'1111) << 6) |
-                ((ptr_[1] & 0b0011'1111)));
-        case 3:
-            return char21_t(
-                ((ptr_[0] & 0b0000'1111) << 12) |
-                ((ptr_[1] & 0b0011'1111) << 6) |
-                ((ptr_[2] & 0b0011'1111)));
-        case 4:
-            return char21_t(
-                ((ptr_[0] & 0b0000'0111) << 18) |
-                ((ptr_[1] & 0b0011'1111) << 12) |
-                ((ptr_[2] & 0b0011'1111) << 6) |
-                ((ptr_[2] & 0b0011'1111)));
-        default:
-            return char21_t(0);
-        }
-    }
-    ptrdiff_t byte_difference(const string_iterator& other) const
-    {
-        return ptrdiff_t(this->ptr_ - other.ptr_);
-    }
-    void apply_offset(ptrdiff_t n)
-    {
-        if (n >= 0)
-        {
-            for (ptrdiff_t i = 0u; i < n;)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
-        }
-        else
-        {
-            for (ptrdiff_t i = 0u; i < n;)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
-        }
-    }
-    void apply_offset(ptrdiff_t n, const string_iterator& end)
-    {
-        if (n >= 0)
-        {
-            for (ptrdiff_t i = 0u; (i < n) && (ptr_ <= end.ptr_);)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
-        }
-        else
-        {
-            for (ptrdiff_t i = 0u; (i < -n) && (ptr_ >= end.ptr_);)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
-        }
-    }
-    size_t previous_num_bytes() const
-    {
-        if (ptr_[-1] < 0b1000'0000u)
-        {
-            return 1u;
-        }
-        else if (ptr_[-2] >= 0b1100'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[-1]));
-            return 2u;
-        }
-        else if (ptr_[-3] >= 0b1100'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[-1]));
-            assert(_is_valid_codepoint_tailing(ptr_[-2]));
-            return 3u;
-        }
-        else
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[-1]));
-            assert(_is_valid_codepoint_tailing(ptr_[-2]));
-            assert(_is_valid_codepoint_tailing(ptr_[-3]));
-            assert((*ptr_ > 0u) && _is_valid_codepoint_leading(ptr_[-4]));
-            return 4u;
-        }
-    }
-    size_t num_bytes() const
-    {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
-        if (*ptr_ < 0b1000'0000u)
-        {
-            return 1u;
-        }
-        else if (*ptr_ < 0b1110'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            return 2u;
-        }
-        else if (*ptr_ < 0b1111'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            return 3u;
-        }
-        else
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            assert(_is_valid_codepoint_tailing(ptr_[3]));
-            return 4u;
-        }
-    }
-};
-}
-enum class trilean_t : uint8_t
-{
-    True,
-    False,
-    Unknown
-};
-union u8string
-{
-    static constexpr size_t small_string_byte_size = 28u; // excluding \0
-    static_assert(sizeof(char) == 1u, WL_ERROR_SIZEOF_CHAR);
-    using iterator = utf8::string_iterator;
-    
-    struct static_t
-    {
-        static constexpr size_t capacity_ = small_string_byte_size;
-        bool is_static_ = true;
-        mutable trilean_t ascii_only_ = trilean_t::Unknown;
-        uint8_t byte_size_ = 0u;
-        utf8::char_t string_[small_string_byte_size + 1u];
-        static_t() = default;
-        static_t(size_t byte_size, trilean_t ascii_only) :
-            byte_size_{uint8_t(byte_size)}, ascii_only_{ascii_only}
-        {
-            assert(byte_size_ <= capacity_);
-        }
-        void place_null_character()
-        {
-            string_[byte_size_] = utf8::null_character;
-        }
-        template<bool PlaceNull = true, bool UpdateASCII = true>
-        void push(utf8::char_t ch)
-        {
-            assert(byte_size_ + 1u <= size_t(capacity_));
-            string_[byte_size_++] = ch;
-            if constexpr (UpdateASCII)
-                if (!utf8::is_ascii(ch))
-                    ascii_only_ = trilean_t::False;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-        template<bool PlaceNull = true>
-        void push(const utf8::char_t* ch, size_t size)
-        {
-            assert(byte_size_ + size <= size_t(capacity_));
-            utils::restrict_copy_n(ch, size, string_ + byte_size_);
-            byte_size_ += uint8_t(size);
-            ascii_only_ = trilean_t::Unknown;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-    };
-    struct dynamic_t
-    {
-        bool is_static_ = false;
-        mutable trilean_t ascii_only_ = trilean_t::Unknown;
-        uint64_t byte_size_ = 0u;
-        uint64_t capacity_ = 0u;
-        utf8::char_t* string_ = nullptr;
-        dynamic_t(size_t byte_size, trilean_t ascii_only) :
-            byte_size_{byte_size}, ascii_only_{ascii_only}
-        {
-            resize_buffer(byte_size_);
-        }
-        dynamic_t(size_t byte_size, size_t capacity, trilean_t ascii_only) :
-            byte_size_{byte_size}, ascii_only_{ascii_only}
-        {
-            capacity = std::max(byte_size, capacity);
-            resize_buffer(capacity);
-        }
-        ~dynamic_t()
-        {
-            free_buffer();
-        }
-        dynamic_t(const dynamic_t& other)
-        {
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            resize_buffer(byte_size_);
-            std::copy_n(other.string_, byte_size_ + 1u, string_);
-        }
-        dynamic_t(dynamic_t&& other)
-        {
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            std::swap(string_, other.string_);
-            std::swap(capacity_, other.capacity_);
-        }
-        dynamic_t& operator=(const dynamic_t& other)
-        {
-            free_buffer();
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            resize_buffer(byte_size_);
-            std::copy_n(other.string_, byte_size_ + 1u, string_);
-            return *this;
-        }
-        dynamic_t& operator=(dynamic_t&& other)
-        {
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            std::swap(string_, other.string_);
-            std::swap(capacity_, other.capacity_);
-            return *this;
-        }
-        void place_null_character()
-        {
-            string_[byte_size_] = utf8::null_character;
-        }
-        template<bool PlaceNull = true, bool UpdateASCII = true>
-        void push(utf8::char_t ch)
-        {
-            if (byte_size_ >= capacity_)
-                grow_buffer();
-            assert(byte_size_ + 1u <= capacity_);
-            string_[byte_size_++] = ch;
-            if constexpr (UpdateASCII)
-                if (!utf8::is_ascii(ch))
-                    ascii_only_ = trilean_t::False;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-        template<bool PlaceNull = true>
-        void push(const utf8::char_t* ch, size_t size)
-        {
-            if (byte_size_ + size > capacity_)
-                grow_buffer(size);
-            assert(byte_size_ + size <= capacity_);
-            utils::restrict_copy_n(ch, size, string_ + byte_size_);
-            byte_size_ += uint8_t(size);
-            ascii_only_ = trilean_t::Unknown;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-        void resize_buffer(size_t new_capacity)
-        {
-            if (new_capacity <= capacity_)
-                return;
-            auto new_buffer_size = new_capacity + 1u;
-            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
-            if (!storage)
-                throw std::bad_alloc();
-            string_ = storage;
-            capacity_ = new_capacity;
-        }
-        void grow_buffer(size_t extra = 0u)
-        {
-            auto new_buffer_size = capacity_ + 1u;
-            new_buffer_size += std::max(size_t(capacity_ + 1u), extra);
-            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
-            if (!storage)
-                throw std::bad_alloc();
-            string_ = storage;
-            capacity_ = new_buffer_size - 1u;
-        }
-        void free_buffer()
-        {
-            assert(string_);
-            std::free(string_);
-            string_ = nullptr;
-            capacity_ = 0u;
-        }
-    };
-    
-    static_assert(sizeof(bool) == 1u, WL_ERROR_INTERNAL);
-    static_assert(sizeof(static_t) == 32u, WL_ERROR_INTERNAL);
-    static_assert(sizeof(dynamic_t) == 32u, WL_ERROR_INTERNAL);
-    static_t  static_;
-    dynamic_t dynamic_;
-    u8string()
-    {
-        new(&static_) static_t(0u, trilean_t::True);
-        static_.place_null_character();
-        assert(check_validity());
-    }
-    explicit u8string(size_t byte_size)
-    {
-        if (byte_size <= small_string_byte_size)
-        {
-            new(&static_) static_t(byte_size, trilean_t::Unknown);
-            static_.place_null_character();
-        }
-        else
-        {
-            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
-            dynamic_.place_null_character();
-        }
-    }
-    explicit u8string(size_t byte_size, bool ascii_only) : u8string(byte_size)
-    {
-        set_ascii_only(ascii_only);
-    }
-    u8string(const iterator& begin, const iterator& end) :
-        u8string(begin.get_pointer(), end.byte_difference(begin))
-    {
-    }
-    u8string(const iterator& begin, const iterator& end, bool ascii_only) :
-        u8string(begin.get_pointer(), end.byte_difference(begin), ascii_only)
-    {
-    }
-    u8string(const utf8::char_t* str, const size_t byte_size)
-    {
-        assert(ptrdiff_t(byte_size) >= 0);
-        if (byte_size <= small_string_byte_size)
-        {
-            new(&static_) static_t(byte_size, trilean_t::Unknown);
-            if (byte_size > 0)
-                utils::restrict_copy_n(str, byte_size, static_.string_);
-            static_.place_null_character();
-        }
-        else
-        {
-            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
-            utils::restrict_copy_n(str, byte_size, dynamic_.string_);
-            dynamic_.place_null_character();
-        }
-        assert(check_validity());
-    }
-    u8string(const utf8::char_t* str, const size_t byte_size,
-        bool ascii_only) : u8string(str, byte_size)
-    {
-        set_ascii_only(ascii_only);
-        assert(check_validity());
-    }
-    template<size_t N>
-    explicit u8string(const char(&str)[N]) :
-        u8string((const utf8::char_t*)str, N - 1u)
-    {
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        assert(check_validity());
-    }
-    template<size_t N>
-    explicit u8string(const char(&str)[N], bool ascii_only) : u8string(str)
-    {
-        set_ascii_only(ascii_only);
-        assert(check_validity());
-    }
-    u8string(const u8string& other) : u8string()
-    {
-        copy_from(other);
-        assert(check_validity());
-    }
-    u8string(u8string&& other) : u8string()
-    {
-        swap_with(other);
-        assert(check_validity());
-    }
-    ~u8string()
-    {
-        destroy();
-    }
-    u8string& operator=(const u8string& other)
-    {
-        destroy();
-        copy_from(other);
-        return *this;
-    }
-    u8string& operator=(u8string&& other)
-    {
-        swap_with(other);
-        return *this;
-    }
-    void destroy()
-    {
-        if (!is_static())
-            dynamic_.~dynamic_t();
-    }
-    void swap_with(u8string& other)
-    {
-        char buffer[sizeof(u8string)];
-        std::memcpy(buffer, &other, sizeof(u8string));
-        std::memcpy(&other, this, sizeof(u8string));
-        std::memcpy(this, buffer, sizeof(u8string));
-    }
-    void copy_from(const u8string& other)
-    {
-        if (other.is_static())
-        {
-            new(&static_) static_t(other.static_);
-        }
-        else
-        {
-            const auto byte_size = other.byte_size();
-            if (byte_size <= small_string_byte_size)
-            { // convert to static
-                new(&static_) static_t(byte_size, other.static_.ascii_only_);
-                utils::restrict_copy_n(
-                    other.byte_data(), byte_size + 1u, byte_data());
-            }
-            else
-            { // remain dynamic
-                new(&dynamic_) dynamic_t(byte_size, other.static_.ascii_only_);
-                utils::restrict_copy_n(
-                    other.byte_data(), byte_size + 1u, byte_data());
-            }
-        }
-    }
-    void set_dynamic_capacity(size_t capacity)
-    {
-        if (is_static())
-        {
-            const auto copy = static_;
-            const auto byte_size = copy.byte_size_;
-            const auto ascii_only = copy.ascii_only_;
-            new(&dynamic_) dynamic_t(byte_size, capacity, ascii_only);
-            utils::restrict_copy_n(
-                copy.string_, byte_size + 1u, dynamic_.string_);
-            dynamic_.ascii_only_ = copy.ascii_only_;
-        }
-        else
-        {
-            dynamic_.resize_buffer(capacity);
-        }
-    }
-    WL_INLINE bool is_static() const
-    {
-        bool value;
-        std::memcpy(&value, &static_.is_static_, sizeof(bool));
-        return value;
-    }
-    WL_INLINE size_t byte_size() const
-    {
-        return is_static() ? static_.byte_size_ : dynamic_.byte_size_;
-    }
-    WL_INLINE size_t capacity() const
-    {
-        return is_static() ? static_.capacity_ : dynamic_.capacity_;
-    }
-    WL_INLINE size_t size() const
-    {
-        size_t string_size = 0;
-        if (is_static())
-        {
-            if (static_.ascii_only_ == trilean_t::True)
-                return static_.byte_size_;
-            else
-                string_size = utf8::get_string_size(
-                    static_.string_, static_.byte_size_);
-        }
-        else
-        {
-            if (dynamic_.ascii_only_ == trilean_t::True)
-                return dynamic_.byte_size_;
-            else
-                string_size = utf8::get_string_size(
-                    dynamic_.string_, dynamic_.byte_size_);
-        }
-        set_ascii_only(string_size == byte_size());
-        return string_size;
-    }
-    WL_INLINE utf8::char_t* byte_data()
-    {
-        return is_static() ? static_.string_ : dynamic_.string_;
-    }
-    WL_INLINE const utf8::char_t* byte_data() const
-    {
-        return is_static() ? static_.string_ : dynamic_.string_;
-    }
-    WL_INLINE const char* c_str() const
-    {
-        return reinterpret_cast<const char*>(byte_data());
-    }
-    WL_INLINE trilean_t* _ascii_only_ptr() const
-    {
-        return is_static() ? &static_.ascii_only_ : &dynamic_.ascii_only_;
-    }
-    bool ascii_only() const
-    {
-        auto only = _ascii_only_ptr();
-        if (*only == trilean_t::Unknown)
-        {
-            if (utf8::is_ascii_only(byte_data(), byte_size()))
-                *only = trilean_t::True;
-            else
-                *only = trilean_t::False;
-        }
-        return *only == trilean_t::True ? true : false;
-    }
-    void set_ascii_only(bool ascii_only) const
-    {
-        *_ascii_only_ptr() = ascii_only ? trilean_t::True : trilean_t::False;
-    }
-    uint8_t* byte_begin() { return byte_data(); }
-    uint8_t* byte_end() { return byte_data() + byte_size(); }
-    const uint8_t* byte_begin() const { return byte_data(); }
-    const uint8_t* byte_end() const { return byte_data() + byte_size(); }
-    iterator begin() const { return iterator{byte_begin()}; }
-    iterator end() const { return iterator{byte_end()}; }
-    void place_null_character()
-    {
-        if (is_static())
-            static_.place_null_character();
-        else
-            dynamic_.place_null_character();
-    }
-    template<bool PlaceNull = true>
-    void append(const utf8::char_t* str, const size_t append_size)
-    {
-        const size_t new_byte_size = byte_size() + append_size;
-        if (is_static())
-        {
-            if (new_byte_size > small_string_byte_size)
-            {
-                set_dynamic_capacity(new_byte_size);
-                assert(!is_static());
-                dynamic_.push<PlaceNull>(str, append_size);
-            }
-            else
-            {
-                static_.push<PlaceNull>(str, append_size);
-            }
-        }
-        else
-        {
-            dynamic_.push<PlaceNull>(str, append_size);
-        }
-    }
-    template<bool PlaceNull = true, bool UpdateASCII = true>
-    void append(const utf8::char_t ch)
-    {
-        const size_t new_byte_size = byte_size() + 1u;
-        if (is_static())
-        {
-            if (new_byte_size > small_string_byte_size)
-            {
-                set_dynamic_capacity(new_byte_size);
-                assert(!is_static());
-                dynamic_.push<PlaceNull, UpdateASCII>(ch);
-            }
-            else
-            {
-                static_.push<PlaceNull, UpdateASCII>(ch);
-            }
-        }
-        else
-        {
-            dynamic_.push<PlaceNull, UpdateASCII>(ch);
-        }
-    }
-    u8string& join(const u8string& other)
-    {
-        append(other.byte_begin(), other.byte_size());
-        return *this;
-    }
-    template<size_t N>
-    u8string& join(const char(&str)[N])
-    {
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        append((utf8::char_t*)str, N - 1u);
-        return *this;
-    }
-    bool check_validity() const
-    {
-        if (capacity() < byte_size())
-        {
-            return false;
-        }
-        try
-        {
-            utf8::get_string_size<true>(byte_data(), byte_size());
-            return true;
-        }
-        catch (std::logic_error&)
-        {
-            return false;
-        }
-    }
-    std::string _ascii_string() const
-    {
-        std::string str(size(), ' ');
-        const size_t size = this->size();
-        auto begin = this->begin();
-        auto end = this->end();
-        for (size_t i = 0; i < size; ++i, ++begin)
-        {
-            const auto cp = *begin;
-            str[i] = cp > 128u ? '?' : char(cp);
-        }
-        assert(begin == end);
-        return str;
-    }
-    std::string _string_info() const
-    {
-        std::string info = "{ ";
-        info += "is_static=" +
-            std::string(is_static() ? "true" : "false") + ", ";
-        info += "ascii_only=" +
-            std::string(ascii_only() ? "true" : "false") + ", ";
-        info += "size=" + std::to_string(size()) + ", ";
-        info += "byte_size=" + std::to_string(byte_size()) + ", ";
-        info += "capacity=" + std::to_string(capacity()) + ", ";
-        info += "content=";
-        info += _ascii_string();
-        info += " }";
-        return info;
-    }
-};
-struct u8string_view
-{
-    using iterator = utf8::string_iterator;
-    static constexpr ptrdiff_t string_size_unknown = -1;
-    iterator begin_{};
-    iterator end_{};
-    mutable trilean_t ascii_only_ = trilean_t::Unknown;
-    mutable ptrdiff_t string_size_ = string_size_unknown;
-    u8string_view() = default;
-    u8string_view(iterator begin, iterator end) :
-        begin_{begin}, end_{end}
-    {
-        assert(begin <= end);
-    }
-    u8string_view(iterator begin, iterator end, bool ascii_only) :
-        u8string_view{begin, end}
-    {
-        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
-        if (ascii_only)
-            string_size_ = byte_size();
-    }
-    u8string_view(iterator begin, iterator end, size_t string_size) :
-        u8string_view{begin, end}
-    {
-        string_size_ = string_size;
-        ascii_only_ = (size() == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-    }
-    u8string_view(const u8string& str) :
-        begin_{str.begin()}, end_{str.end()}
-    {
-    }
-    u8string_view(const u8string& str, bool ascii_only) :
-        u8string_view{str}
-    {
-        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
-        if (ascii_only)
-            string_size_ = byte_size();
-    }
-    u8string_view(const u8string& str, size_t string_size) :
-        u8string_view{str}
-    {
-        string_size_ = string_size;
-        ascii_only_ = (size() == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-    }
-    const utf8::char_t* byte_data() const
-    {
-        return begin_.get_pointer();
-    }
-    size_t byte_size() const
-    {
-        return size_t(end_.byte_difference(begin_));
-    }
-    size_t size() const
-    {
-        if (string_size_ == string_size_unknown)
-            string_size_ = utf8::get_string_size(byte_data(), byte_size());
-        ascii_only_ = (string_size_ == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-        return string_size_;
-    }
-    const char* c_str() const
-    {
-        return reinterpret_cast<const char*>(byte_data());
-    }
-    iterator begin() const
-    {
-        return begin_;
-    }
-    iterator end() const
-    {
-        return end_;
-    }
-    WL_INLINE trilean_t* _ascii_only_ptr() const
-    {
-        return &ascii_only_;
-    }
-    bool ascii_only() const
-    {
-        auto only = _ascii_only_ptr();
-        if (*only == trilean_t::Unknown)
-        {
-            if (utf8::is_ascii_only(byte_data(), byte_size()))
-                *only = trilean_t::True;
-            else
-                *only = trilean_t::False;
-        }
-        return *only == trilean_t::True ? true : false;
-    }
-    explicit operator u8string()
-    {
-        if (ascii_only_ == trilean_t::Unknown)
-            return u8string(begin_, end_);
-        else
-            return u8string(begin_, end_, ascii_only());
-    }
-};
-}
 namespace wl
 {
 template<int64_t Id, typename Pattern>
@@ -7983,6 +8023,135 @@ auto string_expression(Patterns&&... patterns)
 {
     return _string_expression<remove_cvref_t<Patterns>...>{
         std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
+}
+}
+#define PCRE2_STATIC 1
+#define PCRE2_CODE_UNIT_WIDTH 8
+namespace pcre2
+{
+using regex_t = std::shared_ptr<const pcre2_code_8>;
+using match_data_dtor_t = std::integral_constant<
+    decltype(&pcre2_match_data_free_8), &pcre2_match_data_free_8>;
+using match_data_t = std::unique_ptr<
+    pcre2_match_data_8, match_data_dtor_t>;
+using match_context_dtor_t = std::integral_constant<
+    decltype(&pcre2_match_context_free_8), &pcre2_match_context_free_8>;
+using match_context_t = std::unique_ptr<
+    pcre2_match_context_8, match_context_dtor_t>;
+template<typename String>
+regex_t new_regex(const String& pattern)
+{
+    static_assert(wl::is_string_view_v<String>, "");
+    int error = 0;
+    PCRE2_SIZE pos = 0;
+    pcre2_code_8* regex_ptr = pcre2_compile_8((PCRE2_SPTR8)pattern.c_str(),
+        pattern.byte_size(), 0, &error, &pos, nullptr);
+    if (!regex_ptr)
+    {
+        constexpr PCRE2_SIZE buffer_size = 256;
+        PCRE2_UCHAR buffer[buffer_size];
+        pcre2_get_error_message_8(error, buffer, buffer_size);
+        throw std::logic_error((const char*)buffer);
+    }
+    return {regex_ptr, &pcre2_code_free_8};
+}
+template<typename CL, typename PL>
+struct _regex_search_state
+{
+    const wl::_compiled_pattern<CL, PL>& pattern_;
+    uint32_t capture_count_ = 0;
+    const PCRE2_SPTR8 text_data_;
+    const size_t text_size_;
+    size_t start_pos_ = 0;
+    match_data_t match_{};
+    PCRE2_SIZE* match_ptr_ = nullptr;
+    _regex_search_state(const wl::_compiled_pattern<CL, PL>& pattern,
+        PCRE2_SPTR8 text_data, size_t text_size) :
+        pattern_{pattern}, text_data_{text_data}, text_size_{text_size}
+    {
+        *pattern_.conditions_ptr = &pattern_.conditions;
+        pcre2_pattern_info_8(pattern_.regex_ptr.get(),
+            PCRE2_INFO_CAPTURECOUNT, &capture_count_);
+        match_.reset(pcre2_match_data_create_8(capture_count_ + 1u, nullptr));
+        match_ptr_ = pcre2_get_ovector_pointer_8(match_.get());
+    }
+    wl::string_view prefix() const
+    {
+        return {text_data_ + start_pos_, text_data_ + match_ptr_[0u]};
+    }
+    auto capture_count() const
+    {
+        return size_t(capture_count_);
+    }
+    wl::string_view match() const
+    {
+        return {text_data_ + match_ptr_[0u], text_data_ + match_ptr_[1u]};
+    }
+    wl::string_view match(size_t i) const
+    {
+        assert(i <= capture_count_);
+        return {text_data_ + match_ptr_[2u * i],
+            text_data_ + match_ptr_[2u * i + 1u]};
+    }
+    bool find_next(uint32_t options = 0u)
+    {
+        WL_THROW_IF_ABORT()
+        auto result = pcre2_match_8(pattern_.regex_ptr.get(),
+            text_data_, text_size_, start_pos_, 0, match_.get(),
+            pattern_.match_context_ptr.get());
+        if (result >= 0)
+        {
+            start_pos_ = match_ptr_[1];
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+};
+template<typename CL, typename PL, typename CharT>
+auto regex_search(const wl::_compiled_pattern<CL, PL>& pattern,
+    const CharT* text_data, size_t text_size)
+{
+    return _regex_search_state<CL, PL>(pattern, (PCRE2_SPTR8)text_data,
+        text_size);
+}
+template<typename PatternIdList>
+struct callout_matches_t
+{
+    PCRE2_SPTR text_data;
+    const PCRE2_SIZE* offset_vector;
+    const size_t capture_top;
+    template<int64_t I>
+    wl::string_view operator[](wl::const_int<I> id) const
+    {
+        constexpr auto group_idx = PatternIdList::find(id);
+        assert(group_idx < capture_top);
+        return {text_data + offset_vector[2u * group_idx],
+            text_data + offset_vector[2u * group_idx + 1u]};
+    }
+};
+template<typename PL, typename CL, size_t... Is>
+auto callout_evaluate(size_t number, const callout_matches_t<PL>& matches,
+    const CL& conditions, std::index_sequence<Is...>)
+{
+    assert(number < CL::size);
+    return ((number != Is || conditions.template get<Is>()(matches)) && ...);
+}
+template<typename PatternIdList, typename ConditionList>
+int callout_function(pcre2_callout_block_8* block_ptr,
+    void* condition_list_ptr)
+{
+    WL_THROW_IF_ABORT()
+    auto matches = callout_matches_t<PatternIdList>{block_ptr->subject,
+        block_ptr->offset_vector, block_ptr->capture_top};
+    const ConditionList& condition_list =
+        **(const ConditionList**)condition_list_ptr;
+    bool pass = callout_evaluate(
+        block_ptr->callout_number, matches, condition_list,
+        std::make_index_sequence<ConditionList::size>{});
+    return pass ? 0 : 1;
 }
 }
 namespace wl
@@ -13633,71 +13802,24 @@ struct _pattern_id_list
         return _pattern_id_list<Ids..., Id>{};
     }
 };
-template<typename PatternIdList>
-struct _regex_match_results
-{
-    static constexpr auto _num_groups = PatternIdList::size;
-    std::array<re2::StringPiece, _num_groups + 1u> groups;
-    constexpr auto size() const
-    {
-        return _num_groups + 1u;
-    }
-    auto data() const
-    {
-        return groups.data();
-    }
-    auto data()
-    {
-        return groups.data();
-    }
-    template<int64_t Id>
-    auto get(const_int<Id>) const
-    {
-        constexpr auto idx = PatternIdList::find(const_int<Id>{});
-        static_assert(idx > 0u, WL_ERROR_INTERNAL);
-        return string_view{(const utf8::char_t*)groups[idx].begin(),
-            (const utf8::char_t*)groups[idx].end()};
-    }
-    auto operator[](size_t i) const
-    {
-        return groups.at(i);
-    }
-};
 template<typename... Conditions>
 struct _pattern_condition_list
 {
     static constexpr auto size = sizeof...(Conditions);
-    std::tuple<Conditions...> conditions;
+    std::tuple<Conditions...> conditions_;
     
     template<typename Condition>
     auto append(Condition condition) &&
     {
         return _pattern_condition_list<Conditions..., Condition>{
             std::make_tuple(
-                std::get<Conditions>(std::move(conditions))...,
+                std::get<Conditions>(std::move(conditions_))...,
                 std::move(condition))};
     }
-    template<size_t I, typename PatternIdList>
-    void _test_conditions_impl(bool& pass,
-        const _regex_match_results<PatternIdList>& match) const
+    template<size_t I>
+    auto get() const -> const auto&
     {
-        if constexpr (I < sizeof...(Conditions))
-        {
-            using RT = remove_cvref_t<
-                decltype(std::get<I>(conditions)(match))>;
-            static_assert(is_boolean_type_v<RT>, WL_ERROR_INTERNAL);
-            pass = pass && std::get<I>(conditions)(match);
-            if (pass)
-                _test_conditions_impl<I + 1u>(pass, match);
-        }
-    }
-    template<typename PatternIdList>
-    bool test_conditions(
-        const _regex_match_results<PatternIdList>& match) const
-    {
-        bool pass = true;
-        _test_conditions_impl<0>(pass, match);
-        return pass;
+        return std::get<I>(conditions_);
     }
 };
 template<typename ConditionList, typename PatternIdList_>
@@ -13725,17 +13847,36 @@ struct _string_expression_compilation_state
 template<typename ConditionList, typename PatternIdList_>
 struct _compiled_pattern
 {
-    const std::shared_ptr<re2::RE2> regex_ptr;
+    pcre2::regex_t regex_ptr;
+    pcre2::match_context_t match_context_ptr;
     const ConditionList conditions;
+    std::unique_ptr<const ConditionList*> conditions_ptr;
+    const string regex_text;
     using PatternIdList = PatternIdList_;
-    using match_t = _regex_match_results<PatternIdList>;
-    bool test_match(const _regex_match_results<PatternIdList>& match) const
+    _compiled_pattern(pcre2::regex_t in_regex_ptr,
+        ConditionList&& in_conditions, string&& in_regex_text) :
+        regex_ptr{in_regex_ptr},
+        match_context_ptr{pcre2_match_context_create_8(nullptr)},
+        conditions{std::move(in_conditions)},
+        conditions_ptr{new (const ConditionList*){nullptr}},
+        regex_text{std::move(in_regex_text)}
     {
-        return conditions.test_conditions(match);
+        set_callout();
     }
-    const re2::RE2& get_regex() const
+    _compiled_pattern(pcre2::regex_t in_regex_ptr) :
+        regex_ptr{in_regex_ptr},
+        match_context_ptr{pcre2_match_context_create_8(nullptr)},
+        conditions{},
+        conditions_ptr{new (const ConditionList*){nullptr}},
+        regex_text{""}
     {
-        return *regex_ptr;
+        set_callout();
+    }
+    void set_callout()
+    {
+        pcre2_set_callout_8(match_context_ptr.get(),
+            &pcre2::callout_function<PatternIdList, ConditionList>,
+            conditions_ptr.get());
     }
 };
 template<typename FormatIdList_>
@@ -13769,7 +13910,7 @@ auto regular_expression(const String& str)
     try
     {
         WL_THROW_IF_ABORT()
-        return CP{re2::re2_new(str.c_str())};
+        return CP{pcre2::new_regex(str)};
     }
     catch (const std::logic_error& regex_error)
     {
@@ -13953,8 +14094,12 @@ auto _string_expression_compile(
     _condition<Pattern, Condition> p, string& str, State s, Tags...)
 {
     auto s1 = std::move(s).append_condition(std::move(p.condition));
+    str.join("(?:");
     auto s2 = _string_expression_compile(
         std::move(p.pattern), str, std::move(s1));
+    str.join(")(?C");
+    str.join(_to_string(decltype(s.conditions)::size));
+    str.join(")");
     return std::move(s2);
 }
 template<size_t I, typename... Patterns, typename State, typename... Tags>
@@ -14239,7 +14384,8 @@ auto _string_expression_compile(Expression e)
     try
     {
         WL_THROW_IF_ABORT()
-        return CP{re2::re2_new(str.c_str()), std::move(s1.conditions)};
+        return CP{pcre2::new_regex(str), std::move(s1.conditions),
+            std::move(str)};
     }
     catch (const std::logic_error& regex_error)
     {
@@ -14282,8 +14428,8 @@ auto _string_expression_compile(_pattern_rule<Left, Right> rule)
     return _compiled_pattern_rule<decltype(cp), decltype(replacement)>{
         std::move(cp), std::move(replacement)};
 }
-template<typename PL>
-inline void _string_expression_format(_regex_match_results<PL> match,
+template<typename SearchState>
+inline void _string_expression_format(const SearchState& state,
     const string& format, string& ret)
 {
     auto begin = format.byte_begin();
@@ -14303,23 +14449,6 @@ inline void _string_expression_format(_regex_match_results<PL> match,
             ret.append<false>('$');
             ++begin;
         }
-        else if (*begin == '`') // not supported
-        {
-            assert(false);
-            ++begin;
-        }
-        else if (*begin == '\'') // not supported
-        {
-            assert(false);
-            ++begin;
-        }
-        else if (*begin == '&')
-        {
-            if (match.size() > 0u)
-                ret.append<false>((const utf8::char_t*)match[0].begin(),
-                    match[0].size());
-            ++begin;
-        }
         else if (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'))
         {
             auto group_idx = size_t(*begin++ - utf8::char_t('0'));
@@ -14328,18 +14457,10 @@ inline void _string_expression_format(_regex_match_results<PL> match,
             if (is_two_digit)
                 group_idx = group_idx * 10u +
                     size_t(*begin++ - utf8::char_t('0'));
-            if (group_idx == 0)
+            if (group_idx <= state.capture_count())
             {
-                ret.append<false>('$');
-                ret.append<false>('0');
-                if (is_two_digit)
-                    ret.append<false>('0');
-            }
-            else if (group_idx < match.size())
-            {
-                ret.append<false>(
-                    (const utf8::char_t*)match[group_idx].begin(),
-                    match[group_idx].size());
+                const auto& view = state.match(group_idx);
+                ret.append<false>(view.byte_data(), view.byte_size());
             }
         }
         else
@@ -14353,8 +14474,7 @@ inline void _string_expression_format(_regex_match_results<PL> match,
 template<typename CL, typename PL>
 auto _pattern_convert_impl(const _compiled_pattern<CL, PL>& pattern)
 {
-    auto regex = pattern.get_regex().pattern();
-    auto ret = string((const utf8::char_t*)regex.c_str(), regex.size());
+    string ret = pattern.regex_text;
     if constexpr (CL::size > 0)
         ret.join(" [").join(to_string(CL::size)).join("  conditions]");
     return ret;
@@ -14373,61 +14493,6 @@ auto _pattern_convert(Any&& any)
     return _pattern_convert_impl(_string_expression_compile(
         std::forward<decltype(any)>(any)));
     WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename CL, typename PL>
-struct _regex_search_state
-{
-    using match_t = typename _compiled_pattern<CL, PL>::match_t;
-    const re2::StringPiece piece_;
-    const _compiled_pattern<CL, PL>& pattern_;
-    match_t match_{};
-    size_t start_position_ = 0u;
-    _regex_search_state(const char* str_data, size_t str_size,
-        const _compiled_pattern<CL, PL>& pattern) :
-        piece_(str_data, str_size), pattern_{pattern}
-    {
-        match_.data()[0] = re2::StringPiece(piece_.begin(), 0u);
-    }
-    auto prefix_data() const
-    {
-        return (const utf8::char_t*)(piece_.begin() + start_position_);
-    }
-    auto prefix_size() const
-    {
-        return size_t((const utf8::char_t*)match_[0].begin() - prefix_data());
-    }
-    auto match() const -> const auto&
-    {
-        return match_;
-    }
-    bool find_next(re2::RE2::Anchor re_anchor = re2::RE2::UNANCHORED)
-    {
-        WL_THROW_IF_ABORT()
-        start_position_ = match_[0].end() - piece_.data();
-        auto new_start_position = start_position_;
-        for (;;)
-        {
-            bool found = re2::re2_match(*pattern_.regex_ptr, piece_,
-                new_start_position, piece_.size(), re_anchor, match_.data(),
-                int(match_.size()));
-            if (!found)
-                return false;
-            if (pattern_.test_match(match_))
-                return true;
-            else
-                new_start_position += utf8::string_iterator(
-                    (const utf8::char_t*)(piece_.begin() + new_start_position)
-                ).num_bytes();
-            if (new_start_position >= piece_.size())
-                return false;
-        }
-    }
-};
-template<typename CL, typename PL>
-auto _regex_search(const char* str_data, size_t str_size,
-    const _compiled_pattern<CL, PL>& pattern)
-{
-    return _regex_search_state<CL, PL>(str_data, str_size, pattern);
 }
 template<typename String, typename CL, typename PL>
 auto _string_count_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
@@ -14448,11 +14513,8 @@ auto _string_match_q_impl(String&& str,
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
-    _regex_match_results<PL> match;
-    bool matched = re2::re2_match(*pattern.regex_ptr,
-        re2::StringPiece(str.c_str(), str.byte_size()), 0u, str.byte_size(),
-        re2::RE2::ANCHOR_BOTH, match.data(), int(match.size()));
-    return boolean(matched && pattern.test_match(match));
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    return boolean(search.find_next(PCRE2_ANCHORED | PCRE2_ENDANCHORED));
 }
 template<typename String, typename CP, typename CR>
 auto _string_cases_impl(String&& str,
@@ -14461,12 +14523,12 @@ auto _string_cases_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
         auto str = string();
-        _string_expression_format(
-            search.match(), rule.replacement.format, str);
+        _string_expression_format(search, rule.replacement.format, str);
         ret.append(std::move(str));
     }
     return ret;
@@ -14477,11 +14539,10 @@ auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        ret.append(string((const utf8::char_t*)search.match()[0].begin(),
-            search.match()[0].size()));
+        ret.append(string(search.match()));
     }
     return ret;
 }
@@ -14492,15 +14553,15 @@ auto _string_replace_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     string ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        ret.append<false>(search.prefix_data(), search.prefix_size());
-        _string_expression_format(
-            search.match(), rule.replacement.format, ret);
+        ret.join<false>(search.prefix());
+        _string_expression_format(search, rule.replacement.format, ret);
     }
-    ret.append<false>(search.prefix_data(),
-        str.byte_size() - (search.prefix_data() - str.byte_data()));
+    ret.join<false>(
+        string_view{search.prefix().byte_begin(), str.byte_end()});
     ret.place_null_character();
     return ret;
 }
@@ -14510,16 +14571,16 @@ auto _string_split_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        if (ret.size() > 0u || search.prefix_size() > 0u)
-            ret.append(string(search.prefix_data(), search.prefix_size()));
+        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
+            ret.append(string(search.prefix()));
     }
-    const auto prefix_size = str.byte_size() -
-        (search.prefix_data() - str.byte_data());
-    if (prefix_size > 0u)
-        ret.append(string(search.prefix_data(), prefix_size));
+    const auto& prefix = string_view{
+        search.prefix().byte_begin(), str.byte_end()};
+    if (prefix.byte_size() > 0u)
+        ret.append(string(prefix));
     return ret;
 }
 template<typename String, typename CP, typename CR>
@@ -14529,20 +14590,20 @@ auto _string_split_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        if (ret.size() > 0u || search.prefix_size() > 0u)
-            ret.append(string(search.prefix_data(), search.prefix_size()));
+        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
+            ret.append(string(search.prefix()));
         auto replaced = string();
-        _string_expression_format(
-            search.match(), rule.replacement.format, replaced);
+        _string_expression_format(search, rule.replacement.format, replaced);
         ret.append(std::move(replaced));
     }
-    const auto prefix_size = str.byte_size() -
-        (search.prefix_data() - str.byte_data());
-    if (prefix_size > 0u)
-        ret.append(string(search.prefix_data(), prefix_size));
+    const auto& prefix = string_view{
+        search.prefix().byte_begin(), str.byte_end()};
+    if (prefix.byte_size() > 0u)
+        ret.append(string(prefix));
     return ret;
 }
 #define WL_DEFINE_STRING_FUNCTION(name, ret_type, takes_list)               \

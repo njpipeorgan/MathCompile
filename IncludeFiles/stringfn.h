@@ -21,14 +21,14 @@
 #include <memory>
 #include <tuple>
 
-#include "re2/re2_wrapper.h"
-
 #include "types.h"
 #include "arrayview.h"
 #include "utils.h"
 #include "u8string.h"
 #include "numerical.h"
 #include "pattern.h"
+
+#include "pcre2_wrapper.h"
 
 namespace wl
 {
@@ -500,77 +500,25 @@ struct _pattern_id_list
     }
 };
 
-template<typename PatternIdList>
-struct _regex_match_results
-{
-    static constexpr auto _num_groups = PatternIdList::size;
-    std::array<re2::StringPiece, _num_groups + 1u> groups;
-
-    constexpr auto size() const
-    {
-        return _num_groups + 1u;
-    }
-    auto data() const
-    {
-        return groups.data();
-    }
-    auto data()
-    {
-        return groups.data();
-    }
-
-    template<int64_t Id>
-    auto get(const_int<Id>) const
-    {
-        constexpr auto idx = PatternIdList::find(const_int<Id>{});
-        static_assert(idx > 0u, WL_ERROR_INTERNAL);
-        return string_view{(const utf8::char_t*)groups[idx].begin(),
-            (const utf8::char_t*)groups[idx].end()};
-    }
-
-    auto operator[](size_t i) const
-    {
-        return groups.at(i);
-    }
-};
-
 template<typename... Conditions>
 struct _pattern_condition_list
 {
     static constexpr auto size = sizeof...(Conditions);
-    std::tuple<Conditions...> conditions;
+    std::tuple<Conditions...> conditions_;
     
     template<typename Condition>
     auto append(Condition condition) &&
     {
         return _pattern_condition_list<Conditions..., Condition>{
             std::make_tuple(
-                std::get<Conditions>(std::move(conditions))...,
+                std::get<Conditions>(std::move(conditions_))...,
                 std::move(condition))};
     }
 
-    template<size_t I, typename PatternIdList>
-    void _test_conditions_impl(bool& pass,
-        const _regex_match_results<PatternIdList>& match) const
+    template<size_t I>
+    auto get() const -> const auto&
     {
-        if constexpr (I < sizeof...(Conditions))
-        {
-            using RT = remove_cvref_t<
-                decltype(std::get<I>(conditions)(match))>;
-            static_assert(is_boolean_type_v<RT>, WL_ERROR_INTERNAL);
-            pass = pass && std::get<I>(conditions)(match);
-            if (pass)
-                _test_conditions_impl<I + 1u>(pass, match);
-        }
-    }
-
-    template<typename PatternIdList>
-    bool test_conditions(
-        const _regex_match_results<PatternIdList>& match) const
-    {
-        bool pass = true;
-        _test_conditions_impl<0>(pass, match);
-        return pass;
+        return std::get<I>(conditions_);
     }
 };
 
@@ -602,19 +550,39 @@ struct _string_expression_compilation_state
 template<typename ConditionList, typename PatternIdList_>
 struct _compiled_pattern
 {
-    const std::shared_ptr<re2::RE2> regex_ptr;
+    pcre2::regex_t regex_ptr;
+    pcre2::match_context_t match_context_ptr;
     const ConditionList conditions;
+    std::unique_ptr<const ConditionList*> conditions_ptr;
+    const string regex_text;
     using PatternIdList = PatternIdList_;
-    using match_t = _regex_match_results<PatternIdList>;
 
-    bool test_match(const _regex_match_results<PatternIdList>& match) const
+    _compiled_pattern(pcre2::regex_t in_regex_ptr,
+        ConditionList&& in_conditions, string&& in_regex_text) :
+        regex_ptr{in_regex_ptr},
+        match_context_ptr{pcre2_match_context_create_8(nullptr)},
+        conditions{std::move(in_conditions)},
+        conditions_ptr{new (const ConditionList*){nullptr}},
+        regex_text{std::move(in_regex_text)}
     {
-        return conditions.test_conditions(match);
+        set_callout();
     }
 
-    const re2::RE2& get_regex() const
+    _compiled_pattern(pcre2::regex_t in_regex_ptr) :
+        regex_ptr{in_regex_ptr},
+        match_context_ptr{pcre2_match_context_create_8(nullptr)},
+        conditions{},
+        conditions_ptr{new (const ConditionList*){nullptr}},
+        regex_text{""}
     {
-        return *regex_ptr;
+        set_callout();
+    }
+
+    void set_callout()
+    {
+        pcre2_set_callout_8(match_context_ptr.get(),
+            &pcre2::callout_function<PatternIdList, ConditionList>,
+            conditions_ptr.get());
     }
 };
 
@@ -657,7 +625,7 @@ auto regular_expression(const String& str)
     try
     {
         WL_THROW_IF_ABORT()
-        return CP{re2::re2_new(str.c_str())};
+        return CP{pcre2::new_regex(str)};
     }
     catch (const std::logic_error& regex_error)
     {
@@ -855,8 +823,12 @@ auto _string_expression_compile(
     _condition<Pattern, Condition> p, string& str, State s, Tags...)
 {
     auto s1 = std::move(s).append_condition(std::move(p.condition));
+    str.join("(?:");
     auto s2 = _string_expression_compile(
         std::move(p.pattern), str, std::move(s1));
+    str.join(")(?C");
+    str.join(_to_string(decltype(s.conditions)::size));
+    str.join(")");
     return std::move(s2);
 }
 
@@ -1159,7 +1131,8 @@ auto _string_expression_compile(Expression e)
     try
     {
         WL_THROW_IF_ABORT()
-        return CP{re2::re2_new(str.c_str()), std::move(s1.conditions)};
+        return CP{pcre2::new_regex(str), std::move(s1.conditions),
+            std::move(str)};
     }
     catch (const std::logic_error& regex_error)
     {
@@ -1208,8 +1181,8 @@ auto _string_expression_compile(_pattern_rule<Left, Right> rule)
         std::move(cp), std::move(replacement)};
 }
 
-template<typename PL>
-inline void _string_expression_format(_regex_match_results<PL> match,
+template<typename SearchState>
+inline void _string_expression_format(const SearchState& state,
     const string& format, string& ret)
 {
     auto begin = format.byte_begin();
@@ -1229,23 +1202,6 @@ inline void _string_expression_format(_regex_match_results<PL> match,
             ret.append<false>('$');
             ++begin;
         }
-        else if (*begin == '`') // not supported
-        {
-            assert(false);
-            ++begin;
-        }
-        else if (*begin == '\'') // not supported
-        {
-            assert(false);
-            ++begin;
-        }
-        else if (*begin == '&')
-        {
-            if (match.size() > 0u)
-                ret.append<false>((const utf8::char_t*)match[0].begin(),
-                    match[0].size());
-            ++begin;
-        }
         else if (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'))
         {
             auto group_idx = size_t(*begin++ - utf8::char_t('0'));
@@ -1254,18 +1210,10 @@ inline void _string_expression_format(_regex_match_results<PL> match,
             if (is_two_digit)
                 group_idx = group_idx * 10u +
                     size_t(*begin++ - utf8::char_t('0'));
-            if (group_idx == 0)
+            if (group_idx <= state.capture_count())
             {
-                ret.append<false>('$');
-                ret.append<false>('0');
-                if (is_two_digit)
-                    ret.append<false>('0');
-            }
-            else if (group_idx < match.size())
-            {
-                ret.append<false>(
-                    (const utf8::char_t*)match[group_idx].begin(),
-                    match[group_idx].size());
+                const auto& view = state.match(group_idx);
+                ret.append<false>(view.byte_data(), view.byte_size());
             }
         }
         else
@@ -1280,8 +1228,7 @@ inline void _string_expression_format(_regex_match_results<PL> match,
 template<typename CL, typename PL>
 auto _pattern_convert_impl(const _compiled_pattern<CL, PL>& pattern)
 {
-    auto regex = pattern.get_regex().pattern();
-    auto ret = string((const utf8::char_t*)regex.c_str(), regex.size());
+    string ret = pattern.regex_text;
     if constexpr (CL::size > 0)
         ret.join(" [").join(to_string(CL::size)).join("  conditions]");
     return ret;
@@ -1304,68 +1251,6 @@ auto _pattern_convert(Any&& any)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename CL, typename PL>
-struct _regex_search_state
-{
-    using match_t = typename _compiled_pattern<CL, PL>::match_t;
-    const re2::StringPiece piece_;
-    const _compiled_pattern<CL, PL>& pattern_;
-    match_t match_{};
-    size_t start_position_ = 0u;
-
-    _regex_search_state(const char* str_data, size_t str_size,
-        const _compiled_pattern<CL, PL>& pattern) :
-        piece_(str_data, str_size), pattern_{pattern}
-    {
-        match_.data()[0] = re2::StringPiece(piece_.begin(), 0u);
-    }
-
-    auto prefix_data() const
-    {
-        return (const utf8::char_t*)(piece_.begin() + start_position_);
-    }
-
-    auto prefix_size() const
-    {
-        return size_t((const utf8::char_t*)match_[0].begin() - prefix_data());
-    }
-
-    auto match() const -> const auto&
-    {
-        return match_;
-    }
-
-    bool find_next(re2::RE2::Anchor re_anchor = re2::RE2::UNANCHORED)
-    {
-        WL_THROW_IF_ABORT()
-        start_position_ = match_[0].end() - piece_.data();
-        auto new_start_position = start_position_;
-        for (;;)
-        {
-            bool found = re2::re2_match(*pattern_.regex_ptr, piece_,
-                new_start_position, piece_.size(), re_anchor, match_.data(),
-                int(match_.size()));
-            if (!found)
-                return false;
-            if (pattern_.test_match(match_))
-                return true;
-            else
-                new_start_position += utf8::string_iterator(
-                    (const utf8::char_t*)(piece_.begin() + new_start_position)
-                ).num_bytes();
-            if (new_start_position >= piece_.size())
-                return false;
-        }
-    }
-};
-
-template<typename CL, typename PL>
-auto _regex_search(const char* str_data, size_t str_size,
-    const _compiled_pattern<CL, PL>& pattern)
-{
-    return _regex_search_state<CL, PL>(str_data, str_size, pattern);
-}
-
 template<typename String, typename CL, typename PL>
 auto _string_count_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
 {
@@ -1386,11 +1271,8 @@ auto _string_match_q_impl(String&& str,
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
-    _regex_match_results<PL> match;
-    bool matched = re2::re2_match(*pattern.regex_ptr,
-        re2::StringPiece(str.c_str(), str.byte_size()), 0u, str.byte_size(),
-        re2::RE2::ANCHOR_BOTH, match.data(), int(match.size()));
-    return boolean(matched && pattern.test_match(match));
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    return boolean(search.find_next(PCRE2_ANCHORED | PCRE2_ENDANCHORED));
 }
 
 template<typename String, typename CP, typename CR>
@@ -1400,12 +1282,12 @@ auto _string_cases_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
         auto str = string();
-        _string_expression_format(
-            search.match(), rule.replacement.format, str);
+        _string_expression_format(search, rule.replacement.format, str);
         ret.append(std::move(str));
     }
     return ret;
@@ -1417,11 +1299,10 @@ auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        ret.append(string((const utf8::char_t*)search.match()[0].begin(),
-            search.match()[0].size()));
+        ret.append(string(search.match()));
     }
     return ret;
 }
@@ -1433,15 +1314,15 @@ auto _string_replace_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     string ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        ret.append<false>(search.prefix_data(), search.prefix_size());
-        _string_expression_format(
-            search.match(), rule.replacement.format, ret);
+        ret.join<false>(search.prefix());
+        _string_expression_format(search, rule.replacement.format, ret);
     }
-    ret.append<false>(search.prefix_data(),
-        str.byte_size() - (search.prefix_data() - str.byte_data()));
+    ret.join<false>(
+        string_view{search.prefix().byte_begin(), str.byte_end()});
     ret.place_null_character();
     return ret;
 }
@@ -1452,16 +1333,16 @@ auto _string_split_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        if (ret.size() > 0u || search.prefix_size() > 0u)
-            ret.append(string(search.prefix_data(), search.prefix_size()));
+        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
+            ret.append(string(search.prefix()));
     }
-    const auto prefix_size = str.byte_size() -
-        (search.prefix_data() - str.byte_data());
-    if (prefix_size > 0u)
-        ret.append(string(search.prefix_data(), prefix_size));
+    const auto& prefix = string_view{
+        search.prefix().byte_begin(), str.byte_end()};
+    if (prefix.byte_size() > 0u)
+        ret.append(string(prefix));
     return ret;
 }
 
@@ -1472,20 +1353,20 @@ auto _string_split_impl(String&& str,
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
-    auto search = _regex_search(str.c_str(), str.byte_size(), rule.pattern);
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
     while (search.find_next())
     {
-        if (ret.size() > 0u || search.prefix_size() > 0u)
-            ret.append(string(search.prefix_data(), search.prefix_size()));
+        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
+            ret.append(string(search.prefix()));
         auto replaced = string();
-        _string_expression_format(
-            search.match(), rule.replacement.format, replaced);
+        _string_expression_format(search, rule.replacement.format, replaced);
         ret.append(std::move(replaced));
     }
-    const auto prefix_size = str.byte_size() -
-        (search.prefix_data() - str.byte_data());
-    if (prefix_size > 0u)
-        ret.append(string(search.prefix_data(), prefix_size));
+    const auto& prefix = string_view{
+        search.prefix().byte_begin(), str.byte_end()};
+    if (prefix.byte_size() > 0u)
+        ret.append(string(prefix));
     return ret;
 }
 

@@ -402,16 +402,16 @@ inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
 #endif
 
 #if defined(WL_USE_MATHLINK) && !defined(NDEBUG)
-#  define WL_TRY_BEGIN()                                        \
-    try                                                         \
+#  define WL_TRY_BEGIN()                                            \
+    try                                                             \
     {
-#  define WL_TRY_END(func, file, line)                          \
-    } catch (std::logic_error& err)                             \
-    {                                                           \
-        throw std::logic_error(err.what() +                     \
-            (std::string("\n>> from function \"") + func +      \
-            "\" in \"" + librarylink::extract_filename(file) +  \
-            "\" line " + std::to_string(line)));                \
+#  define WL_TRY_END(func, file, line)                              \
+    } catch (std::logic_error& err)                                 \
+    {                                                               \
+        throw std::logic_error(err.what() +                         \
+            (std::string("\n>> from function \"") + func +          \
+            "\" in \"" + wl::librarylink::extract_filename(file) +  \
+            "\" line " + std::to_string(line)));                    \
     }
 #else
 #  define WL_TRY_BEGIN() ((void)0);
@@ -422,7 +422,7 @@ inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
 #if defined(WL_USE_MATHLINK) && (defined(WL_CHECK_ABORT) || defined(WL_CHECK_ABORT_TEST))
 #  define WL_THROW_IF_ABORT()                                           \
     {                                                                   \
-        if (WL_UNLIKELY(librarylink::global_abort_in_progress))         \
+        if (WL_UNLIKELY(wl::librarylink::global_abort_in_progress))     \
             throw std::logic_error("AbortQ is called.");                \
     }
 #  define WL_CHECK_ABORT_LOOP_BEGIN(n)                                  \

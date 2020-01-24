@@ -474,6 +474,109 @@ enum class trilean_t : uint8_t
     Unknown
 };
 
+struct u8string_view
+{
+    using iterator = utf8::string_iterator;
+    static constexpr ptrdiff_t string_size_unknown = -1;
+
+    iterator begin_{};
+    iterator end_{};
+    mutable trilean_t ascii_only_ = trilean_t::Unknown;
+    mutable ptrdiff_t string_size_ = string_size_unknown;
+
+    u8string_view() = default;
+
+    u8string_view(iterator begin, iterator end) :
+        begin_{begin}, end_{end}
+    {
+        assert(begin <= end);
+    }
+
+    u8string_view(iterator begin, iterator end, bool ascii_only) :
+        u8string_view{begin, end}
+    {
+        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
+        if (ascii_only)
+            string_size_ = byte_size();
+    }
+
+    u8string_view(iterator begin, iterator end, size_t string_size) :
+        u8string_view{begin, end}
+    {
+        string_size_ = string_size;
+        ascii_only_ = (size() == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+    }
+
+    template<typename CharT>
+    u8string_view(const CharT* begin, const CharT* end) :
+        begin_{(const utf8::char_t*)begin}, end_{(const utf8::char_t*)end}
+    {
+        static_assert(sizeof(CharT) == 1u, WL_ERROR_INTERNAL);
+    }
+
+    const utf8::char_t* byte_data() const
+    {
+        return begin_.get_pointer();
+    }
+
+    size_t byte_size() const
+    {
+        return size_t(end_.byte_difference(begin_));
+    }
+
+    const utf8::char_t* byte_begin() const
+    {
+        return byte_data();
+    }
+    const utf8::char_t* byte_end() const
+    {
+        return byte_data() + byte_size();
+    }
+
+    size_t size() const
+    {
+        if (string_size_ == string_size_unknown)
+            string_size_ = utf8::get_string_size(byte_data(), byte_size());
+        ascii_only_ = (string_size_ == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+        return string_size_;
+    }
+
+    const char* c_str() const
+    {
+        return reinterpret_cast<const char*>(byte_data());
+    }
+
+    iterator begin() const
+    {
+        return begin_;
+    }
+
+    iterator end() const
+    {
+        return end_;
+    }
+
+    WL_INLINE trilean_t* _ascii_only_ptr() const
+    {
+        return &ascii_only_;
+    }
+
+    bool ascii_only() const
+    {
+        auto only = _ascii_only_ptr();
+        if (*only == trilean_t::Unknown)
+        {
+            if (utf8::is_ascii_only(byte_data(), byte_size()))
+                *only = trilean_t::True;
+            else
+                *only = trilean_t::False;
+        }
+        return *only == trilean_t::True ? true : false;
+    }
+};
+
 union u8string
 {
     static constexpr size_t small_string_byte_size = 28u; // excluding \0
@@ -736,6 +839,11 @@ union u8string
         assert(check_validity());
     }
 
+    explicit u8string(const u8string_view& other) :
+        u8string(other.byte_begin(), other.byte_size())
+    {
+    }
+
     u8string(const u8string& other) : u8string()
     {
         copy_from(other);
@@ -813,7 +921,7 @@ union u8string
             const auto ascii_only = copy.ascii_only_;
             new(&dynamic_) dynamic_t(byte_size, capacity, ascii_only);
             utils::restrict_copy_n(
-                copy.string_, byte_size + 1u, dynamic_.string_);
+                copy.string_, size_t(byte_size) + 1u, dynamic_.string_);
             dynamic_.ascii_only_ = copy.ascii_only_;
         }
         else
@@ -897,14 +1005,36 @@ union u8string
         *_ascii_only_ptr() = ascii_only ? trilean_t::True : trilean_t::False;
     }
 
-    uint8_t* byte_begin() { return byte_data(); }
-    uint8_t* byte_end() { return byte_data() + byte_size(); }
+    utf8::char_t* byte_begin()
+    {
+        return byte_data();
+    }
+    utf8::char_t* byte_end()
+    {
+        return byte_data() + byte_size();
+    }
+    const utf8::char_t* byte_begin() const
+    {
+        return byte_data();
+    }
+    const utf8::char_t* byte_end() const
+    {
+        return byte_data() + byte_size();
+    }
 
-    const uint8_t* byte_begin() const { return byte_data(); }
-    const uint8_t* byte_end() const { return byte_data() + byte_size(); }
+    iterator begin() const
+    {
+        return iterator{byte_begin()};
+    }
+    iterator end() const
+    {
+        return iterator{byte_end()};
+    }
 
-    iterator begin() const { return iterator{byte_begin()}; }
-    iterator end() const { return iterator{byte_end()}; }
+    operator u8string_view() const
+    {
+        return u8string_view{begin(), end()};
+    }
 
     void place_null_character()
     {
@@ -960,17 +1090,25 @@ union u8string
         }
     }
 
+    template<bool PlaceNull = true>
     u8string& join(const u8string& other)
     {
-        append(other.byte_begin(), other.byte_size());
+        append<PlaceNull>(other.byte_data(), other.byte_size());
         return *this;
     }
 
-    template<size_t N>
+    template<bool PlaceNull = true, size_t N>
     u8string& join(const char(&str)[N])
     {
         static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        append((utf8::char_t*)str, N - 1u);
+        append<PlaceNull>((const utf8::char_t*)str, N - 1u);
+        return *this;
+    }
+
+    template<bool PlaceNull = true>
+    u8string& join(const u8string_view& other)
+    {
+        append<PlaceNull>(other.byte_data(), other.byte_size());
         return *this;
     }
 
@@ -1020,122 +1158,6 @@ union u8string
         info += _ascii_string();
         info += " }";
         return info;
-    }
-};
-
-struct u8string_view
-{
-    using iterator = utf8::string_iterator;
-    static constexpr ptrdiff_t string_size_unknown = -1;
-
-    iterator begin_{};
-    iterator end_{};
-    mutable trilean_t ascii_only_ = trilean_t::Unknown;
-    mutable ptrdiff_t string_size_ = string_size_unknown;
-
-    u8string_view() = default;
-
-    u8string_view(iterator begin, iterator end) :
-        begin_{begin}, end_{end}
-    {
-        assert(begin <= end);
-    }
-
-    u8string_view(iterator begin, iterator end, bool ascii_only) :
-        u8string_view{begin, end}
-    {
-        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
-        if (ascii_only)
-            string_size_ = byte_size();
-    }
-
-    u8string_view(iterator begin, iterator end, size_t string_size) :
-        u8string_view{begin, end}
-    {
-        string_size_ = string_size;
-        ascii_only_ = (size() == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-    }
-
-    u8string_view(const u8string& str) :
-        begin_{str.begin()}, end_{str.end()}
-    {
-    }
-
-    u8string_view(const u8string& str, bool ascii_only) :
-        u8string_view{str}
-    {
-        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
-        if (ascii_only)
-            string_size_ = byte_size();
-    }
-
-    u8string_view(const u8string& str, size_t string_size) :
-        u8string_view{str}
-    {
-        string_size_ = string_size;
-        ascii_only_ = (size() == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-    }
-
-    const utf8::char_t* byte_data() const
-    {
-        return begin_.get_pointer();
-    }
-
-    size_t byte_size() const
-    {
-        return size_t(end_.byte_difference(begin_));
-    }
-
-    size_t size() const
-    {
-        if (string_size_ == string_size_unknown)
-            string_size_ = utf8::get_string_size(byte_data(), byte_size());
-        ascii_only_ = (string_size_ == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-        return string_size_;
-    }
-
-    const char* c_str() const
-    {
-        return reinterpret_cast<const char*>(byte_data());
-    }
-
-    iterator begin() const
-    {
-        return begin_;
-    }
-
-    iterator end() const
-    {
-        return end_;
-    }
-
-    WL_INLINE trilean_t* _ascii_only_ptr() const
-    {
-        return &ascii_only_;
-    }
-
-    bool ascii_only() const
-    {
-        auto only = _ascii_only_ptr();
-        if (*only == trilean_t::Unknown)
-        {
-            if (utf8::is_ascii_only(byte_data(), byte_size()))
-                *only = trilean_t::True;
-            else
-                *only = trilean_t::False;
-        }
-        return *only == trilean_t::True ? true : false;
-    }
-
-    explicit operator u8string()
-    {
-        if (ascii_only_ == trilean_t::Unknown)
-            return u8string(begin_, end_);
-        else
-            return u8string(begin_, end_, ascii_only());
     }
 };
 

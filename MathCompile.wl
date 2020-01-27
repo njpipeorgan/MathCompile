@@ -588,7 +588,6 @@ $builtinfunctions=
   "NoneTrue"        ->"none_true",
   "Count"           ->"count",
 (* patterns *)
-  "Pattern"         ->"pattern",
   "Blank"           ->"blank",
   "BlankSequence"   ->"blank_sequence",
   "BlankNullSequence"->"blank_null_sequence",
@@ -613,6 +612,11 @@ $builtinfunctions=
   "StringMatchQ"    ->"string_match_q",
   "StringSplit"     ->"string_split",
   "StringPattern`PatternConvert"->"_pattern_convert",
+  "LetterQ"         ->"letter_q",
+  "DigitQ"          ->"digit_q",
+  "UpperCaseQ"      ->"upper_case_q",
+  "LowerCaseQ"      ->"lower_case_q",
+  "PrintableASCIIQ" ->"printable_ascii_q",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",
@@ -766,10 +770,10 @@ lexicalorder[a_,b_]:=
     If[la>lb,Order[a,PadRight[b,la,-1]],Order[PadRight[a,lb,-1],b]]
   ];
 
-regexmacro[code_]:=Module[{patternfunctions,sepos,names},
-    code=code//.{
-      id["PatternTest",p_][patt:(id["Pattern",_][id[x_,_],_]),test_]:>id["Condition",p][patt,test[x]],
-      id["PatternTest",p_][patt_,test_]:>Module[{var=newvar},id["Condition",p][id["Pattern",p][id[var,p],patt],test[id[var,0]]]]};
+regexmacro[inputcode_]:=Module[{code,patternfunctions,sepos,names},
+    code=inputcode//.{
+      id["PatternTest",p_][patt:(id["Pattern",_][x:id[_,_],_]),test_]:>id["Condition",p][patt,test[x]],
+      id["PatternTest",p_][patt_,test_]:>Module[{var=newvar},id["Condition",p][id["Pattern",p][id[var,-p],patt],test[id[var,0]]]]};
     patternfunctions={
       "StringExpression","Pattern","Blank","BlankSequence","BlankNullSequence",
       "Alternatives","Repeated","RepeatedNull","Except","Longest","Shortest",
@@ -783,10 +787,10 @@ regexmacro[code_]:=Module[{patternfunctions,sepos,names},
       names=GroupBy[#,First->Last,Min]&@Cases[se,id["Pattern",p_][id[x_,xi_],_]:>(x->xi),-1,Heads->True];
       rulepos=Reverse@Sort[Append[#,2]&/@Position[se,id["Rule"|"RuleDelayed",_][_,_]],lexicalorder];
       rulereplacements=KeyValueMap[id[#1,p_]:>native["_replacement",p][const[#2]]&,names];
-      Do[se[[Sequence@@rp]]=se[[Sequence@@rp]]/.rulereplacements;,{rp,rulepos}];
+      Do[se=ReplacePart[se,rp->(se[[Sequence@@rp]]/.rulereplacements)];,{rp,rulepos}];
       condpos=Append[#,2]&/@Position[se,id["Condition",_][_,_]];
-      Do[var=newvar;se[[Sequence@@cp]]=function[Extract[se,Most[cp]~Join~{0,2}]][{var},{nil},sequence[
-        se[[Sequence@@cp]]/.KeyValueMap[id[#1,p_]:>argmatch[var,const[#2]]&,names]]];
+      Do[var=newvar;se=ReplacePart[se,cp->function[Extract[se,Most[cp]~Join~{0,2}]][{var},{nil},sequence[
+        Extract[se,cp]/.KeyValueMap[id[#1,p_]:>argmatch[var,const[#2]]&,names]]]];
       ,{cp,condpos}];
       se=se//.KeyValueMap[id["Pattern",p_][id[#1,_],patt_]:>native["pattern",p][const[#2],patt]&,names];
       code=ReplacePart[code,p->se];

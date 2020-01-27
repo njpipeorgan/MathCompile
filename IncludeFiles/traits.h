@@ -123,11 +123,16 @@ struct _condition;
 template<int64_t... Ids>
 struct _pattern_id_list;
 
+namespace strexp
+{
+
 template<typename ConditionList, typename PatternIdList_>
-struct _compiled_pattern;
+struct compiled_pattern;
 
 template<typename CompiledPattern, typename CompiledReplacement>
-struct _compiled_pattern_rule;
+struct compiled_pattern_rule;
+
+}
 
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;

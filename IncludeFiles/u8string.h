@@ -35,6 +35,11 @@ using char_t   = uint8_t;
 using char21_t = uint32_t;
 constexpr char_t null_character = '\0';
 
+inline char_t operator""_c(const char ch)
+{
+    return char_t(ch);
+}
+
 inline constexpr bool is_ascii(char_t ch)
 {
     return ch < char_t(0b1000'0000);
@@ -842,6 +847,12 @@ union u8string
     explicit u8string(const u8string_view& other) :
         u8string(other.byte_begin(), other.byte_size())
     {
+    }
+
+    explicit u8string(const char* str) :
+        u8string((const utf8::char_t*)str, std::strlen(str))
+    {
+        assert(check_validity());
     }
 
     u8string(const u8string& other) : u8string()

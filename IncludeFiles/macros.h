@@ -418,7 +418,7 @@ namespace wl
 "The string is not terminated by a null character."
 
 #define WL_ERROR_REGEX \
-"[regex] "
+"Regex is not valid: "
 
 #define WL_ERROR_BAD_PATTERN \
 "The expression does not specify a valid pattern or a pattern rule."

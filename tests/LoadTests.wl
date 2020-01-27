@@ -394,3 +394,14 @@ registertest[test["mandelbrot",               Function[{},Table[Module[{g=0.I,n=
 registertest[test["fannkuch-redux",           Function[{Typed[x,{Integer,1}]},Module[{n=0},NestWhile[Module[{y=#,i=#[[1]]},++n;y[[;;i]]=Reverse@y[[;;i]];y]&,x,#[[1]]!=1&];n]],List/@RandomSample[Permutations[Range[8]],1000]]&];
 registertest[test["collatz-sequence",         Function[{Typed[x,Integer]},Ordering[Table[Module[{n=1,g=i},While[g>1,++n;g=If[OddQ[g],3g+1,Quotient[g,2]];];n],{i,x}],-1]],{{10000}}]&];
 
+registertest[test["regex:string_expression",  Function[{},StringPattern`PatternConvert["123"~~"456"~~"789"]],{{}->"(?ms)123456789"}]&];
+registertest[test["regex:const",              Function[{},StringPattern`PatternConvert[StartOfString~~StartOfLine~~EndOfLine~~Whitespace~~NumberString~~WordCharacter~~DigitCharacter~~HexadecimalCharacter~~WhitespaceCharacter~~PunctuationCharacter~~WordBoundary~~EndOfString]],{{}->"(?ms)\\A^$\\s+(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))\\w\\d[[:xdigit:]]\\s[[:punct:]]\\b\\z"}]&];
+registertest[test["regex:pattern",            Function[{},StringPattern`PatternConvert[_~~x__~~y_~~z___]],{{}->"(?ms).(.+)(.)(.*)"}]&];
+registertest[test["regex:alternatives",       Function[{},StringPattern`PatternConvert[___~~("123"|x___|y__)~~EndOfString]],{{}->"(?ms).*(?:123|(.*)|(.+))\\z"}]&];
+registertest[test["regex:repeated-basic",     Function[{},StringPattern`PatternConvert[(x__~~("ab"|y_))..]],{{}->"(?ms)(.+)(?:ab|(.))(?:\\g{1}(?:ab|\\g{2}))*"}]&];
+registertest[test["regex:repeated-n",         Function[{},StringPattern`PatternConvert[Repeated[x__~~__,#]]&/@{{1,5},{0,5},{5,9}}],{{}->{"(?ms)(.+).+(?:\\g{1}.+){0,4}","(?ms)(?:(.+).+)?(?:\\g{1}.+){0,4}","(?ms)(.+).+(?:\\g{1}.+){4,8}"}}]&];
+registertest[test["regex:repeated_null",      Function[{},StringPattern`PatternConvert[(x__~~_)...]],{{}->"(?ms)(?:(.+).)?(?:\\g{1}.)*"}]&];
+registertest[test["regex:shortest",           Function[{},StringPattern`PatternConvert[Shortest[(x__~~_)...]]],{{}->"(?ms)(?:(.+).)??(?:\\g{1}.)*?"}]&];
+registertest[test["regex:alternatives-set1",  Function[{},StringPattern`PatternConvert[{"a","b","c"}..]],{{}->"(?ms)[abc][abc]*"}]&];
+registertest[test["regex:alternatives-set2",  Function[{},StringPattern`PatternConvert[("1"|WordCharacter|PunctuationCharacter)..]],{{}->"(?ms)[1\\w[:punct:]][1\\w[:punct:]]*"}]&];
+

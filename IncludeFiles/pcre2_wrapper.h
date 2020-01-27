@@ -110,10 +110,10 @@ regex_t new_regex(const String& pattern)
     return {regex_ptr, &pcre2_code_free_8};
 }
 
-template<typename CL, typename PL>
+template<typename C, typename P>
 struct _regex_search_state
 {
-    const wl::_compiled_pattern<CL, PL>& pattern_;
+    const wl::strexp::compiled_pattern<C, P>& pattern_;
     uint32_t capture_count_ = 0;
     const PCRE2_SPTR8 text_data_;
     const size_t text_size_;
@@ -121,7 +121,7 @@ struct _regex_search_state
     match_data_t match_{};
     PCRE2_SIZE* match_ptr_ = nullptr;
 
-    _regex_search_state(const wl::_compiled_pattern<CL, PL>& pattern,
+    _regex_search_state(const wl::strexp::compiled_pattern<C, P>& pattern,
         PCRE2_SPTR8 text_data, size_t text_size) :
         pattern_{pattern}, text_data_{text_data}, text_size_{text_size}
     {
@@ -158,7 +158,7 @@ struct _regex_search_state
     {
         WL_THROW_IF_ABORT()
         auto result = pcre2_match_8(pattern_.regex_ptr.get(),
-            text_data_, text_size_, start_pos_, 0, match_.get(),
+            text_data_, text_size_, start_pos_, options, match_.get(),
             pattern_.match_context_ptr.get());
         if (result >= 0)
         {
@@ -172,11 +172,11 @@ struct _regex_search_state
     }
 };
 
-template<typename CL, typename PL, typename CharT>
-auto regex_search(const wl::_compiled_pattern<CL, PL>& pattern,
+template<typename C, typename P, typename CharT>
+auto regex_search(const wl::strexp::compiled_pattern<C, P>& pattern,
     const CharT* text_data, size_t text_size)
 {
-    return _regex_search_state<CL, PL>(pattern, (PCRE2_SPTR8)text_data,
+    return _regex_search_state<C, P>(pattern, (PCRE2_SPTR8)text_data,
         text_size);
 }
 
@@ -190,10 +190,18 @@ struct callout_matches_t
     template<int64_t I>
     wl::string_view operator[](wl::const_int<I> id) const
     {
-        constexpr auto group_idx = PatternIdList::find(id);
-        assert(group_idx < capture_top);
-        return {text_data + offset_vector[2u * group_idx],
-            text_data + offset_vector[2u * group_idx + 1u]};
+        if constexpr (I > 0)
+        { // Condition
+            constexpr auto group_idx = PatternIdList::find(id);
+            assert(group_idx < capture_top);
+            return {text_data + offset_vector[2u * group_idx],
+                text_data + offset_vector[2u * group_idx + 1u]};
+        }
+        else
+        { // PatternTest
+            return {text_data + offset_vector[2u * capture_top - 2u],
+                text_data + offset_vector[2u * capture_top - 1u]};
+        }
     }
 };
 

@@ -310,7 +310,7 @@ namespace wl
 #define WL_ERROR_BAD_UTF8_NULL_TERMINATED \
 "The string is not terminated by a null character."
 #define WL_ERROR_REGEX \
-"[regex] "
+"Regex is not valid: "
 #define WL_ERROR_BAD_PATTERN \
 "The expression does not specify a valid pattern or a pattern rule."
 #define WL_ERROR_REPEATED_INVALID_SPEC \
@@ -381,10 +381,13 @@ template<typename Pattern, typename Condition>
 struct _condition;
 template<int64_t... Ids>
 struct _pattern_id_list;
+namespace strexp
+{
 template<typename ConditionList, typename PatternIdList_>
-struct _compiled_pattern;
+struct compiled_pattern;
 template<typename CompiledPattern, typename CompiledReplacement>
-struct _compiled_pattern_rule;
+struct compiled_pattern_rule;
+}
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
 template<typename T>
@@ -1040,15 +1043,18 @@ using view_type = typename view_derive_impl<I_<0u, 0u, 0u>, Indexers...>::type;
 }
 namespace wl
 {
+namespace strexp
+{
 template<typename Expression>
-auto _string_expression_compile(Expression);
+auto compile(Expression);
+}
 template<typename Any>
 auto val(Any&& any) -> decltype(auto)
 {
     if constexpr (is_array_view_v<remove_cvref_t<Any>>)
         return std::forward<decltype(any)>(any).to_array();
     else if constexpr (is_pattern_v<remove_cvref_t<Any>>)
-        return _string_expression_compile(std::forward<decltype(any)>(any));
+        return strexp::compile(std::forward<decltype(any)>(any));
     else
         return std::forward<decltype(any)>(any);
 }
@@ -2884,7 +2890,8 @@ struct ndarray
         dims_{dims}, data_(begin, end)
     {
     }
-    ndarray(std::array<size_t, R> dims, std::initializer_list<T> data) :
+    template<typename U>
+    ndarray(std::array<size_t, R> dims, std::initializer_list<U> data) :
         dims_{dims}, data_(data.begin(), data.end())
     {
     }
@@ -4964,6 +4971,10 @@ namespace utf8
 using char_t   = uint8_t;
 using char21_t = uint32_t;
 constexpr char_t null_character = '\0';
+inline char_t operator""_c(const char ch)
+{
+    return char_t(ch);
+}
 inline constexpr bool is_ascii(char_t ch)
 {
     return ch < char_t(0b1000'0000);
@@ -5686,6 +5697,11 @@ union u8string
     explicit u8string(const u8string_view& other) :
         u8string(other.byte_begin(), other.byte_size())
     {
+    }
+    explicit u8string(const char* str) :
+        u8string((const utf8::char_t*)str, std::strlen(str))
+    {
+        assert(check_validity());
     }
     u8string(const u8string& other) : u8string()
     {
@@ -8055,17 +8071,17 @@ regex_t new_regex(const String& pattern)
     }
     return {regex_ptr, &pcre2_code_free_8};
 }
-template<typename CL, typename PL>
+template<typename C, typename P>
 struct _regex_search_state
 {
-    const wl::_compiled_pattern<CL, PL>& pattern_;
+    const wl::strexp::compiled_pattern<C, P>& pattern_;
     uint32_t capture_count_ = 0;
     const PCRE2_SPTR8 text_data_;
     const size_t text_size_;
     size_t start_pos_ = 0;
     match_data_t match_{};
     PCRE2_SIZE* match_ptr_ = nullptr;
-    _regex_search_state(const wl::_compiled_pattern<CL, PL>& pattern,
+    _regex_search_state(const wl::strexp::compiled_pattern<C, P>& pattern,
         PCRE2_SPTR8 text_data, size_t text_size) :
         pattern_{pattern}, text_data_{text_data}, text_size_{text_size}
     {
@@ -8097,7 +8113,7 @@ struct _regex_search_state
     {
         WL_THROW_IF_ABORT()
         auto result = pcre2_match_8(pattern_.regex_ptr.get(),
-            text_data_, text_size_, start_pos_, 0, match_.get(),
+            text_data_, text_size_, start_pos_, options, match_.get(),
             pattern_.match_context_ptr.get());
         if (result >= 0)
         {
@@ -8110,11 +8126,11 @@ struct _regex_search_state
         }
     }
 };
-template<typename CL, typename PL, typename CharT>
-auto regex_search(const wl::_compiled_pattern<CL, PL>& pattern,
+template<typename C, typename P, typename CharT>
+auto regex_search(const wl::strexp::compiled_pattern<C, P>& pattern,
     const CharT* text_data, size_t text_size)
 {
-    return _regex_search_state<CL, PL>(pattern, (PCRE2_SPTR8)text_data,
+    return _regex_search_state<C, P>(pattern, (PCRE2_SPTR8)text_data,
         text_size);
 }
 template<typename PatternIdList>
@@ -8126,10 +8142,18 @@ struct callout_matches_t
     template<int64_t I>
     wl::string_view operator[](wl::const_int<I> id) const
     {
-        constexpr auto group_idx = PatternIdList::find(id);
-        assert(group_idx < capture_top);
-        return {text_data + offset_vector[2u * group_idx],
-            text_data + offset_vector[2u * group_idx + 1u]};
+        if constexpr (I > 0)
+        { // Condition
+            constexpr auto group_idx = PatternIdList::find(id);
+            assert(group_idx < capture_top);
+            return {text_data + offset_vector[2u * group_idx],
+                text_data + offset_vector[2u * group_idx + 1u]};
+        }
+        else
+        { // PatternTest
+            return {text_data + offset_vector[2u * capture_top - 2u],
+                text_data + offset_vector[2u * capture_top - 1u]};
+        }
     }
 };
 template<typename PL, typename CL, size_t... Is>
@@ -13822,8 +13846,10 @@ struct _pattern_condition_list
         return std::get<I>(conditions_);
     }
 };
+namespace strexp
+{
 template<typename ConditionList, typename PatternIdList_>
-struct _string_expression_compilation_state
+struct compilation_state
 {
     using PatternIdList = PatternIdList_;
     ConditionList conditions;
@@ -13831,21 +13857,19 @@ struct _string_expression_compilation_state
     auto append_id(const_int<Id>) &&
     {
         using NewList = decltype(PatternIdList::append(const_int<Id>{}));
-        return _string_expression_compilation_state<
-            ConditionList, NewList>{std::move(conditions)};
+        return compilation_state<ConditionList, NewList>{std::move(conditions)};
     }
     template<typename Condition>
     auto append_condition(Condition condition) &&
     {
         auto new_conditions =
             std::move(conditions).append(std::move(condition));
-        return _string_expression_compilation_state<
-            decltype(new_conditions), PatternIdList>{
+        return compilation_state<decltype(new_conditions), PatternIdList>{
             std::move(new_conditions)};
     }
 };
 template<typename ConditionList, typename PatternIdList_>
-struct _compiled_pattern
+struct compiled_pattern
 {
     pcre2::regex_t regex_ptr;
     pcre2::match_context_t match_context_ptr;
@@ -13853,7 +13877,7 @@ struct _compiled_pattern
     std::unique_ptr<const ConditionList*> conditions_ptr;
     const string regex_text;
     using PatternIdList = PatternIdList_;
-    _compiled_pattern(pcre2::regex_t in_regex_ptr,
+    compiled_pattern(pcre2::regex_t in_regex_ptr,
         ConditionList&& in_conditions, string&& in_regex_text) :
         regex_ptr{in_regex_ptr},
         match_context_ptr{pcre2_match_context_create_8(nullptr)},
@@ -13863,7 +13887,7 @@ struct _compiled_pattern
     {
         set_callout();
     }
-    _compiled_pattern(pcre2::regex_t in_regex_ptr) :
+    compiled_pattern(pcre2::regex_t in_regex_ptr) :
         regex_ptr{in_regex_ptr},
         match_context_ptr{pcre2_match_context_create_8(nullptr)},
         conditions{},
@@ -13880,114 +13904,98 @@ struct _compiled_pattern
     }
 };
 template<typename FormatIdList_>
-struct _compiled_replacement_format
+struct compiled_format
 {
     using FormatIdList = FormatIdList_;
-    const string format;
+    const string text;
 };
-template<typename CompiledPattern, typename CompiledReplacement>
-struct _compiled_pattern_rule
+template<typename Pattern, typename Format>
+struct compiled_rule
 {
-    const CompiledPattern pattern;
-    const CompiledReplacement replacement;
+    const Pattern pattern;
+    const Format format;
 };
 template<typename T>
 struct _is_compiled_pattern : std::false_type {};
-template<typename CL, typename IL>
-struct _is_compiled_pattern<_compiled_pattern<CL, IL>> : std::true_type {};
-template<typename CP, typename CR>
-struct _is_compiled_pattern<_compiled_pattern_rule<CP, CR>> : std::true_type {};
+template<typename C, typename P>
+struct _is_compiled_pattern<compiled_pattern<C, P>> : std::true_type {};
+template<typename P, typename R>
+struct _is_compiled_pattern<compiled_rule<P, R>> : std::true_type {};
 template<typename T>
 constexpr auto _is_compiled_pattern_v = _is_compiled_pattern<T>::value;
-struct _string_expression_match_longest_tag {};
-struct _string_expression_match_shortest_tag {};
-template<typename String>
-auto regular_expression(const String& str)
+enum tag_t
 {
-    WL_TRY_BEGIN()
-    using CP = _compiled_pattern<
-        _pattern_condition_list<>, _pattern_id_list<>>;
-    try
-    {
-        WL_THROW_IF_ABORT()
-        return CP{pcre2::new_regex(str)};
-    }
-    catch (const std::logic_error& regex_error)
-    {
-        throw std::logic_error(
-            std::string(WL_ERROR_REGEX) + regex_error.what());
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<int64_t Id, typename Pattern, typename State, typename... Tags>
-auto _string_expression_compile(
-    _named_pattern<Id, Pattern> p, string& str, State s, Tags...)
+    WithinGroup = 0,
+    Alternation,
+    Concatenation,
+    MatchShortest,
+    Repetition,
+    Grouping,
+    CharacterSet,
+    Exception
+};
+template<int64_t Id, typename Pattern, typename State>
+auto compile(_named_pattern<Id, Pattern> p, string& str, State s, tag_t)
 {
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
-    if constexpr (group_idx < 0)
-    { // group does not exist; capture a new group
+    if constexpr (group_idx < 0 || Id < 0)
+    {
+        // group does not exist; capture a new group
+        // negative id means that the group is used for PatternTest
         str.join("(");
         auto s1 = std::move(s).append_id(const_int<Id>{});
-        auto s2 = _string_expression_compile(
-            std::move(p.pattern), str, std::move(s1));
+        auto s2 = compile(std::move(p.pattern), str, std::move(s1),
+            WithinGroup);
         str.join(")");
         return std::move(s2);
     }
     else
     { // group already exists; refer to that group
-        str.join("(?:\\").join(_to_string(group_idx)).join(")");
+        str.join("\\g{").join(_to_string(group_idx)).join("}");
         return std::move(s);
     }
 }
-template<typename... Head, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_blank<Head...>, string& str, State s, Tags...)
+template<typename... Head, typename State>
+auto compile(_pattern_blank<Head...>, string& str, State s, tag_t)
 {
     str.join(".");
     return std::move(s);
 }
 template<typename... Head, typename State>
-auto _string_expression_compile(
-    _pattern_blank_sequence<Head...>, string& str, State s,
-    _string_expression_match_shortest_tag)
+auto compile(_pattern_blank_sequence<Head...>, string& str, State s, tag_t tag)
 {
-    str.join(".+?");
-    return std::move(s);
-}
-template<typename... Head, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_blank_sequence<Head...>, string& str, State s, Tags...)
-{
-    str.join(".+");
+    if (tag == MatchShortest)
+        str.join(".+?");
+    else if (tag < Repetition)
+        str.join(".+");
+    else
+        str.join("(?:.+)");
     return std::move(s);
 }
 template<typename... Head, typename State>
-auto _string_expression_compile(
-    _pattern_blank_null_sequence<Head...>, string& str, State s,
-    _string_expression_match_shortest_tag)
+auto compile(_pattern_blank_null_sequence<Head...>, string& str, State s,
+    tag_t tag)
 {
-    str.join(".*?");
+    if (tag == MatchShortest)
+        str.join(".*?");
+    else if (tag < Repetition)
+        str.join(".*");
+    else
+        str.join("(?:.*)");
     return std::move(s);
 }
-template<typename... Head, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_blank_null_sequence<Head...>, string& str, State s, Tags...)
-{
-    str.join(".*");
-    return std::move(s);
-}
-template<size_t I, typename... Patterns, typename State>
-auto _string_expression_compile_impl(
-    _pattern_alternatives<Patterns...> p, string& str, State s)
+template<size_t I = 0u, typename... Patterns, typename State>
+auto compile_alternatives(_pattern_alternatives<Patterns...> p, string& str,
+    State s, tag_t tag)
 {
     if constexpr (I < sizeof...(Patterns))
     {
-        auto s1 = _string_expression_compile(
-            std::move(p).template get<I>(), str, std::move(s));
-        if constexpr (I + 1u < sizeof...(Patterns))
+        auto&& pattern = std::move(p).template get<I>();
+        auto s1 = compile(std::move(pattern), str, std::move(s), tag);
+        if ((I + 1u < sizeof...(Patterns)) && tag == Alternation)
             str.join("|");
-        auto s2 = _string_expression_compile_impl<I + 1u>(
-            std::move(p), str, std::move(s1));
+        auto s2 = compile_alternatives<I + 1u>(std::move(p), str,
+            std::move(s1), tag);
         return std::move(s2);
     }
     else
@@ -13995,180 +14003,28 @@ auto _string_expression_compile_impl(
         return std::move(s);
     }
 }
-template<size_t I, typename... Patterns>
-void _string_expression_compile_impl(
-    const _pattern_alternatives<Patterns...>& p, string& str)
-{
-    if constexpr (I < sizeof...(Patterns))
-    {
-        str.join(p.template get<I>());
-        _string_expression_compile_impl<I + 1u>(p, str);
-    }
-}
-template<typename... Patterns, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_alternatives<Patterns...> p, string& str, State s, Tags...)
-{
-    if (_string_expression_compile_use_bracket(p))
-    {
-        str.join("[");
-        _string_expression_compile_impl<0u>(p, str);
-        str.join("]");
-    }
-    else
-    {
-        str.join("(?:");
-        _string_expression_compile_impl<0u>(p, str, std::move(s));
-        str.join(")");
-    }
-    return decltype(
-        _string_expression_compile_impl<0>(p, str, std::move(s))){};
-}
-template<typename Pattern, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_repeated<Pattern> p, string& str, State s, Tags...)
-{
-    if (p.min == 0u)
-        str.join("(?:");
-    auto s1 = _string_expression_compile(p.pattern, str, std::move(s));
-    if (p.min == 0u)
-        str.join(")?");
-    str.join("(?:");
-    auto s2 = _string_expression_compile(p.pattern, str, std::move(s1));
-    if (p.max_is_infinity())
-        str.join(")*");
-    else
-    {
-        if (p.min >= 2u)
-            str.join("){").join(_to_string(p.min - 1u)).join(",");
-        else
-            str.join("){0,");
-        str.join(_to_string(p.max - 1u)).join("}");
-    }
-    return std::move(s2);
-}
-template<typename Pattern, typename State>
-auto _string_expression_compile(
-    _pattern_repeated<Pattern> p, string& str, State s,
-    _string_expression_match_shortest_tag)
-{
-    if (p.min == 0u)
-        str.join("(?:");
-    auto s1 = _string_expression_compile(p.pattern, str, std::move(s));
-    if (p.min == 0u)
-        str.join(")??");
-    str.join("(?:");
-    auto s2 = _string_expression_compile(p.pattern, str, std::move(s1));
-    if (p.max_is_infinity())
-        str.join(")*");
-    else
-    {
-        if (p.min >= 2u)
-            str.join("){").join(p.min - 1u).join(",");
-        else
-            str.join("){0,");
-        str.join(p.max - 1u).join("}?");
-    }
-    return std::move(s2);
-}
-template<typename Pattern, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_longest<Pattern> p, string& str, State s, Tags...)
-{
-    auto s1 = _string_expression_compile(
-        std::move(p.pattern), str, std::move(s),
-        _string_expression_match_longest_tag{});
-    return std::move(s);
-}
-template<typename Pattern, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_shortest<Pattern> p, string& str, State s, Tags...)
-{
-    auto s1 = _string_expression_compile(
-        std::move(p.pattern), str, std::move(s),
-        _string_expression_match_shortest_tag{});
-    return std::move(s);
-}
-template<typename Pattern, typename Condition, typename State, typename... Tags>
-auto _string_expression_compile(
-    _condition<Pattern, Condition> p, string& str, State s, Tags...)
-{
-    auto s1 = std::move(s).append_condition(std::move(p.condition));
-    str.join("(?:");
-    auto s2 = _string_expression_compile(
-        std::move(p.pattern), str, std::move(s1));
-    str.join(")(?C");
-    str.join(_to_string(decltype(s.conditions)::size));
-    str.join(")");
-    return std::move(s2);
-}
-template<size_t I, typename... Patterns, typename State, typename... Tags>
-auto _string_expression_compile_impl(
-    _string_expression<Patterns...>&& p, string& str, State s, Tags...)
-{
-    if constexpr (I < sizeof...(Patterns))
-    {
-        auto s2 = _string_expression_compile(
-            std::move(p).template get<I>(), str, std::move(s));
-        return _string_expression_compile_impl<I + 1u>(
-            std::move(p), str, std::move(s2));
-    }
-    else
-    {
-        return std::move(s);
-    }
-}
-template<typename... Patterns, typename State, typename... Tags>
-auto _string_expression_compile(
-    _string_expression<Patterns...> p, string& str, State s, Tags...)
-{
-    return _string_expression_compile_impl<0u>(
-        std::move(p), str, std::move(s));
-}
-inline void _string_expression_compile_impl(
-    const utf8::char_t* begin, const utf8::char_t* end, string& str)
-{
-    static const bool esc_table[256] ={
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,1,0,0,0,1,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-    if (begin == end)
-    {
-        str.join("(?:)");
-    }
-    else
-    {
-        for (; begin < end; ++begin)
-        {
-            if (esc_table[*begin])
-                str.append<false, false>('\\');
-            str.append<false, false>(*begin);
-        }
-        str.place_null_character();
-    }
-}
 template<typename String>
-auto _string_is_single_character(const String& s)
+auto is_single_character(const String& s)
 {
     return (s.byte_size() <= 4u) && (s.size() == 1u);
 }
-template<size_t I, typename... Patterns>
-auto _string_expression_compile_use_bracket_impl(
+template<size_t I = 0u, typename... Patterns>
+auto compile_use_bracket_impl(
     const _pattern_alternatives<Patterns...>& patterns)
 {
     if constexpr (I < sizeof...(Patterns))
     {
         const auto& p = patterns.template get<I>();
+        using PT = remove_cvref_t<decltype(p)>;
         if constexpr (is_string_view_v<remove_cvref_t<decltype(p)>>)
-            return _string_is_single_character(p) &&
-                _string_expression_compile_use_bracket_impl<I + 1u>(patterns);
+            return is_single_character(p) &&
+                compile_use_bracket_impl<I + 1u>(patterns);
         else
-            return false;
+            return std::is_same_v<PT, _whitespace_character_type> ||
+                std::is_same_v<PT, _word_character_type> ||
+                std::is_same_v<PT, _digit_character_type> ||
+                std::is_same_v<PT, _hexadecimal_character_type> ||
+                std::is_same_v<PT, _punctuation_character_type>;
     }
     else
     {
@@ -14176,68 +14032,193 @@ auto _string_expression_compile_use_bracket_impl(
     }
 }
 template<typename... Patterns>
-auto _string_expression_compile_use_bracket(
-    const _pattern_alternatives<Patterns...>& patterns)
+auto compile_use_bracket(const _pattern_alternatives<Patterns...>& p)
 {
-    return _string_expression_compile_use_bracket_impl<0u>(patterns);
+    return compile_use_bracket_impl<0u>(p);
 }
 template<typename Any>
-auto _string_expression_compile_use_bracket(const Any& any)
+auto compile_use_bracket(const Any& any)
 {
     if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
         return bool(all_true(any, [](const string& s)
-            { return boolean(_string_is_single_character(s)); }));
+            { return boolean(is_single_character(s)); }));
     else
         return false;
 }
-template<typename State, typename... Tags>
-auto _string_expression_compile(
-    const ndarray<string, 1u>& patterns, string& str, State s, Tags...)
+template<typename... Patterns, typename State>
+auto compile(_pattern_alternatives<Patterns...> p, string& str, State s,
+    tag_t tag)
 {
-    const auto use_bracket = _string_expression_compile_use_bracket(patterns);
+    auto use_bracket = compile_use_bracket(p);
+    if (tag == Exception && !use_bracket)
+        throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+    if (tag == Exception)
+        str.join("[^");
+    else if (use_bracket)
+        str.join("[");
+    else if (tag >= Alternation)
+        str.join("(?:");
+    auto s1 = compile_alternatives(std::move(p), str, std::move(s),
+        use_bracket ? CharacterSet : Alternation);
+    if (use_bracket)
+        str.join("]");
+    else if (tag >= Alternation)
+        str.join(")");
+    return std::move(s1);
+}
+template<typename Pattern, typename State>
+auto compile(_pattern_repeated<Pattern> p, string& str, State s, tag_t tag)
+{
+    if (p.min == 0u)
+        str.join("(?:");
+    auto s1 = compile(p.pattern, str, std::move(s),
+        p.min == 0u ? WithinGroup : Concatenation);
+    if (p.min == 0u)
+    {
+        str.join(")?");
+        if (tag == MatchShortest)
+            str.join("?");
+    }
+    auto s2 = compile(std::move(p).pattern, str, std::move(s1), Repetition);
+    if (p.max_is_infinity())
+        str.join("*");
+    else
+    {
+        if (p.min >= 2u)
+            str.join("{").join(_to_string(p.min - 1u)).join(",");
+        else
+            str.join("{0,");
+        str.join(_to_string(p.max - 1u)).join("}");
+    }
+    if (tag == MatchShortest)
+        str.join("?");
+    return std::move(s2);
+}
+template<typename Pattern, typename State>
+auto compile(_pattern_longest<Pattern> p, string& str, State s, tag_t tag)
+{
+    return compile(std::move(p.pattern), str, std::move(s), tag);
+}
+template<typename Pattern, typename State>
+auto compile(_pattern_shortest<Pattern> p, string& str, State s, tag_t tag)
+{
+    return compile(std::move(p.pattern), str, std::move(s), MatchShortest);
+}
+template<typename Pattern, typename Condition, typename State>
+auto compile(_condition<Pattern, Condition> p, string& str, State s, tag_t tag)
+{
+    auto s1 = std::move(s).append_condition(std::move(p.condition));
+    if (tag >= Concatenation)
+        str.join("(?:");
+    auto s2 = compile(std::move(p.pattern), str, std::move(s1), Concatenation);
+    str.join("(?C");
+    str.join(_to_string(decltype(s.conditions)::size));
+    str.join(")");
+    if (tag >= Concatenation)
+        str.join(")");
+    return std::move(s2);
+}
+template<size_t I, typename... Patterns, typename State>
+auto compile_impl(_string_expression<Patterns...>&& p, string& str, State s)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        auto s2 = compile(std::move(p).template get<I>(), str, std::move(s),
+            Concatenation);
+        return compile_impl<I + 1u>(std::move(p), str, std::move(s2));
+    }
+    else
+    {
+        return std::move(s);
+    }
+}
+template<typename... Patterns, typename State>
+auto compile(_string_expression<Patterns...> p, string& str, State s,
+    tag_t tag)
+{
+    if (tag > Concatenation)
+        str.join("(?:");
+    auto s1 = compile_impl<0u>(std::move(p), str, std::move(s));
+    if (tag > Concatenation)
+        str.join(")");
+    return std::move(s1);
+}
+inline void compile_impl(const utf8::char_t* begin, const utf8::char_t* end,
+    string& str, tag_t tag)
+{
+    static const bool esc_table[256] ={
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,1,0,0,0,1,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    if (begin == end)
+    {
+        if (tag > WithinGroup)
+            str.join("(?:)");
+    }
+    else
+    {
+        if (tag > Concatenation && tag != CharacterSet)
+            str.join("(?:");
+        for (; begin < end; ++begin)
+        {
+            if (esc_table[*begin])
+                str.append<false, false>('\\');
+            str.append<false, false>(*begin);
+        }
+        str.place_null_character();
+        if (tag > Concatenation && tag != CharacterSet)
+            str.join(")");
+    }
+}
+template<typename State>
+auto compile(const ndarray<string, 1u>& patterns, string& str, State s,
+    tag_t tag)
+{
+    auto use_bracket = compile_use_bracket(patterns);
     auto begin = patterns.begin();
     auto end = patterns.end();
     if (use_bracket)
         str.append('[');
-    else
+    else if (tag >= Alternation)
         str.join("(?:");
     for (; begin != end; ++begin)
     {
-        _string_expression_compile_impl(
-            begin->byte_begin(), begin->byte_end(), str);
+        compile_impl(begin->byte_begin(), begin->byte_end(), str, Alternation);
         if (!use_bracket)
             str.append('|');
     }
     if (use_bracket)
         str.append(']');
-    else
-        str.append(')');
+    else if (tag >= Alternation)
+        str.join(")");
     return std::move(s);
 }
-template<typename Any, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_except<Any> p, string& str, State s, Tags...)
+template<typename Any, typename State>
+auto compile(_pattern_except<Any> p, string& str, State s, tag_t)
 {
     if constexpr (is_string_view_v<Any>)
     {
-        if (!_string_is_single_character(p.pattern))
+        if (!is_single_character(p.pattern))
             throw std::logic_error(WL_ERROR_STRING_EXCEPT);
         str.join("[^");
-        _string_expression_compile_impl(
-            p.pattern.byte_begin(), p.pattern.byte_end(), str);
-        str.append(']');
+        str.join(p.pattern);
+        str.join("]");
     }
     else if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
     {
-        if (!_string_expression_compile_use_bracket(p.pattern))
+        if (!compile_use_bracket(p.pattern))
             throw std::logic_error(WL_ERROR_STRING_EXCEPT);
         auto begin = p.pattern.begin();
         auto end = p.pattern.end();
         str.join("[^");
         for (; begin != end; ++begin)
-            _string_expression_compile_impl(
-                begin->byte_begin(), begin->byte_end(), str);
-        str.append(']');
+            str.join(*begin);
+        str.join("]");
     }
     else
     {
@@ -14245,25 +14226,25 @@ auto _string_expression_compile(
     }
     return std::move(s);
 }
-template<typename... Patterns, typename State, typename... Tags>
-auto _string_expression_compile(
-    _pattern_except<_pattern_alternatives<Patterns...>> p,
-    string& str, State s, Tags...)
+template<typename... Patterns, typename State>
+auto compile(_pattern_except<_pattern_alternatives<Patterns...>> p,
+    string& str, State s, tag_t)
 {
-    if (!_string_expression_compile_use_bracket(p.pattern))
+    if (!compile_use_bracket(p.pattern))
         throw std::logic_error(WL_ERROR_STRING_EXCEPT);
     str.join("[^");
-    _string_expression_compile_impl<0u>(p.pattern, str);
+    auto s2 = compile_alternatives(std::move(p.pattern), str, std::move(s),
+        CharacterSet);
     str.join("]");
-    return std::move(s);
+    return std::move(s2);
 }
-template<typename Any, typename State, typename... Tags>
-auto _string_expression_compile(Any&& any, string& str, State s, Tags...)
+template<typename Any, typename State>
+auto compile(Any&& any, string& str, State s, tag_t tag)
 {
     using AT = remove_cvref_t<Any>;
     if constexpr (is_string_view_v<AT>)
     {
-        _string_expression_compile_impl(any.byte_begin(), any.byte_end(), str);
+        compile_impl(any.byte_begin(), any.byte_end(), str, tag);
         return std::move(s);
     }
     else if constexpr (array_rank_v<AT> == 1u)
@@ -14271,27 +14252,40 @@ auto _string_expression_compile(Any&& any, string& str, State s, Tags...)
         static_assert(is_string_v<value_type_t<AT>>, WL_ERROR_NOT_A_PATTERN);
         const auto& valany = allows<view_category::Array>(
             std::forward<decltype(any)>(any));
-        return _string_expression_compile(valany, str, s);
+        return compile(valany, str, std::move(s), tag);
     }
     else
     {
         static_assert(is_pattern_v<AT>, WL_ERROR_NOT_A_PATTERN);
         if constexpr (std::is_same_v<AT, _whitespace_type>)
-            str.join("\\s+");
-        else if constexpr (std::is_same_v<AT, _number_string_type>)
-            str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+        {
+            if (tag > Concatenation)
+                str.join("(?:\\s+)");
+            else
+                str.join("\\s+");
+        }
         else if constexpr (std::is_same_v<AT, _number_string_type>)
             str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
         else if constexpr (std::is_same_v<AT, _word_character_type>)
-            str.join("[[:alnum:]]");
+            str.join("\\w");
         else if constexpr (std::is_same_v<AT, _digit_character_type>)
             str.join("\\d");
-        else if constexpr (std::is_same_v<AT, _hexadecimal_character_type>)
-            str.join("[[:xdigit:]]");
         else if constexpr (std::is_same_v<AT, _whitespace_character_type>)
             str.join("\\s");
+        else if constexpr (std::is_same_v<AT, _hexadecimal_character_type>)
+        {
+            if (tag == CharacterSet)
+                str.join("[:xdigit:]");
+            else
+                str.join("[[:xdigit:]]");
+        }
         else if constexpr (std::is_same_v<AT, _punctuation_character_type>)
-            str.join("[[:punct:]]");
+        {
+            if (tag == CharacterSet)
+                str.join("[:punct:]");
+            else
+                str.join("[[:punct:]]");
+        }
         else if constexpr (std::is_same_v<AT, _word_boundary_type>)
             str.join("\\b");
         else if constexpr (std::is_same_v<AT, _start_of_line_type>)
@@ -14308,15 +14302,15 @@ auto _string_expression_compile(Any&& any, string& str, State s, Tags...)
     }
 }
 template<size_t I, typename... Patterns, typename State, typename FormatIdList>
-auto _string_replacement_compile_impl(_string_expression<Patterns...>&& p,
+auto format_compile_impl(_string_expression<Patterns...>&& p,
     string& str, const State& s, FormatIdList f)
 {
     if constexpr (I < sizeof...(Patterns))
     {
-        auto f1 = _string_replacement_compile(
-            std::move(p).template get<I>(), str, s, std::move(f));
-        return _string_replacement_compile_impl<I + 1u>(
-            std::move(p), str, s, std::move(f1));
+        auto f1 = format_compile(std::move(p).template get<I>(), str, s,
+            std::move(f));
+        return format_compile_impl<I + 1u>(std::move(p), str, s,
+            std::move(f1));
     }
     else
     {
@@ -14324,15 +14318,14 @@ auto _string_replacement_compile_impl(_string_expression<Patterns...>&& p,
     }
 }
 template<typename... Patterns, typename State, typename FormatIdList>
-auto _string_replacement_compile(_string_expression<Patterns...>&& p,
-    string& str, const State& s, FormatIdList f)
+auto format_compile(_string_expression<Patterns...>&& p, string& str,
+    const State& s, FormatIdList f)
 {
-    return _string_replacement_compile_impl<0u>(
-        std::move(p), str, s, std::move(f));
+    return format_compile_impl<0u>(std::move(p), str, s, std::move(f));
 }
 template<int64_t Id, typename State, typename FormatIdList>
-auto _string_replacement_compile(_named_replacement<Id>,
-    string& str, const State&, FormatIdList)
+auto format_compile(_named_replacement<Id>, string& str, const State&,
+    FormatIdList)
 {
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
     static_assert(0u < group_idx && group_idx <= 99u, WL_ERROR_INTERNAL);
@@ -14340,8 +14333,8 @@ auto _string_replacement_compile(_named_replacement<Id>,
     str.join(_to_string(group_idx, 2u));
     return FormatIdList::append(const_int<group_idx>{});
 }
-inline void _string_replacement_compile_impl(
-    const utf8::char_t* begin, const utf8::char_t* end, string& str)
+inline void format_compile_impl(const utf8::char_t* begin,
+    const utf8::char_t* end, string& str)
 {
     WL_THROW_IF_ABORT()
     for (; begin < end; ++begin)
@@ -14359,8 +14352,7 @@ auto _string_replacement_compile(
     using AT = remove_cvref_t<Any>;
     if constexpr (is_string_view_v<AT>)
     {
-        _string_replacement_compile_impl(
-            any.byte_begin(), any.byte_end(), str);
+        format_compile_impl(any.byte_begin(), any.byte_end(), str);
         return std::move(f);
     }
     else
@@ -14370,16 +14362,13 @@ auto _string_replacement_compile(
     }
 }
 template<typename Expression>
-auto _string_expression_compile(Expression e)
+auto compile(Expression e)
 {
     auto str = string("(?ms)");
-    auto s1 = _string_expression_compile(
-        std::forward<decltype(e)>(e), str, 
-        _string_expression_compilation_state<
-            _pattern_condition_list<>,
-            _pattern_id_list<>
-        >{});
-    using CP = _compiled_pattern<
+    using InitialState = compilation_state<
+        _pattern_condition_list<>, _pattern_id_list<>>;
+    auto s1 = compile(std::move(e), str, InitialState{}, WithinGroup);
+    using CP = compiled_pattern<
         decltype(s1.conditions), typename decltype(s1)::PatternIdList>;
     try
     {
@@ -14393,44 +14382,41 @@ auto _string_expression_compile(Expression e)
             WL_ERROR_REGEX + regex_error.what());
     }
 }
-template<typename CL, typename PL>
-auto _string_expression_compile(_compiled_pattern<CL, PL>&& pattern)
+template<typename C, typename P>
+auto compile(compiled_pattern<C, P>&& pattern)
 {
     return std::move(pattern);
 }
-template<typename CL, typename PL>
-const auto& _string_expression_compile(
-    const _compiled_pattern<CL, PL>& pattern)
+template<typename C, typename P>
+const auto& compile(const compiled_pattern<C, P>& pattern)
 {
     return pattern;
 }
-template<typename CP, typename CR>
-auto _string_expression_compile(_compiled_pattern_rule<CP, CR>&& rule)
+template<typename P, typename R>
+auto compile(compiled_rule<P, R>&& rule)
 {
     return std::move(rule);
 }
-template<typename CP, typename CR>
-const auto& _string_expression_compile(
-    const _compiled_pattern_rule<CP, CR>& rule)
+template<typename P, typename R>
+const auto& compile(const compiled_rule<P, R>& rule)
 {
-    return pattern;
+    return rule;
 }
 template<typename Left, typename Right>
-auto _string_expression_compile(_pattern_rule<Left, Right> rule)
+auto compile(_pattern_rule<Left, Right> rule)
 {
-    auto cp = _string_expression_compile(std::move(rule.left));
-    auto s = _string_expression_compilation_state<
+    auto cp = compile(std::move(rule.left));
+    auto s = compilation_state<
         _pattern_condition_list<>, typename decltype(cp)::PatternIdList>{};
     auto format = string();
-    auto f = _string_replacement_compile(
-        std::move(rule.right), format, s, _pattern_id_list<>{});
-    auto replacement = _compiled_replacement_format<decltype(f)>{format};
-    return _compiled_pattern_rule<decltype(cp), decltype(replacement)>{
+    auto f = format_compile(std::move(rule.right), format, s,
+        _pattern_id_list<>{});
+    auto replacement = compiled_format<decltype(f)>{format};
+    return compiled_rule<decltype(cp), decltype(replacement)>{
         std::move(cp), std::move(replacement)};
 }
-template<typename SearchState>
-inline void _string_expression_format(const SearchState& state,
-    const string& format, string& ret)
+template<typename State>
+inline void format_text(const State& state, const string& format, string& ret)
 {
     auto begin = format.byte_begin();
     auto end = format.byte_end();
@@ -14456,7 +14442,7 @@ inline void _string_expression_format(const SearchState& state,
                 (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'));
             if (is_two_digit)
                 group_idx = group_idx * 10u +
-                    size_t(*begin++ - utf8::char_t('0'));
+                size_t(*begin++ - utf8::char_t('0'));
             if (group_idx <= state.capture_count())
             {
                 const auto& view = state.match(group_idx);
@@ -14471,54 +14457,74 @@ inline void _string_expression_format(const SearchState& state,
     }
     ret.place_null_character();
 }
-template<typename CL, typename PL>
-auto _pattern_convert_impl(const _compiled_pattern<CL, PL>& pattern)
+}
+template<typename String>
+auto regular_expression(const String& str)
+{
+    WL_TRY_BEGIN()
+    using CP = strexp::compiled_pattern<
+        _pattern_condition_list<>, _pattern_id_list<>>;
+    try
+    {
+        WL_THROW_IF_ABORT()
+        return CP{pcre2::new_regex(str)};
+    }
+    catch (const std::logic_error& regex_error)
+    {
+        throw std::logic_error(
+            std::string(WL_ERROR_REGEX) + regex_error.what());
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename C, typename P>
+auto _pattern_convert_impl(const strexp::compiled_pattern<C, P>& pattern)
 {
     string ret = pattern.regex_text;
-    if constexpr (CL::size > 0)
-        ret.join(" [").join(to_string(CL::size)).join("  conditions]");
+    if constexpr (C::size > 0)
+        ret.join(" [").join(_to_string(C::size)).join("  conditions]");
     return ret;
 }
-template<typename CP, typename CR>
-auto _pattern_convert_impl(const _compiled_pattern_rule<CP, CR>& rule)
+template<typename P, typename R>
+auto _pattern_convert_impl(const strexp::compiled_rule<P, R>& rule)
 {
     auto ret = _pattern_convert_impl(rule.pattern);
-    ret.join(rule.replacement.format);
+    ret.join(rule.format.text);
     return ret;
 }
 template<typename Any>
 auto _pattern_convert(Any&& any)
 {
     WL_TRY_BEGIN()
-    return _pattern_convert_impl(_string_expression_compile(
+    return _pattern_convert_impl(strexp::compile(
         std::forward<decltype(any)>(any)));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename String, typename CL, typename PL>
-auto _string_count_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
+auto _string_count_impl(String&& str,
+    const strexp::compiled_pattern<CL, PL>& pattern)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     int64_t num_matches = 0;
-    auto search = _regex_search(str.c_str(), str.byte_size(), pattern);
+    auto search = pcre2::regex_search(str.c_str(), str.byte_size(), pattern);
     while (search.find_next())
     {
         ++num_matches;
     }
     return num_matches;
 }
-template<typename String, typename CL, typename PL>
+template<typename String, typename C, typename P>
 auto _string_match_q_impl(String&& str,
-    const _compiled_pattern<CL, PL>& pattern)
+    const strexp::compiled_pattern<C, P>& pattern)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
     return boolean(search.find_next(PCRE2_ANCHORED | PCRE2_ENDANCHORED));
 }
-template<typename String, typename CP, typename CR>
+template<typename String, typename P, typename R>
 auto _string_cases_impl(String&& str,
-    const _compiled_pattern_rule<CP, CR>& rule)
+    const strexp::compiled_rule<P, R>& rule)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
@@ -14528,13 +14534,14 @@ auto _string_cases_impl(String&& str,
     while (search.find_next())
     {
         auto str = string();
-        _string_expression_format(search, rule.replacement.format, str);
+        format_text(search, rule.format.text, str);
         ret.append(std::move(str));
     }
     return ret;
 }
-template<typename String, typename CL, typename PL>
-auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
+template<typename String, typename C, typename P>
+auto _string_cases_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
@@ -14546,9 +14553,9 @@ auto _string_cases_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
     }
     return ret;
 }
-template<typename String, typename CP, typename CR>
+template<typename String, typename P, typename R>
 auto _string_replace_impl(String&& str,
-    const _compiled_pattern_rule<CP, CR>& rule)
+    const strexp::compiled_rule<P, R>& rule)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
@@ -14558,15 +14565,16 @@ auto _string_replace_impl(String&& str,
     while (search.find_next())
     {
         ret.join<false>(search.prefix());
-        _string_expression_format(search, rule.replacement.format, ret);
+        format_text(search, rule.format.text, ret);
     }
     ret.join<false>(
         string_view{search.prefix().byte_begin(), str.byte_end()});
     ret.place_null_character();
     return ret;
 }
-template<typename String, typename CL, typename PL>
-auto _string_split_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
+template<typename String, typename C, typename P>
+auto _string_split_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
@@ -14583,9 +14591,9 @@ auto _string_split_impl(String&& str, const _compiled_pattern<CL, PL>& pattern)
         ret.append(string(prefix));
     return ret;
 }
-template<typename String, typename CP, typename CR>
+template<typename String, typename P, typename R>
 auto _string_split_impl(String&& str,
-    const _compiled_pattern_rule<CP, CR>& rule)
+    const strexp::compiled_rule<P, R>& rule)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
@@ -14597,7 +14605,7 @@ auto _string_split_impl(String&& str,
         if (ret.size() > 0u || search.prefix().byte_size() > 0u)
             ret.append(string(search.prefix()));
         auto replaced = string();
-        _string_expression_format(search, rule.replacement.format, replaced);
+        format_text(search, rule.format.text, replaced);
         ret.append(std::move(replaced));
     }
     const auto& prefix = string_view{
@@ -14612,8 +14620,7 @@ auto name(String&& str, Any&& any)                                          \
 {                                                                           \
     WL_TRY_BEGIN()                                                          \
     using ST = remove_cvref_t<String>;                                      \
-    const auto& pattern = _string_expression_compile(                       \
-        std::forward<decltype(any)>(any));                                  \
+    const auto& pattern = strexp::compile(std::forward<decltype(any)>(any));\
     if constexpr (is_string_view_v<ST>)                                     \
     {                                                                       \
         return _##name##_impl(str, pattern);                                \
@@ -14652,10 +14659,32 @@ template<typename String>
 auto string_split(String&& str)
 {
     WL_TRY_BEGIN()
-    static auto whitespace = _string_expression_compile(const_whitespace);
+    static auto whitespace = strexp::compile(const_whitespace);
     return string_split(std::forward<decltype(str)>(str), whitespace);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+#define WL_DEFINE_CHAR_TYPE_FUNCTION(name, crit)                    \
+template<typename String>                                           \
+auto name(const String& str)                                        \
+{                                                                   \
+    using namespace utf8;                                           \
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);  \
+    auto begin = str.byte_begin();                                  \
+    auto end = str.byte_end();                                      \
+    for (; begin != end; ++begin)                                   \
+    {                                                               \
+        const auto ch = *begin;                                     \
+        if (!(crit))                                                \
+            return const_false;                                     \
+    }                                                               \
+    return const_true;                                              \
+}
+WL_DEFINE_CHAR_TYPE_FUNCTION(digit_q, '0'_c <= ch && ch <= '9'_c)
+WL_DEFINE_CHAR_TYPE_FUNCTION(letter_q,
+    ('a'_c <= ch && ch <= 'z'_c) || ('A'_c <= ch && ch <= 'Z'_c))
+WL_DEFINE_CHAR_TYPE_FUNCTION(lower_case_q, 'a'_c <= ch && ch <= 'z'_c)
+WL_DEFINE_CHAR_TYPE_FUNCTION(upper_case_q, 'A'_c <= ch && ch <= 'Z'_c)
+WL_DEFINE_CHAR_TYPE_FUNCTION(printable_ascii_q, ' '_c <= ch && ch <= '~'_c)
 }
 namespace wl
 {

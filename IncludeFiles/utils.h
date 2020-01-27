@@ -33,8 +33,13 @@
 namespace wl
 {
 
+namespace strexp
+{
+
 template<typename Expression>
-auto _string_expression_compile(Expression);
+auto compile(Expression);
+
+}
 
 template<typename Any>
 auto val(Any&& any) -> decltype(auto)
@@ -42,7 +47,7 @@ auto val(Any&& any) -> decltype(auto)
     if constexpr (is_array_view_v<remove_cvref_t<Any>>)
         return std::forward<decltype(any)>(any).to_array();
     else if constexpr (is_pattern_v<remove_cvref_t<Any>>)
-        return _string_expression_compile(std::forward<decltype(any)>(any));
+        return strexp::compile(std::forward<decltype(any)>(any));
     else
         return std::forward<decltype(any)>(any);
 }

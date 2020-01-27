@@ -340,7 +340,8 @@ struct ndarray
     {
     }
 
-    ndarray(std::array<size_t, R> dims, std::initializer_list<T> data) :
+    template<typename U>
+    ndarray(std::array<size_t, R> dims, std::initializer_list<U> data) :
         dims_{dims}, data_(data.begin(), data.end())
     {
     }

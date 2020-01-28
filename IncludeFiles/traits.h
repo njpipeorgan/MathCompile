@@ -393,7 +393,8 @@ struct _is_convertible_impl
     static constexpr bool value =
         (is_arithmetic_v<T> && is_complex_v<U>) ||
         (is_integral_v<T> && is_arithmetic_v<U>) ||
-        (is_float_v<T> && is_float_v<U>);
+        (is_float_v<T> && is_float_v<U>) ||
+        (is_string_view_v<T> && is_string_v<U>);
 };
 
 template<typename T, typename U>

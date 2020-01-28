@@ -410,3 +410,9 @@ registertest[test["regex:rule",               Function[{},StringPattern`PatternC
 registertest[test["regex:condition",          Function[{},StringPattern`PatternConvert[((x_/;DigitQ[x])~~y_)/;DigitQ@StringJoin[x,y]]],{{}->"(?ms)(.)(?C1)(.)(?C0)"}]&];
 registertest[test["regex:pattern_test",       Function[{},StringPattern`PatternConvert[(((z:(_?DigitQ)~~y_)?DigitQ)~~__)..:>y~~z]],{{}->"(?ms)(((.)(?C1))(.))(?C0).+(?:(\\g{2}\\g{4})(?C2).+)* -> $04$02"}]&];
 
+registertest[test["string_join",              Function[{Typed[x,String]},"\[Alpha]\[Beta]\[Gamma]"<>x<>" \[ReturnIndicator]"],{{"\[CirclePlus]\[CircleTimes]"},{"abc"},{""}}]&];
+registertest[test["string_length:args",       Function[{Typed[x,String]},StringLength[x]],{{"\[CirclePlus]\[CircleTimes]"},{"abc"},{""}}]&];
+registertest[test["string_length:const",      Function[{},StringLength/@{"abcdefg","\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]"}],{{}}]&];
+registertest[test["string_take",              Function[{Typed[x,String]},{StringTake[x,6],StringTake[x,-4],StringTake[x,{5,10}],StringTake[x,{6}],StringTake[x,{3,-3}]}],{{"abcdefghijklm"},{"\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]"}}]&];
+registertest[test["string_take-multiple",     Function[{Typed[x,String]},Join[StringTake[x,{{3},{5},{-4}}],StringTake[x,{{1,5},{5,-5},{-4,-2}}]]],{{"abcdefghijklm"},{"\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]"}}]&];
+

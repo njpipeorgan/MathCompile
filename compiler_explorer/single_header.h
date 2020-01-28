@@ -580,7 +580,8 @@ struct _is_convertible_impl
     static constexpr bool value =
         (is_arithmetic_v<T> && is_complex_v<U>) ||
         (is_integral_v<T> && is_arithmetic_v<U>) ||
-        (is_float_v<T> && is_float_v<U>);
+        (is_float_v<T> && is_float_v<U>) ||
+        (is_string_view_v<T> && is_string_v<U>);
 };
 template<typename T, typename U>
 struct is_convertible
@@ -1104,7 +1105,7 @@ auto cast(const X& x)
             return ret;
         }
     }
-    else if constexpr (is_real_v<X>)
+    else if constexpr (is_real_v<X> || is_string_view_v<X>)
     {
         static_assert(is_convertible_v<X, Y>, WL_ERROR_BAD_CAST);
         return Y(x);
@@ -10666,10 +10667,12 @@ auto list(First&& first, Rest&&... rest)
             else
             {
                 using ItemType = value_type_t<FirstType>;
-                constexpr auto rank = array_rank_v<ItemType> +1u;
-                using ValueType = std::conditional_t<
-                    rank == 0u, ItemType, value_type_t<ItemType>>;
-                return ndarray<value_type_t<ItemType>, rank>{};
+                constexpr auto rank = array_rank_v<ItemType> + 1u;
+                using ValueType = std::conditional_t<rank == 0u,
+                    std::conditional_t<std::is_same_v<ItemType, string_view>,
+                        string, ItemType>,
+                    value_type_t<ItemType>>;
+                return ndarray<ValueType, rank>{};
             }
         }
         else
@@ -10682,7 +10685,9 @@ auto list(First&& first, Rest&&... rest)
         const auto dim0 = _list_length_by_args(first, rest...);
         if constexpr (first_rank == 0)
         {
-            ndarray<FirstType, 1u> ret(std::array<size_t, 1u>{dim0});
+            using ItemType = std::conditional_t<
+                std::is_same_v<FirstType, string_view>, string, FirstType>;
+            ndarray<ItemType, 1u> ret(std::array<size_t, 1u>{dim0});
             auto ret_iter = ret.data();
             _copy_list_scalar_elements(ret_iter,
                 std::forward<decltype(first)>(first),
@@ -10695,7 +10700,10 @@ auto list(First&& first, Rest&&... rest)
             const auto dims = utils::dims_join(
                 std::array<size_t, 1u>{dim0}, first.dims());
             using FirstValueType = value_type_t<FirstType>;
-            ndarray<FirstValueType, rank> ret(dims);
+            using ItemType = std::conditional_t<
+                std::is_same_v<FirstValueType, string_view>,
+                string, FirstValueType>;
+            ndarray<ItemType, rank> ret(dims);
             auto ret_iter = ret.template view_begin<1u>();
             _copy_list_array_elements(ret_iter, first.dims(),
                 std::forward<decltype(first)>(first),
@@ -13635,7 +13643,7 @@ auto _string_take_impl_unicode(const String& str, const Spec& spec,
     else if constexpr (array_rank_v<Spec> == 2u &&
         is_integral_v<value_type_t<Spec>>)
     {
-        auto valspec = cast<ndarray<ptrdiff_t, 2u>>(spec);
+        const auto& valspec = allows<view_category::Simple>(spec);
         const auto ret_size = valspec.dims()[0];
         const auto spec_size = valspec.dims()[1];
         const auto spec_data = valspec.data();
@@ -13644,8 +13652,8 @@ auto _string_take_impl_unicode(const String& str, const Spec& spec,
         if (spec_size == 1u)
         {
             for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = string(
-                    _string_take_impl_unicode(str, spec_data[i]));
+                ret_data[i] = string(_string_take_impl_unicode(str,
+                    wl::list(spec_data[i])));
         }
         else if (spec_size == 2u)
         {
@@ -13730,7 +13738,7 @@ auto _string_take_impl_ascii(const String& str, const Spec& spec)
     else if constexpr (array_rank_v<Spec> == 2u &&
         is_integral_v<value_type_t<Spec>>)
     {
-        auto valspec = cast<ndarray<ptrdiff_t, 2u>>(spec);
+        const auto& valspec = allows<view_category::Simple>(spec);
         const auto ret_size = valspec.dims()[0];
         const auto spec_size = valspec.dims()[1];
         const auto spec_data = valspec.data();
@@ -13739,8 +13747,8 @@ auto _string_take_impl_ascii(const String& str, const Spec& spec)
         if (spec_size == 1u)
         {
             for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = string(
-                    _string_take_impl_ascii(str, spec_data[i]));
+                ret_data[i] = string(_string_take_impl_ascii(str,
+                    wl::list(spec_data[i])));
         }
         else if (spec_size == 2u)
         {
@@ -13766,18 +13774,28 @@ auto string_take(String&& str, const Spec& spec)
     using StringT = remove_cvref_t<String>;
     static_assert(is_string_view_v<StringT>, WL_ERROR_STRING_ONLY);
     WL_THROW_IF_ABORT()
-    auto view = u8string_view{};
-    if (str.ascii_only())
-        view = _string_take_impl_ascii(str, spec);
-    else
-        view = _string_take_impl_unicode(str, spec);
-    if constexpr (is_string_v<StringT> && std::is_rvalue_reference_v<String&&>)
-    { // must return a string
-        return string(view);
+    if constexpr (array_rank_v<Spec> <= 1u)
+    {
+        auto view = u8string_view{};
+        if (str.ascii_only())
+            view = _string_take_impl_ascii(str, spec);
+        else
+            view = _string_take_impl_unicode(str, spec);
+        if constexpr (is_string_v<StringT> && std::is_rvalue_reference_v<String&&>)
+        { // must return a string
+            return string(view);
+        }
+        else
+        { // can return a string view
+            return view;
+        }
     }
     else
-    { // can return a string view
-        return view;
+    {
+        if (str.ascii_only())
+            return _string_take_impl_ascii(str, spec);
+        else
+            return _string_take_impl_unicode(str, spec);
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

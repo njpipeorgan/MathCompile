@@ -100,7 +100,7 @@ auto cast(const X& x)
             return ret;
         }
     }
-    else if constexpr (is_real_v<X>)
+    else if constexpr (is_real_v<X> || is_string_view_v<X>)
     {
         static_assert(is_convertible_v<X, Y>, WL_ERROR_BAD_CAST);
         return Y(x);

@@ -202,10 +202,12 @@ auto list(First&& first, Rest&&... rest)
             else
             {
                 using ItemType = value_type_t<FirstType>;
-                constexpr auto rank = array_rank_v<ItemType> +1u;
-                using ValueType = std::conditional_t<
-                    rank == 0u, ItemType, value_type_t<ItemType>>;
-                return ndarray<value_type_t<ItemType>, rank>{};
+                constexpr auto rank = array_rank_v<ItemType> + 1u;
+                using ValueType = std::conditional_t<rank == 0u,
+                    std::conditional_t<std::is_same_v<ItemType, string_view>,
+                        string, ItemType>,
+                    value_type_t<ItemType>>;
+                return ndarray<ValueType, rank>{};
             }
         }
         else
@@ -218,7 +220,9 @@ auto list(First&& first, Rest&&... rest)
         const auto dim0 = _list_length_by_args(first, rest...);
         if constexpr (first_rank == 0)
         {
-            ndarray<FirstType, 1u> ret(std::array<size_t, 1u>{dim0});
+            using ItemType = std::conditional_t<
+                std::is_same_v<FirstType, string_view>, string, FirstType>;
+            ndarray<ItemType, 1u> ret(std::array<size_t, 1u>{dim0});
             auto ret_iter = ret.data();
             _copy_list_scalar_elements(ret_iter,
                 std::forward<decltype(first)>(first),
@@ -231,7 +235,10 @@ auto list(First&& first, Rest&&... rest)
             const auto dims = utils::dims_join(
                 std::array<size_t, 1u>{dim0}, first.dims());
             using FirstValueType = value_type_t<FirstType>;
-            ndarray<FirstValueType, rank> ret(dims);
+            using ItemType = std::conditional_t<
+                std::is_same_v<FirstValueType, string_view>,
+                string, FirstValueType>;
+            ndarray<ItemType, rank> ret(dims);
             auto ret_iter = ret.template view_begin<1u>();
             _copy_list_array_elements(ret_iter, first.dims(),
                 std::forward<decltype(first)>(first),

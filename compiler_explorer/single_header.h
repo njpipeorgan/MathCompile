@@ -13469,7 +13469,7 @@ auto _string_join_attributes_by_args_impl(
     }
     else
     {
-        static_assert(is_string_v<Arg>, WL_ERROR_STRING_ONLY);
+        static_assert(is_string_view_v<Arg>, WL_ERROR_STRING_ONLY);
         byte_size += arg.byte_size();
         if (ascii_only)
             ascii_only = arg.ascii_only();
@@ -13516,7 +13516,7 @@ template<typename... Args>
 auto string_join(const Args&... args)
 {
     WL_TRY_BEGIN()
-    auto [total_size, ascii_only] = _string_join_sizes_by_args(args...);
+    auto [total_size, ascii_only] = _string_join_attributes_by_args(args...);
     auto ret = string(total_size, ascii_only);
     auto ret_data = ret.byte_data();
     WL_THROW_IF_ABORT()
@@ -13831,14 +13831,19 @@ struct _pattern_condition_list
 {
     static constexpr auto size = sizeof...(Conditions);
     std::tuple<Conditions...> conditions_;
+    template<typename Condition, size_t... Is>
+    auto append_impl(Condition&& condition, std::index_sequence<Is...>) &&
+    {
+        return _pattern_condition_list<Conditions..., Condition>{
+            std::make_tuple(std::get<Is>(std::move(conditions_))...,
+                std::move(condition))};
+    }
     
     template<typename Condition>
     auto append(Condition condition) &&
     {
-        return _pattern_condition_list<Conditions..., Condition>{
-            std::make_tuple(
-                std::get<Conditions>(std::move(conditions_))...,
-                std::move(condition))};
+        return std::move(*this).append_impl(std::move(condition),
+            std::make_index_sequence<size>{});
     }
     template<size_t I>
     auto get() const -> const auto&
@@ -14016,15 +14021,16 @@ auto compile_use_bracket_impl(
     {
         const auto& p = patterns.template get<I>();
         using PT = remove_cvref_t<decltype(p)>;
+        bool pass = false;
         if constexpr (is_string_view_v<remove_cvref_t<decltype(p)>>)
-            return is_single_character(p) &&
-                compile_use_bracket_impl<I + 1u>(patterns);
+            pass = is_single_character(p);
         else
-            return std::is_same_v<PT, _whitespace_character_type> ||
+            pass = std::is_same_v<PT, _whitespace_character_type> ||
                 std::is_same_v<PT, _word_character_type> ||
                 std::is_same_v<PT, _digit_character_type> ||
                 std::is_same_v<PT, _hexadecimal_character_type> ||
                 std::is_same_v<PT, _punctuation_character_type>;
+        return pass && compile_use_bracket_impl<I + 1u>(patterns);
     }
     else
     {
@@ -14108,13 +14114,13 @@ template<typename Pattern, typename Condition, typename State>
 auto compile(_condition<Pattern, Condition> p, string& str, State s, tag_t tag)
 {
     auto s1 = std::move(s).append_condition(std::move(p.condition));
-    if (tag >= Concatenation)
+    if (tag > Concatenation)
         str.join("(?:");
     auto s2 = compile(std::move(p.pattern), str, std::move(s1), Concatenation);
     str.join("(?C");
     str.join(_to_string(decltype(s.conditions)::size));
     str.join(")");
-    if (tag >= Concatenation)
+    if (tag > Concatenation)
         str.join(")");
     return std::move(s2);
 }
@@ -14220,10 +14226,28 @@ auto compile(_pattern_except<Any> p, string& str, State s, tag_t)
             str.join(*begin);
         str.join("]");
     }
+    else if constexpr (std::is_same_v<Any, _word_character_type>)
+        str.join("\\W");
+    else if constexpr (std::is_same_v<Any, _digit_character_type>)
+        str.join("\\D");
+    else if constexpr (std::is_same_v<Any, _whitespace_character_type>)
+        str.join("\\S");
+    else if constexpr (std::is_same_v<Any, _word_boundary_type>)
+        str.join("\\B");
+    else if constexpr (std::is_same_v<Any, _hexadecimal_character_type>)
+        str.join("[^[:xdigit:]]");
+    else if constexpr (std::is_same_v<Any, _punctuation_character_type>)
+        str.join("[^[:punct:]]");
+    else if constexpr (std::is_same_v<Any, _start_of_line_type>)
+        str.join("(?!^)");
+    else if constexpr (std::is_same_v<Any, _end_of_line_type>)
+        str.join("(?!$)");
+    else if constexpr (std::is_same_v<Any, _start_of_string_type>)
+        str.join("(?!\\A)");
+    else if constexpr (std::is_same_v<Any, _end_of_string_type>)
+        str.join("(?!\\z)");
     else
-    {
         static_assert(always_false_v<Any>, WL_ERROR_STRING_EXCEPT);
-    }
     return std::move(s);
 }
 template<typename... Patterns, typename State>
@@ -14479,15 +14503,13 @@ auto regular_expression(const String& str)
 template<typename C, typename P>
 auto _pattern_convert_impl(const strexp::compiled_pattern<C, P>& pattern)
 {
-    string ret = pattern.regex_text;
-    if constexpr (C::size > 0)
-        ret.join(" [").join(_to_string(C::size)).join("  conditions]");
-    return ret;
+    return pattern.regex_text;
 }
 template<typename P, typename R>
 auto _pattern_convert_impl(const strexp::compiled_rule<P, R>& rule)
 {
     auto ret = _pattern_convert_impl(rule.pattern);
+    ret.join(" -> ");
     ret.join(rule.format.text);
     return ret;
 }

@@ -404,4 +404,9 @@ registertest[test["regex:repeated_null",      Function[{},StringPattern`PatternC
 registertest[test["regex:shortest",           Function[{},StringPattern`PatternConvert[Shortest[(x__~~_)...]]],{{}->"(?ms)(?:(.+).)??(?:\\g{1}.)*?"}]&];
 registertest[test["regex:alternatives-set1",  Function[{},StringPattern`PatternConvert[{"a","b","c"}..]],{{}->"(?ms)[abc][abc]*"}]&];
 registertest[test["regex:alternatives-set2",  Function[{},StringPattern`PatternConvert[("1"|WordCharacter|PunctuationCharacter)..]],{{}->"(?ms)[1\\w[:punct:]][1\\w[:punct:]]*"}]&];
+registertest[test["regex:except-multiple",    Function[{},StringPattern`PatternConvert[Except["a"|WordCharacter|HexadecimalCharacter|"\[Alpha]"]]],{{}->"(?ms)[^a\\w[:xdigit:]\[Alpha]]"}]&];
+registertest[test["regex:except-single",      Function[{},StringPattern`PatternConvert[StringExpression[Except["a"],Except[WordCharacter],Except[DigitCharacter],Except[HexadecimalCharacter],Except[WhitespaceCharacter],Except[PunctuationCharacter],Except[WordBoundary],Except[StartOfLine],Except[EndOfLine],Except[StartOfString],Except[EndOfString]]]],{{}->"(?ms)[^a]\\W\\D[^[:xdigit:]]\\S[^[:punct:]]\\B(?!^)(?!$)(?!\\A)(?!\\z)"}]&];
+registertest[test["regex:rule",               Function[{},StringPattern`PatternConvert[(x__|y:"a")~~((z_)..):>y~~z~~x]],{{}->"(?ms)(?:(.+)|(a))(.)\\g{3}* -> $02$03$01"}]&];
+registertest[test["regex:condition",          Function[{},StringPattern`PatternConvert[((x_/;DigitQ[x])~~y_)/;DigitQ@StringJoin[x,y]]],{{}->"(?ms)(.)(?C1)(.)(?C0)"}]&];
+registertest[test["regex:pattern_test",       Function[{},StringPattern`PatternConvert[(((z:(_?DigitQ)~~y_)?DigitQ)~~__)..:>y~~z]],{{}->"(?ms)(((.)(?C1))(.))(?C0).+(?:(\\g{2}\\g{4})(?C2).+)* -> $04$02"}]&];
 

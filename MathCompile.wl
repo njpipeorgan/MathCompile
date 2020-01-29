@@ -355,6 +355,7 @@ $builtinconstants=
   "Whitespace"          ->"whitespace",
   "NumberString"        ->"number_string",
   "WordCharacter"       ->"word_character",
+  "LetterCharacter"     ->"letter_character",
   "DigitCharacter"      ->"digit_character",
   "HexadecimalCharacter"->"hexadecimal_character",
   "WhitespaceCharacter" ->"whitespace_character",

@@ -176,6 +176,7 @@ boolean _equal_impl(const X& x, const Y& y)
     if constexpr (XR == 0u)
     {
         static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
+            (is_string_view_v<X> && is_string_view_v<Y>) ||
             (is_value_type_v<X> && std::is_same_v<X, Y>),
             WL_ERROR_BAD_COMPARE);
         if constexpr (is_complex_v<X>)

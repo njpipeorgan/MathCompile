@@ -3484,6 +3484,7 @@ boolean _equal_impl(const X& x, const Y& y)
     if constexpr (XR == 0u)
     {
         static_assert((is_arithmetic_v<X> && is_arithmetic_v<X>) ||
+            (is_string_view_v<X> && is_string_view_v<Y>) ||
             (is_value_type_v<X> && std::is_same_v<X, Y>),
             WL_ERROR_BAD_COMPARE);
         if constexpr (is_complex_v<X>)
@@ -7900,7 +7901,7 @@ struct _string_expression
     template<size_t I>
     auto get() &&
     {
-        return std::get<I>(patterns);
+        return std::get<I>(std::move(patterns));
     }
 };
 template<typename Pattern, typename Condition>
@@ -14045,6 +14046,7 @@ auto compile_use_bracket_impl(
         else
             pass = std::is_same_v<PT, _whitespace_character_type> ||
                 std::is_same_v<PT, _word_character_type> ||
+                std::is_same_v<PT, _letter_character_type> ||
                 std::is_same_v<PT, _digit_character_type> ||
                 std::is_same_v<PT, _hexadecimal_character_type> ||
                 std::is_same_v<PT, _punctuation_character_type>;
@@ -14245,7 +14247,9 @@ auto compile(_pattern_except<Any> p, string& str, State s, tag_t)
         str.join("]");
     }
     else if constexpr (std::is_same_v<Any, _word_character_type>)
-        str.join("\\W");
+        str.join("[^[:alnum:]]");
+    else if constexpr (std::is_same_v<Any, _letter_character_type>)
+        str.join("[^[:alpha:]]");
     else if constexpr (std::is_same_v<Any, _digit_character_type>)
         str.join("\\D");
     else if constexpr (std::is_same_v<Any, _whitespace_character_type>)
@@ -14309,7 +14313,19 @@ auto compile(Any&& any, string& str, State s, tag_t tag)
         else if constexpr (std::is_same_v<AT, _number_string_type>)
             str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
         else if constexpr (std::is_same_v<AT, _word_character_type>)
-            str.join("\\w");
+        {
+            if (tag == CharacterSet)
+                str.join("[:alnum:]");
+            else
+                str.join("[[:alnum:]]");
+        }
+        else if constexpr (std::is_same_v<AT, _letter_character_type>)
+        {
+            if (tag == CharacterSet)
+                str.join("[:alpha:]");
+            else
+                str.join("[[:alpha:]]");
+        }
         else if constexpr (std::is_same_v<AT, _digit_character_type>)
             str.join("\\d");
         else if constexpr (std::is_same_v<AT, _whitespace_character_type>)
@@ -14386,6 +14402,20 @@ inline void format_compile_impl(const utf8::char_t* begin,
         str.append(*begin);
     }
     str.place_null_character();
+}
+template<typename State, typename FormatIdList>
+auto format_compile(const string& s, string& str, const State&,
+    FormatIdList)
+{
+    format_compile_impl(s.byte_begin(), s.byte_end(), str);
+    return FormatIdList{};
+}
+template<typename State, typename FormatIdList>
+auto format_compile(const string_view& s, string& str, const State&,
+    FormatIdList)
+{
+    format_compile_impl(s.byte_begin(), s.byte_end(), str);
+    return FormatIdList{};
 }
 template<typename Any, typename State, typename FormatIdList>
 auto _string_replacement_compile(
@@ -14518,6 +14548,39 @@ auto regular_expression(const String& str)
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+template<typename CharT>
+boolean _string_equal(const CharT* a_begin, const CharT* a_end,
+    const CharT* b_begin, const CharT* b_end)
+{
+    if ((a_end - a_begin) != (b_end - b_begin))
+        return const_false;
+    for (; a_begin < a_end; ++a_begin, ++b_begin)
+    {
+        if (*a_begin != *b_begin)
+            return const_false;
+    }
+    return const_true;
+}
+inline boolean operator==(const string& a, const string& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
+inline boolean operator==(const string& a, const string_view& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
+inline boolean operator==(const string_view& a, const string& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
+inline boolean operator==(const string_view& a, const string_view& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
 template<typename C, typename P>
 auto _pattern_convert_impl(const strexp::compiled_pattern<C, P>& pattern)
 {
@@ -14574,7 +14637,7 @@ auto _string_cases_impl(String&& str,
     while (search.find_next())
     {
         auto str = string();
-        format_text(search, rule.format.text, str);
+        strexp::format_text(search, rule.format.text, str);
         ret.append(std::move(str));
     }
     return ret;
@@ -14605,7 +14668,7 @@ auto _string_replace_impl(String&& str,
     while (search.find_next())
     {
         ret.join<false>(search.prefix());
-        format_text(search, rule.format.text, ret);
+        strexp::format_text(search, rule.format.text, ret);
     }
     ret.join<false>(
         string_view{search.prefix().byte_begin(), str.byte_end()});
@@ -14645,7 +14708,7 @@ auto _string_split_impl(String&& str,
         if (ret.size() > 0u || search.prefix().byte_size() > 0u)
             ret.append(string(search.prefix()));
         auto replaced = string();
-        format_text(search, rule.format.text, replaced);
+        strexp::format_text(search, rule.format.text, replaced);
         ret.append(std::move(replaced));
     }
     const auto& prefix = string_view{

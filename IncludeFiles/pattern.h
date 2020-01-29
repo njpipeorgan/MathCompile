@@ -125,7 +125,7 @@ struct _string_expression
     template<size_t I>
     auto get() &&
     {
-        return std::get<I>(patterns);
+        return std::get<I>(std::move(patterns));
     }
 };
 

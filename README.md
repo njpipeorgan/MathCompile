@@ -4,7 +4,7 @@ MathCompile is focused on improving the availability of functional programming a
 
 # Prerequisites
 
-To compile *Wolfram Language* functions to C++ code, *Wolfram Mathematica* 11 or higher is required. Starting from version 12, `NumericArray` types are introduced and can be compiled. An alternative to *Mathematica* is [*Wolfram Engine*](https://www.wolfram.com/engine/), which is freely available to developers.
+To compile *Wolfram Language* functions to C++ code, *Wolfram Mathematica* 12 is required. An alternative to *Mathematica* is [*Wolfram Engine*](https://www.wolfram.com/engine/), which is freely available to developers.
 
 To compile functions to binary, a C++ compiler supporting C++17 standard is required. See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Prerequisites-for-C-Compiler) for the list of all supported C++ compilers, their availabilities, and how to use them. 
 

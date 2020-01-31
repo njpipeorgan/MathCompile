@@ -623,6 +623,8 @@ $builtinfunctions=
   "UpperCaseQ"      ->"upper_case_q",
   "LowerCaseQ"      ->"lower_case_q",
   "PrintableASCIIQ" ->"printable_ascii_q",
+  "Characters"      ->"characters",
+  "CharacterRange"  ->"character_range",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",

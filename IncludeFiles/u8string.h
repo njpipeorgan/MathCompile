@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cassert>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -34,15 +35,39 @@ namespace utf8
 using char_t   = uint8_t;
 using char21_t = uint32_t;
 constexpr char_t null_character = '\0';
+constexpr char21_t max_ascii_code_point = 0x7fu;
+constexpr char21_t max_code_point = 0x0010'ffffu;
 
-inline char_t operator""_c(const char ch)
+inline constexpr char_t operator""_c(const char ch)
 {
     return char_t(ch);
 }
 
-inline constexpr bool is_ascii(char_t ch)
+template<typename Char>
+constexpr bool is_ascii(Char ch)
 {
-    return ch < char_t(0b1000'0000);
+    static_assert(std::is_unsigned_v<Char>, WL_ERROR_INTERNAL);
+    return ch <= Char(max_ascii_code_point);
+}
+
+inline std::pair<size_t, std::array<char_t, 4>> from_code_point(char21_t ch)
+{
+    if (ch < 0x80u)
+        return {1u, {char_t(ch), 0, 0, 0}};
+    else if (ch < 0x0800u)
+        return {2u, {char_t((ch >> 6) | 0xc0u),
+            char_t(ch & 0x3fu | 0x80u), 0, 0}};
+    else if (ch < 0x0001'0000u)
+        return {3u, {char_t((ch >> 12) | 0xe0u),
+            char_t((ch >> 6) & 0x3fu | 0x80u),
+            char_t(ch & 0x3fu | 0x80u), 0}};
+    else if (ch < 0x0011'0000u)
+        return {4u, {char_t((ch >> 18) | 0xf0u),
+            char_t((ch >> 12) & 0x3fu | 0x80u),
+            char_t((ch >> 6) & 0x3fu | 0x80u),
+            char_t(ch & 0x3fu | 0x80u)}};
+    else
+        throw std::logic_error(WL_ERROR_INVALID_CODEPOINT);
 }
 
 inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
@@ -376,7 +401,7 @@ struct string_iterator
                 ((ptr_[0] & 0b0000'0111) << 18) |
                 ((ptr_[1] & 0b0011'1111) << 12) |
                 ((ptr_[2] & 0b0011'1111) << 6) |
-                ((ptr_[2] & 0b0011'1111)));
+                ((ptr_[3] & 0b0011'1111)));
         default:
             return char21_t(0);
         }
@@ -385,6 +410,11 @@ struct string_iterator
     ptrdiff_t byte_difference(const string_iterator& other) const
     {
         return ptrdiff_t(this->ptr_ - other.ptr_);
+    }
+
+    void apply_pointer_offset(ptrdiff_t n)
+    {
+        ptr_ += n;
     }
 
     void apply_offset(ptrdiff_t n)

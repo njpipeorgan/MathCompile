@@ -718,7 +718,7 @@ auto compile_alternatives(_pattern_alternatives<Patterns...> p, string& str,
 template<typename String>
 auto is_single_character(const String& s)
 {
-    return (s.byte_size() <= 4u) && (s.size() == 1u);
+    return (s.byte_size() == 1u) || (s.byte_size() <= 4u) && (s.size() == 1u);
 }
 
 template<size_t I = 0u, typename... Patterns>
@@ -1567,5 +1567,105 @@ WL_DEFINE_CHAR_TYPE_FUNCTION(letter_q,
 WL_DEFINE_CHAR_TYPE_FUNCTION(lower_case_q, 'a'_c <= ch && ch <= 'z'_c)
 WL_DEFINE_CHAR_TYPE_FUNCTION(upper_case_q, 'A'_c <= ch && ch <= 'Z'_c)
 WL_DEFINE_CHAR_TYPE_FUNCTION(printable_ascii_q, ' '_c <= ch && ch <= '~'_c)
+
+template<typename String>
+auto characters(const String& s)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
+    const auto size = s.size();
+    ndarray<string, 1u> ret(std::array<size_t, 1u>{size});
+    auto s_begin = s.begin();
+    auto ret_data = ret.data();
+    if (size == s.byte_size())
+    {
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
+            {
+                *ret_data = string(s_begin.get_pointer(), 1u, true);
+                s_begin.apply_pointer_offset(1);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    else
+    {
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
+            {
+                size_t num_bytes = s_begin.num_bytes();
+                *ret_data = string(s_begin.get_pointer(), num_bytes,
+                    num_bytes == 1u);
+                s_begin.apply_pointer_offset(num_bytes);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto _character_range_impl(const X& x)
+{
+    static_assert(is_string_view_v<X> || is_integral_v<X>,
+        WL_ERROR_CHARACTER_RANGE);
+    if constexpr (is_string_view_v<X>)
+    {
+        if (!strexp::is_single_character(x))
+            throw std::logic_error(WL_ERROR_CHARACTER_RANGE);
+        return *x.begin();
+    }
+    else
+    {
+        if (uint64_t(x) > uint64_t(utf8::max_code_point))
+            throw std::logic_error(WL_ERROR_INVALID_CODEPOINT);
+        return utf8::char21_t(x);
+    }
+}
+
+template<typename X, typename Y>
+auto character_range(const X& x, const Y& y)
+{
+    WL_TRY_BEGIN()
+    utf8::char21_t first_point = _character_range_impl(x);
+    utf8::char21_t last_point = _character_range_impl(y);
+
+    if (first_point > last_point)
+        return ndarray<string, 1u>{};
+    else
+    {
+        const auto size = size_t(last_point - first_point + 1u);
+        ndarray<string, 1u> ret(std::array<size_t, 1u>{size});
+        auto ret_data = ret.data();
+        if (utf8::is_ascii(last_point))
+        {
+            WL_THROW_IF_ABORT()
+            for (; first_point <= last_point; ++first_point, ++ret_data)
+            {
+                const auto ch = utf8::char_t(first_point);
+                *ret_data = string(&ch, 1u, true);
+            }
+        }
+        else
+        {
+            WL_THROW_IF_ABORT()
+            for (; first_point <= utf8::max_ascii_code_point;
+                ++first_point, ++ret_data)
+            {
+                const auto ch = utf8::char_t(first_point);
+                *ret_data = string(&ch, 1u, true);
+            }
+            WL_CHECK_ABORT_LOOP_BEGIN(last_point - first_point + 1u)
+                for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
+                {
+                    const auto [num_bytes, units] = 
+                        utf8::from_code_point(utf8::char21_t(first_point + i));
+                    *ret_data = string(units.data(), num_bytes, false);
+                }
+            WL_CHECK_ABORT_LOOP_END()
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
 
 }

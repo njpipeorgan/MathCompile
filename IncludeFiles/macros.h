@@ -298,6 +298,9 @@ namespace wl
 #define WL_ERROR_STRING_EXCEPT \
 "Except only takes a set of characters as its argument in string expressions."
 
+#define WL_ERROR_CHARACTER_RANGE \
+"The arguments should be non-negative integers or single character strings."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -425,5 +428,8 @@ namespace wl
 
 #define WL_ERROR_REPEATED_INVALID_SPEC \
 "The specification of repetition should be non-negative and in order."
+
+#define WL_ERROR_INVALID_CODEPOINT \
+"A valid codepoint should be an non-negative integer less than 1114112."
 
 }

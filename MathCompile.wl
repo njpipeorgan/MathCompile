@@ -611,7 +611,12 @@ $builtinfunctions=
   "StringReplace"   ->"string_replace",
   "StringCount"     ->"string_count",
   "StringMatchQ"    ->"string_match_q",
+  "StringContainsQ" ->"string_contains_q",
+  "StringFreeQ"     ->"string_free_q",
+  "StringStartsQ"   ->"string_starts_q",
+  "StringEndsQ"     ->"string_ends_q",
   "StringSplit"     ->"string_split",
+  "StringPosition"  ->"string_position",
   "StringPattern`PatternConvert"->"_pattern_convert",
   "LetterQ"         ->"letter_q",
   "DigitQ"          ->"digit_q",
@@ -748,7 +753,13 @@ functionmacro[code_]:=code//.{
       native["free_q",p][any,vargtag,func,const[i]],
     id["FreeQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["free_q",p][any,patt,const[i]],
     id["Tr",p_][array_,f_,literal[i_Integer,_]]:>native["tr",p][array,f,const[i]],
-    id["Partition",p_][array_,id["LevelTag",_][literal[i_Integer,_]],n_,d_]:>native["partition",p][array,const[i],n,d]
+    id["Partition",p_][array_,id["LevelTag",_][literal[i_Integer,_]],n_,d_]:>native["partition",p][array,const[i],n,d],
+    id["StringCount",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_count<true>",p][str,patt],
+    id["StringCount",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_count<false>",p][str,patt],
+    id["StringCases",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_cases<true>",p][str,patt],
+    id["StringCases",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_cases<false>",p][str,patt],
+    id["StringPosition",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_position<true>",p][str,patt],
+    id["StringPosition",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_position<false>",p][str,patt]
   }
 
 arithmeticmacro[code_]:=code//.{

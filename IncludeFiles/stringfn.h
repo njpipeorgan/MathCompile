@@ -642,7 +642,7 @@ enum tag_t
 };
 
 template<int64_t Id, typename Pattern, typename State>
-auto compile(_named_pattern<Id, Pattern> p, string& str, State s, tag_t)
+auto compile(_named_pattern<Id, Pattern> p, string& str, State s, tag_t tag)
 {
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
     if constexpr (group_idx < 0 || Id < 0)
@@ -652,7 +652,7 @@ auto compile(_named_pattern<Id, Pattern> p, string& str, State s, tag_t)
         str.join("(");
         auto s1 = std::move(s).append_id(const_int<Id>{});
         auto s2 = compile(std::move(p.pattern), str, std::move(s1),
-            WithinGroup);
+            tag == MatchShortest ? MatchShortest : WithinGroup);
         str.join(")");
         return std::move(s2);
     }
@@ -1328,32 +1328,46 @@ auto _pattern_convert(Any&& any)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename String, typename CL, typename PL>
+#define WL_DEFINE_STRING_PRED_FUNCTION_IMPL(name, anchors)                  \
+template<bool Overlaps = false, typename String, typename C, typename P>    \
+auto _string_##name##_q_impl(String&& str,                                  \
+    const strexp::compiled_pattern<C, P>& pattern)                          \
+{                                                                           \
+    static_assert(is_string_view_v<remove_cvref_t<String>>,                 \
+        WL_ERROR_STRING_FUNCTION_STRING);                                   \
+    auto search = pcre2::regex_search(pattern, str.c_str(),                 \
+        str.byte_size());                                                   \
+    return boolean(search.find_next(false, anchors));                       \
+}
+
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(match, PCRE2_ANCHORED | PCRE2_ENDANCHORED)
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(starts, PCRE2_ANCHORED)
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(ends, PCRE2_ENDANCHORED)
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(contains, 0)
+
+template<bool Overlaps = false, typename String, typename C, typename P>
+auto _string_free_q_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
+{
+    return !_string_contains_q_impl(std::forward<decltype(str)>(str), pattern);
+}
+
+template<bool Overlaps, typename String, typename C, typename P>
 auto _string_count_impl(String&& str,
-    const strexp::compiled_pattern<CL, PL>& pattern)
+    const strexp::compiled_pattern<C, P>& pattern)
 {
     static_assert(is_string_view_v<remove_cvref_t<String>>,
         WL_ERROR_STRING_FUNCTION_STRING);
     int64_t num_matches = 0;
-    auto search = pcre2::regex_search(str.c_str(), str.byte_size(), pattern);
-    while (search.find_next())
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    while (search.find_next(Overlaps))
     {
         ++num_matches;
     }
     return num_matches;
 }
 
-template<typename String, typename C, typename P>
-auto _string_match_q_impl(String&& str,
-    const strexp::compiled_pattern<C, P>& pattern)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
-    return boolean(search.find_next(PCRE2_ANCHORED | PCRE2_ENDANCHORED));
-}
-
-template<typename String, typename P, typename R>
+template<bool Overlaps, typename String, typename P, typename R>
 auto _string_cases_impl(String&& str,
     const strexp::compiled_rule<P, R>& rule)
 {
@@ -1362,7 +1376,7 @@ auto _string_cases_impl(String&& str,
     ndarray<string, 1u> ret;
     auto search = pcre2::regex_search(
         rule.pattern, str.c_str(), str.byte_size());
-    while (search.find_next())
+    while (search.find_next(Overlaps))
     {
         auto str = string();
         strexp::format_text(search, rule.format.text, str);
@@ -1371,7 +1385,7 @@ auto _string_cases_impl(String&& str,
     return ret;
 }
 
-template<typename String, typename C, typename P>
+template<bool Overlaps, typename String, typename C, typename P>
 auto _string_cases_impl(String&& str,
     const strexp::compiled_pattern<C, P>& pattern)
 {
@@ -1379,14 +1393,14 @@ auto _string_cases_impl(String&& str,
         WL_ERROR_STRING_FUNCTION_STRING);
     ndarray<string, 1u> ret;
     auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
-    while (search.find_next())
+    while (search.find_next(Overlaps))
     {
         ret.append(string(search.match()));
     }
     return ret;
 }
 
-template<typename String, typename P, typename R>
+template<bool Overlaps = false, typename String, typename P, typename R>
 auto _string_replace_impl(String&& str,
     const strexp::compiled_rule<P, R>& rule)
 {
@@ -1406,7 +1420,7 @@ auto _string_replace_impl(String&& str,
     return ret;
 }
 
-template<typename String, typename C, typename P>
+template<bool Overlaps = false, typename String, typename C, typename P>
 auto _string_split_impl(String&& str,
     const strexp::compiled_pattern<C, P>& pattern)
 {
@@ -1426,7 +1440,7 @@ auto _string_split_impl(String&& str,
     return ret;
 }
 
-template<typename String, typename P, typename R>
+template<bool Overlaps = false, typename String, typename P, typename R>
 auto _string_split_impl(String&& str,
     const strexp::compiled_rule<P, R>& rule)
 {
@@ -1450,16 +1464,39 @@ auto _string_split_impl(String&& str,
     return ret;
 }
 
-#define WL_DEFINE_STRING_FUNCTION(name, ret_type, takes_list)               \
-template<typename String, typename Any>                                     \
+template<bool Overlaps, typename String, typename C, typename P>
+auto _string_position_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<int64_t, 1u> ret;
+    size_t ret_size = 0u;
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    while (search.find_next(Overlaps))
+    {
+        ret.uninitialized_resize(std::array<size_t, 1u>{ret_size + 2u});
+        auto* insert_ptr = ret.data() + ret_size;
+        insert_ptr[0] = int64_t(search.match_begin_idx() + 1u);
+        insert_ptr[1] = int64_t(search.match_end_idx());
+        ret_size += 2u;
+    }
+    return ndarray<int64_t, 2u>(std::array<size_t, 2u>{ret_size / 2u, 2u},
+        std::move(ret).data_vector());
+}
+
+#define WL_DEFINE_STRING_FUNCTION(name, ret_type, takes_list, can_overlap,  \
+    overlap_default)                                                        \
+template<bool Overlaps = overlap_default, typename String, typename Any>    \
 auto name(String&& str, Any&& any)                                          \
 {                                                                           \
     WL_TRY_BEGIN()                                                          \
+    static_assert(can_overlap || !Overlaps, WL_ERROR_INTERNAL);             \
     using ST = remove_cvref_t<String>;                                      \
     const auto& pattern = strexp::compile(std::forward<decltype(any)>(any));\
     if constexpr (is_string_view_v<ST>)                                     \
     {                                                                       \
-        return _##name##_impl(str, pattern);                                \
+        return _##name##_impl<Overlaps>(str, pattern);                      \
     }                                                                       \
     else if constexpr (takes_list)                                          \
     {                                                                       \
@@ -1468,15 +1505,15 @@ auto name(String&& str, Any&& any)                                          \
         if constexpr (is_movable_v<String> &&                               \
             std::is_same_v<ret_type, string>)                               \
         {                                                                   \
-            str.for_each(                                                   \
-                [&](string& s) { s =  _##name##_impl(s, pattern); });       \
+            str.for_each([&](string& s)                                     \
+                { s =  _##name##_impl<Overlaps>(s, pattern); });            \
             return std::move(str);                                          \
         }                                                                   \
         else                                                                \
         {                                                                   \
             ndarray<ret_type, 1u> ret(std::array<size_t, 1u>{str.size()});  \
             str.for_each([&](const string& s, ret_type& c)                  \
-                { c = _##name##_impl(s, pattern); }, ret.data());           \
+                { c = _##name##_impl<Overlaps>(s, pattern); }, ret.data()); \
             return ret;                                                     \
         }                                                                   \
     }                                                                       \
@@ -1487,11 +1524,16 @@ auto name(String&& str, Any&& any)                                          \
     WL_TRY_END(__func__, __FILE__, __LINE__)                                \
 }
 
-WL_DEFINE_STRING_FUNCTION(string_count, int64_t, true)
-WL_DEFINE_STRING_FUNCTION(string_match_q, boolean, true)
-WL_DEFINE_STRING_FUNCTION(string_replace, string, true)
-WL_DEFINE_STRING_FUNCTION(string_cases, int, false)
-WL_DEFINE_STRING_FUNCTION(string_split, int, false)
+WL_DEFINE_STRING_FUNCTION(string_count, int64_t, true, true, false)
+WL_DEFINE_STRING_FUNCTION(string_match_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_contains_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_free_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_starts_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_ends_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_replace, string, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_cases, int, false, true, false)
+WL_DEFINE_STRING_FUNCTION(string_split, int, false, false, false)
+WL_DEFINE_STRING_FUNCTION(string_position, int, false, true, true)
 
 template<typename String>
 auto string_split(String&& str)

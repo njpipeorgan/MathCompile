@@ -130,6 +130,8 @@ struct _regex_search_state
             PCRE2_INFO_CAPTURECOUNT, &capture_count_);
         match_.reset(pcre2_match_data_create_8(capture_count_ + 1u, nullptr));
         match_ptr_ = pcre2_get_ovector_pointer_8(match_.get());
+        match_ptr_[0] = PCRE2_SIZE(-1);
+        match_ptr_[1] = PCRE2_SIZE(0);
     }
 
     wl::string_view prefix() const
@@ -140,6 +142,16 @@ struct _regex_search_state
     auto capture_count() const
     {
         return size_t(capture_count_);
+    }
+
+    size_t match_begin_idx() const
+    {
+        return size_t(match_ptr_[0u]);
+    }
+
+    size_t match_end_idx() const
+    {
+        return size_t(match_ptr_[1u]);
     }
 
     wl::string_view match() const
@@ -154,21 +166,14 @@ struct _regex_search_state
             text_data_ + match_ptr_[2u * i + 1u]};
     }
 
-    bool find_next(uint32_t options = 0u)
+    bool find_next(bool overlap = false, uint32_t options = 0u)
     {
         WL_THROW_IF_ABORT()
+        start_pos_ = overlap ? match_ptr_[0] + PCRE2_SIZE(1) : match_ptr_[1];
         auto result = pcre2_match_8(pattern_.regex_ptr.get(),
             text_data_, text_size_, start_pos_, options, match_.get(),
             pattern_.match_context_ptr.get());
-        if (result >= 0)
-        {
-            start_pos_ = match_ptr_[1];
-            return true;
-        }
-        else
-        {
-            return false;
-        }
+        return result >= 0;
     }
 };
 

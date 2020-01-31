@@ -409,6 +409,7 @@ registertest[test["regex:except-single",      Function[{},StringPattern`PatternC
 registertest[test["regex:rule",               Function[{},StringPattern`PatternConvert[(x__|y:"a")~~((z_)..):>y~~z~~x]],{{}->"(?ms)(?:(.+)|(a))(.)\\g{3}* -> $02$03$01"}]&];
 registertest[test["regex:condition",          Function[{},StringPattern`PatternConvert[((x_/;DigitQ[x])~~y_)/;DigitQ@StringJoin[x,y]]],{{}->"(?ms)(.)(?C1)(.)(?C0)"}]&];
 registertest[test["regex:pattern_test",       Function[{},StringPattern`PatternConvert[(((z:(_?DigitQ)~~y_)?DigitQ)~~__)..:>y~~z]],{{}->"(?ms)(((.)(?C1))(.))(?C0).+(?:(\\g{2}\\g{4})(?C2).+)* -> $04$02"}]&];
+registertest[test["regex:predicates",         Function[{Typed[x,String]},Boole@{LetterQ[x],DigitQ[x],UpperCaseQ[x],LowerCaseQ[x],PrintableASCIIQ[x]}],{{"1"},{"a"},{"A"},{"abc"},{"abC"},{"1\.0f"},{"123"},{"\[Diameter]"}}]&];
 
 registertest[test["string_join",              Function[{Typed[x,String]},"\[Alpha]\[Beta]\[Gamma]"<>x<>" \[ReturnIndicator]"],{{"\[CirclePlus]\[CircleTimes]"},{"abc"},{""}}]&];
 registertest[test["string_length:args",       Function[{Typed[x,String]},StringLength[x]],{{"\[CirclePlus]\[CircleTimes]"},{"abc"},{""}}]&];
@@ -420,5 +421,38 @@ registertest[test["string_cases:regex",       Function[{},Join[StringCases["a1b2
 registertest[test["string_cases:format",      Function[{},Join[StringCases["abcadcacb","a"~~x_~~"c"->x],StringCases["item13, task15, item11, var4, item2","item"~~(x:DigitCharacter..)-> x]]],{{}}]&];
 registertest[test["string_cases:app1",        Function[{Typed[str,String]},StringCases[str,"("~~DigitCharacter..~~")"~~DigitCharacter..~~"-"~~DigitCharacter.. ]],{{"This is a text with 3 phones numbers: (800)965-3726, (217)398-6500 and (217)398-5151."}}]&];
 registertest[test["string_cases:app2",        Function[{Typed[str,String]},Join[StringCases[str,"Section "~~x:DigitCharacter..->x],StringCases[str,StartOfLine~~"Amendment "~~x:LetterCharacter..->x]]],{{Import["ExampleData/USConstitution.txt"]}}]&];
-registertest[test["string_cases:app1",        Function[{Typed[str,String]},StringCases[str,(y:("("~~x:(_?(#=="2"&))~~DigitCharacter..~~")"))~~z:(DigitCharacter..)~~"-"~~DigitCharacter.. :>x~~y~~z~~"--"~~x]],{{"This is a text with 3 phones numbers: (800)965-3726, (217)398-6500 and (217)398-5151."}}]&];
+registertest[test["string_cases:app3",        Function[{Typed[str,String]},StringCases[str,(y:("("~~x:(_?(#=="2"&))~~DigitCharacter..~~")"))~~z:(DigitCharacter..)~~"-"~~DigitCharacter.. :>x~~y~~z~~"--"~~x]],{{"This is a text with 3 phones numbers: (800)965-3726, (217)398-6500 and (217)398-5151."}}]&];
+registertest[test["string_replace:basic",     Function[{},{StringReplace["abbaabbaa","ab"->"X"],StringReplace["ababbabbaaababa","ab"..->"X"],StringReplace["abc abcb abdc","ab"~~_->"X"],StringReplace["abc abcd abcd",WordBoundary~~"abc"~~WordBoundary->"XX"],StringReplace["product: A \[CirclePlus] B" ,"\[CirclePlus]"->"x"]}],{{}}]&];
+registertest[test["string_replace:regex",     Function[{},StringReplace["abcd acbd",RegularExpression["[ab]."]->"YY"]],{{}}]&];
+registertest[test["string_replace:multiple",  Function[{},StringReplace[{"aaabbbbaaaa","bbbaaaab","aaabab"},"ab"->"X"]],{{}}]&];
+registertest[test["string_replace:app1",      Function[{Typed[str,String]},StringReplace[str, (StartOfString ~~Whitespace) | (Whitespace ~~ EndOfString) -> ""]],{{"  Have a nice day.  "}}]&];
+registertest[test["string_replace:app2",      Function[{Typed[str,String]},StringReplace[str, "(*"~~Shortest[x___]~~"*)":>x]],{{"this (*comment1*) is a test (*comment2*)"}}]&];
+registertest[test["string_replace:app3",      Function[{Typed[str,String]},StringReplace[str,"<"~~Except[">"]..~~">"->""]],{{ "<title>The Title</title>\n<h1>The <a href='link'>head</a></h1>\n<p>Some text follows here...</p>"}}]&];
+registertest[test["string_count:basic",       Function[{},{StringCount["abbaabbaa","bb"],StringCount["abcadcadcbaac","a"~~_~~"c"],StringCount["11a22b3",DigitCharacter..],StringCount["11a22b3",_?LetterQ]}],{{}}]&];
+registertest[test["string_count:regex",       Function[{},{StringCount["a1b22c333",RegularExpression["..2"]],StringCount["the cat in the hat",RegularExpression["(?<=the )\\w+"]]}],{{}}]&];
+registertest[test["string_count:multiple",    Function[{},StringCount[{"ability","argument","listable"},"a" ~~___~~"l"]],{{}}]&];
+registertest[test["string_count:app1",        Function[{Typed[str,String]},StringCount[str,"a"~~y_~~_~~y_~~"a"]],{{StringJoin[RandomChoice[{"a","c","g","t"},10^6]]}}]&];
+registertest[test["string_split:basic",       Function[{},Join[StringSplit["a bbb  cccc aa   d"],StringSplit["a--bbb---ccc--dddd","--"],StringSplit["123  2.3  4  6",WhitespaceCharacter..],StringSplit["11a22b3",_?LetterQ]]],{{}}]&];
+registertest[test["string_split:regex",       Function[{},Join[StringSplit["A tree, an apple, four pears. And more: two sacks",RegularExpression["\\W+"]],StringSplit["primes: 2 two 3 three 5 five ...",RegularExpression["\\s+\\d\\s+"]]]],{{}}]&];
+registertest[test["string_split:alternatives",Function[{},Join[StringSplit["a-b:c-d:e-f-g",{":","-"}],StringSplit["a-b:c-d:e-f-g", ":"|"-"]]],{{}}]&];
+registertest[test["string_split:replace",     Function[{},Join[StringSplit["a b::c d::e f g","::"->"--"],StringSplit["a--b c--d e",x:"--":>x]]],{{}}]&];
+registertest[test["string_split:app1",        Function[{},StringSplit[#,":"]&/@StringSplit["11:12:13//21:22:23//31:32:33","//"]],{{}}]&];
+registertest[test["string_split:app2",        Function[{},StringSplit["This is a sentence, which goes on.",Except[WordCharacter]..]],{{}}]&];
+registertest[test["string_match_q:basic",     Function[{},Boole@{StringMatchQ["apppbb","a"~~___~~"b"],StringMatchQ["tester","t"~~__~~"t"],StringMatchQ["acggtaagc",{"a","c","g","t"}..]}],{{}}]&];
+registertest[test["string_match_q:regex",     Function[{},Boole@{StringMatchQ["acggtaagc",RegularExpression["[acgt]+"]],StringMatchQ["abc 123 a",RegularExpression["a.*\\d+"]]}],{{}}]&];
+registertest[test["string_match_q:multiple",  Function[{},Boole@StringMatchQ[{"ability","listable","argument"},"a" ~~__~~"t"~~___]],{{}}]&];
+registertest[test["string_match_q:app1",      Function[{},Select[{"hi","letter","boolean","fruitful"},StringMatchQ[#,StringExpression[___,x_,x_,___] ]&]],{{}}]&];
+registertest[test["string_contains_q:basic",  Function[{},Boole@{StringContainsQ["bcde","c"~~__~~"t"],StringContainsQ["bcde","b"~~__~~"e"]}],{{}}]&];
+registertest[test["string_contains_q:multi",  Function[{},Boole@StringContainsQ[{"a","b", "ab", "abcd", "bcde"},"a"]],{{}}]&];
+registertest[test["string_free_q:basic",      Function[{},Boole@{StringFreeQ["bcde","c"~~__~~"t"],StringFreeQ["abcd","a"],StringFreeQ["abcade",x_~~x_],StringFreeQ["a1 and a2",DigitCharacter..],StringFreeQ["abcdabcdcd",{"abc", "cd"}]}],{{}}]&];
+registertest[test["string_free_q:regex",      Function[{},Boole@{StringFreeQ["abcde",RegularExpression["b.*d"]],StringFreeQ["bac 123",RegularExpression["a.*\\d+"]]}],{{}}]&];
+registertest[test["string_free_q:multiple",   Function[{},Boole@StringFreeQ[{"ability","listable","argument"},"a" ~~__~~"t"~~___]],{{}}]&];
+registertest[test["string_starts_q:basic",    Function[{},Boole@{StringStartsQ["abcd", "a"],StringStartsQ["quickSort", "quick"],StringStartsQ["var1",DigitCharacter~~LetterCharacter..]}],{{}}]&];
+registertest[test["string_starts_q:multiple", Function[{},Boole@StringStartsQ[{"int1", "int2", "int3", "float1", "float2", "longint1"},"int"]],{{}}]&];
+registertest[test["string_ends_q:basic",      Function[{},Boole@{StringEndsQ["abcd", "d"],StringEndsQ["abcd", "a"],StringEndsQ["quickSort", "Sort"],StringEndsQ["var1",DigitCharacter],StringEndsQ["var1",LetterCharacter]}],{{}}]&];
+registertest[test["string_ends_q:multiple",   Function[{},Boole@StringEndsQ[{"int1", "float12", "longintA","string123"}, DigitCharacter..]],{{}}]&];
+registertest[test["string_position:basic",    Function[{},Join[StringPosition["abXYZaaabXYZaaaaXYZXYZ","XYZ"],StringPosition["AABBBAABABBCCCBAAA",x_~~x_],StringPosition["ABAABBAABABB","ABA"|"AA"]]],{{}}]&];
+registertest[test["string_cases:overlaps",    Function[{},Join[StringCases["abcd",__],StringCases["abcd",__,Overlaps->True],StringCases["abcd",__,Overlaps->False]]],{{}}]&];
+registertest[test["string_count:overlaps",    Function[{},{StringCount["abcd",__],StringCount["abcd",__,Overlaps->True],StringCount["abcd",__,Overlaps->False]}],{{}}]&];
+registertest[test["string_position:overlaps", Function[{},Join[StringPosition["AABBBAABABBCCCBAAA",x_~~x_],StringPosition["AABBBAABABBCCCBAAA",x_~~x_,Overlaps->True],StringPosition["AABBBAABABBCCCBAAA",x_~~x_,Overlaps->False]]],{{}}]&];
 

@@ -462,3 +462,6 @@ registertest[test["from_character_code:list", Function[{Typed[x,{Integer,1}]},Fr
 registertest[test["from_character_code:int",  Function[{Typed[x,Integer]},FromCharacterCode[x]],{{33},{135},{60000},{90000}}]&];
 registertest[test["to_character_code",        Function[{Typed[str,String]},ToCharacterCode[str]],{{"abcABC\[Alpha]\[Beta]\[Gamma]"},{"abc"},{""},{" !\"#$%&'()*+,-./0123456789:;<=>?@ABC"},{" !\"#$%&'(\[Alpha]\[Beta]\[Gamma])*+,-./0123456789:;<\[Alpha]\[Beta]\[Gamma]=>?@ABC"}}]&];
 
+registertest[test["sort:string",              Function[{Typed[x,String]},Sort[StringSplit@x]],{{"hurdle toilet radioisotope giant whippoorwill postponement cheddar census entranced bespoke junk attributive overhand clockmaker defection starlet zydeco reduced owlish oligarch"}}]&];
+registertest[test["ordering:string",          Function[{Typed[x,String]},Ordering[StringSplit@x]],{{"hurdle toilet radioisotope giant whippoorwill postponement cheddar census entranced bespoke junk attributive overhand clockmaker defection starlet zydeco reduced owlish oligarch"}}]&];
+

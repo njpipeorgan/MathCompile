@@ -1083,6 +1083,11 @@ WL_INLINE int64_t _order_scalar(const boolean& x, const boolean& y)
     return x == y ? int64_t(0) : x ? int64_t(-1) : int64_t(1);
 }
 
+int64_t _order_scalar(const string&, const string&);
+int64_t _order_scalar(const string&, const string_view&);
+int64_t _order_scalar(const string_view&, const string&);
+int64_t _order_scalar(const string_view&, const string_view&);
+
 template<typename X>
 WL_INLINE int64_t _order_scalar(const complex<X>& x, const complex<X>& y)
 {
@@ -1147,7 +1152,12 @@ int64_t order(const X& x, const Y& y)
     constexpr auto YR = array_rank_v<X>;
     static_assert(XR == YR, WL_ERROR_OPERAND_RANK);
     static_assert(is_integral_v<Ret>, WL_ERROR_BAD_RETURN);
-    if constexpr (XR == 0)
+    if constexpr (is_array_view_v<X>)
+    {
+        static_assert(is_array_view_v<Y>, WL_ERROR_OPERAND_TYPE);
+        return Ret(_order_string(x, y));
+    }
+    else if constexpr (XR == 0)
     {
         static_assert(std::is_same_v<X, Y>, WL_ERROR_OPERAND_TYPE);
         return Ret(_order_scalar(x, y));
@@ -1247,7 +1257,8 @@ auto ordering(const X& x, const int64_t n)
     if constexpr (XR == 1u)
     {
         using XV = value_type_t<X>;
-        if constexpr (is_complex_v<XV> || is_boolean_v<XV>)
+        if constexpr (is_complex_v<XV> || is_boolean_v<XV> ||
+            is_string_view_v<XV>)
         {
             return ordering<Ret>(x, n, [](const auto& a, const auto& b)
                 { return _order_scalar(a, b) > 0; });
@@ -1363,7 +1374,8 @@ auto sort(X&& x)
     if constexpr (XR == 1u)
     {
         using XV = value_type_t<XT>;
-        if constexpr (is_complex_v<XV> || is_boolean_v<XV>)
+        if constexpr (is_complex_v<XV> || is_boolean_v<XV> ||
+            is_string_view_v<XV>)
         {
             return sort(std::forward<decltype(x)>(x),
                 [](const auto& a, const auto& b)

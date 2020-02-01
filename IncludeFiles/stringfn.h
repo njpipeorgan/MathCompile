@@ -1744,4 +1744,68 @@ auto from_character_code(const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename X, typename Y>
+int64_t _order_string(const X& x, const Y& y)
+{
+    static_assert(is_string_view_v<X> && is_string_view_v<Y>,
+        WL_ERROR_OPERAND_TYPE);
+    if (x.ascii_only() && y.ascii_only())
+    {
+        auto x_begin = x.byte_begin();
+        auto x_end = x.byte_end();
+        auto y_begin = y.byte_begin();
+        auto y_end = y.byte_end();
+        for (; true; ++x_begin, ++y_begin)
+        {
+            if (x_begin == x_end)
+                return (y_begin == y_end) ? 0 : 1;
+            else if (y_begin == y_end)
+                return -1;
+            else if (*x_begin < *y_begin)
+                return 1;
+            else if (*x_begin > *y_begin)
+                return -1;
+        }
+    }
+    else
+    {
+        auto x_begin = x.begin();
+        auto x_end = x.end();
+        auto y_begin = y.begin();
+        auto y_end = y.end();
+        for (; true; ++x_begin, ++y_begin)
+        {
+            if (x_begin == x_end)
+                return (y_begin == y_end) ? 0 : 1;
+            else if (y_begin == y_end)
+                return -1;
+            else if (*x_begin < *y_begin)
+                return 1;
+            else if (*x_begin > *y_begin)
+                return -1;
+        }
+    }
+}
+
+
+int64_t _order_scalar(const string& x, const string& y)
+{
+    return _order_string(x, y);
+}
+
+int64_t _order_scalar(const string& x, const string_view& y)
+{
+    return _order_string(x, y);
+}
+
+int64_t _order_scalar(const string_view& x, const string& y)
+{
+    return _order_string(x, y);
+}
+
+int64_t _order_scalar(const string_view& x, const string_view& y)
+{
+    return _order_string(x, y);
+}
+
 }

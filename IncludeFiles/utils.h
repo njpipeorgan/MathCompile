@@ -140,6 +140,25 @@ auto cast(std::string&& x)
     return std::move(x);
 }
 
+template<typename X>
+auto normal(X&& x)
+{
+    using XT = remove_cvref_t<X>;
+    if constexpr (array_rank_v<X> == 0u)
+    {
+        return std::forward<decltype(x)>(x);
+    }
+    else
+    {
+        using XV = value_type_t<XT>;
+        constexpr auto XR = array_rank_v<XT>;
+        using RV = std::conditional_t<is_integral_v<XV>, int64_t,
+            std::conditional_t<is_real_v<XV>, double,
+            std::conditional_t<is_complex_v<XV>, complex<double>, XV>>>;
+        return cast<ndarray<RV, XR>>(std::forward<decltype(x)>(x));
+    }
+}
+
 namespace utils
 {
 

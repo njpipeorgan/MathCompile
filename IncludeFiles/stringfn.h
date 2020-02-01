@@ -1214,15 +1214,15 @@ inline void format_text(const State& state, const string& format, string& ret)
     {
         if (*begin != '$')
         {
-            ret.append<false>(*begin++);
+            ret.template append<false>(*begin++);
         }
         else if (++begin == end)
         {
-            ret.append<false>('$');
+            ret.template append<false>('$');
         }
         else if (*begin == '$')
         {
-            ret.append<false>('$');
+            ret.template append<false>('$');
             ++begin;
         }
         else if (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'))
@@ -1236,13 +1236,13 @@ inline void format_text(const State& state, const string& format, string& ret)
             if (group_idx <= state.capture_count())
             {
                 const auto& view = state.match(group_idx);
-                ret.append<false>(view.byte_data(), view.byte_size());
+                ret.template append<false>(view.byte_data(), view.byte_size());
             }
         }
         else
         {
-            ret.append<false>('$');
-            ret.append<false>(*begin++);
+            ret.template append<false>('$');
+            ret.template append<false>(*begin++);
         }
     }
     ret.place_null_character();
@@ -1575,20 +1575,21 @@ auto characters(const String& s)
     static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
     const auto size = s.size();
     ndarray<string, 1u> ret(std::array<size_t, 1u>{size});
-    auto s_begin = s.begin();
     auto ret_data = ret.data();
     if (size == s.byte_size())
-    {
+    { // ascii only
+        auto s_begin = s.byte_data();
         WL_CHECK_ABORT_LOOP_BEGIN(size)
-            for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
+            for (auto i = _loop_begin; i < _loop_end; ++i,
+                ++ret_data, ++s_begin)
             {
-                *ret_data = string(s_begin.get_pointer(), 1u, true);
-                s_begin.apply_pointer_offset(1);
+                *ret_data = string(s_begin, 1u, true);
             }
         WL_CHECK_ABORT_LOOP_END()
     }
     else
-    {
+    { // not ascii only
+        auto s_begin = s.begin();
         WL_CHECK_ABORT_LOOP_BEGIN(size)
             for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
             {
@@ -1657,12 +1658,87 @@ auto character_range(const X& x, const Y& y)
             WL_CHECK_ABORT_LOOP_BEGIN(last_point - first_point + 1u)
                 for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
                 {
-                    const auto [num_bytes, units] = 
-                        utf8::from_code_point(utf8::char21_t(first_point + i));
+                    auto [num_bytes, units] = 
+                        utf8::from_code_point(first_point + i);
                     *ret_data = string(units.data(), num_bytes, false);
                 }
             WL_CHECK_ABORT_LOOP_END()
         }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Ret = int64_t, typename String>
+auto to_character_code(const String& s)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
+    static_assert(is_integral_v<Ret> &&
+        (std::numeric_limits<Ret>::max() >= 255), WL_ERROR_BAD_RETURN);
+    const auto size = s.size();
+    ndarray<Ret, 1u> ret(std::array<size_t, 1u>{size});
+    auto ret_data = ret.data();
+    if (size == s.byte_size())
+    { // ascii only
+        auto s_begin = s.byte_data();
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i,
+                ++ret_data, ++s_begin)
+            {
+                *ret_data = int64_t(*s_begin);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    else
+    { // not ascii only
+        auto s_begin = s.begin();
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i,
+                ++ret_data, ++s_begin)
+            {
+                *ret_data = int64_t(*s_begin);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto from_character_code(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> <= 1u, WL_ERROR_FROM_CHARACTER_CODE_ARG);
+    if constexpr (array_rank_v<X> == 0u)
+    {
+        static_assert(is_integral_v<X>, WL_ERROR_FROM_CHARACTER_CODE_ARG);
+        const auto [num_bytes, units] =
+            utf8::from_code_point(utf8::char21_t(x));
+        return string(units.data(), num_bytes, num_bytes == 1u);
+    }
+    else
+    {
+        static_assert(is_integral_v<value_type_t<X>>,
+            WL_ERROR_FROM_CHARACTER_CODE_ARG);
+        const auto& valx = allows<view_category::Simple>(x);
+        const auto size = valx.size();
+        auto x_begin = valx.begin();
+        bool ascii_only = true;
+        auto ret = string();
+        if (size > string::small_string_byte_size)
+            ret.set_dynamic_capacity(size);
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++x_begin)
+            {
+                auto [num_bytes, units] = utf8::from_code_point(*x_begin);
+                if (ascii_only)
+                    ascii_only = (num_bytes == 1u);
+                ret.template append<false>(units.data(), num_bytes);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+        ret.place_null_character();
+        ret.set_ascii_only(ascii_only);
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)

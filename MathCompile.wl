@@ -566,6 +566,7 @@ $builtinfunctions=
   "DeleteCases"     ->"delete_cases",
   "MemberQ"         ->"member_q",
   "FreeQ"           ->"free_q",
+  "Normal"          ->"normal",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",
@@ -625,6 +626,8 @@ $builtinfunctions=
   "PrintableASCIIQ" ->"printable_ascii_q",
   "Characters"      ->"characters",
   "CharacterRange"  ->"character_range",
+  "ToCharacterCode" ->"to_character_code",
+  "FromCharacterCode"->"from_character_code",
 (* io *)
   "Print"           ->"io::print",
   "Echo"            ->"io::echo",

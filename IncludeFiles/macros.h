@@ -301,6 +301,9 @@ namespace wl
 #define WL_ERROR_CHARACTER_RANGE \
 "The arguments should be non-negative integers or single character strings."
 
+#define WL_ERROR_FROM_CHARACTER_CODE_ARG \
+"The argument should be an integer or a list of integers."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \

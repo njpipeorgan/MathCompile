@@ -304,6 +304,15 @@ namespace wl
 #define WL_ERROR_FROM_CHARACTER_CODE_ARG \
 "The argument should be an integer or a list of integers."
 
+#define WL_ERROR_STRING_RIFFLE_STRINGS \
+"The function only takes an array of strings as its first argument."
+
+#define WL_ERROR_STRING_RIFFLE_DELIMITERS \
+"The number of delimiters must match the rank of the string array."
+
+#define WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES \
+"A delimiter should be a string or a list of three strings."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \

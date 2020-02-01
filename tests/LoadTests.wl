@@ -455,6 +455,13 @@ registertest[test["string_position:basic",    Function[{},Join[StringPosition["a
 registertest[test["string_cases:overlaps",    Function[{},Join[StringCases["abcd",__],StringCases["abcd",__,Overlaps->True],StringCases["abcd",__,Overlaps->False]]],{{}}]&];
 registertest[test["string_count:overlaps",    Function[{},{StringCount["abcd",__],StringCount["abcd",__,Overlaps->True],StringCount["abcd",__,Overlaps->False]}],{{}}]&];
 registertest[test["string_position:overlaps", Function[{},Join[StringPosition["AABBBAABABBCCCBAAA",x_~~x_],StringPosition["AABBBAABABBCCCBAAA",x_~~x_,Overlaps->True],StringPosition["AABBBAABABBCCCBAAA",x_~~x_,Overlaps->False]]],{{}}]&];
+registertest[test["string_riffle:basic",      Function[{},StringRiffle[{"a", "b", "c", "d", "e"}]],{{}}]&];
+registertest[test["string_riffle:basic-1",    Function[{},StringRiffle[{"a", "b", "c", "d", "e"},"\[Alpha]"]],{{}}]&];
+registertest[test["string_riffle:basic-3",    Function[{},StringRiffle[{"a", "b", "c", "d", "e"},{"left","\[Alpha]","right"}]],{{}}]&];
+registertest[test["string_riffle:level2",     Function[{},StringRiffle[{{"a","b","c"},{"d","e","f"}}]],{{}}]&];
+registertest[test["string_riffle:level2-1",   Function[{Typed[s1,String],Typed[s2,String]},StringRiffle[{{"a","b","c"},{"d","e","f"}}, s1,s2]],{{"\n","\t"},{"\[Alpha]","\[Beta]\[Gamma]"}}]&];
+registertest[test["string_riffle:level2-3",   Function[{},StringRiffle[{{"a","b","c"},{"d","e","f"}},{"{\n",",\n","\n}"},{"(",", ",")"}]],{{}}]&];
+registertest[test["string_riffle:level3",     Function[{},StringRiffle[{{{"a","b"},{"c","d"}},{{"d","e"},{"f","g"}}}]],{{}}]&];
 registertest[test["characters",               Function[{Typed[str,String]},Characters[str]],{{"abcd"},{"j12e90anj130,sv/][a1jpqnv arp3ifn=1ksbfm"},{"\[FilledDiamond]\[Alpha]\[Beta]\[ReturnIndicator]"},{"\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]\[FilledDiamond]\[Alpha]\[Beta]\[Gamma]\[LongLeftRightArrow]\[ScriptCapitalA]\[ScriptCapitalB]\[ScriptCapitalC]\[ReturnIndicator]"}}]&];
 registertest[test["character_range:int",      Function[{Typed[x,Integer],Typed[y,Integer]},CharacterRange[x,y]],{{60,90},{70,60},{120,140},{2040,2060},{65520,65550}}]&];
 registertest[test["character_range:char",     Function[{Typed[x,String],Typed[y,String]},CharacterRange[x,y]],Map[FromCharacterCode,{{60,90},{70,60},{120,140},{2040,2060},{65520,65550}},{2}]]&];

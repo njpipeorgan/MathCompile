@@ -1787,7 +1787,6 @@ int64_t _order_string(const X& x, const Y& y)
     }
 }
 
-
 int64_t _order_scalar(const string& x, const string& y)
 {
     return _order_string(x, y);
@@ -1806,6 +1805,153 @@ int64_t _order_scalar(const string_view& x, const string& y)
 int64_t _order_scalar(const string_view& x, const string_view& y)
 {
     return _order_string(x, y);
+}
+
+struct _string_riffle_delimiter
+{
+    std::array<string, 3u> dels_{};
+    bool triple_ = false;
+
+    _string_riffle_delimiter() = default;
+
+    _string_riffle_delimiter(const string& str) :
+        dels_{string(), str, string()}, triple_{false}
+    {
+    }
+    _string_riffle_delimiter(const string_view& str) :
+        dels_{string(), string(str), string()}, triple_{false}
+    {
+    }
+
+    template<typename X>
+    _string_riffle_delimiter(const X& x) : triple_{true}
+    {
+        static_assert(array_rank_v<X> == 1u && is_string_v<value_type_t<X>>,
+            WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES);
+        if (x.size() != 3u)
+            throw std::logic_error(WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES);
+        x.copy_to(dels_.data());
+    }
+
+    bool triple() const
+    {
+        return triple_;
+    }
+    const string& left() const
+    {
+        return dels_[0];
+    }
+    const string& separator() const
+    {
+        return dels_[1];
+    }
+    const string& right() const
+    {
+        return dels_[2];
+    }
+
+    size_t extra_byte_size(size_t num_string) const
+    {
+        size_t size = triple_ ? left().byte_size() + right().byte_size() : 0u;
+        return (num_string < 2u) ? size :
+            size + (num_string - 1u) * separator().byte_size();
+    }
+};
+
+template<typename X, size_t XR, size_t ND>
+auto _string_riffle_get_byte_size(const X& x,
+    const std::array<size_t, XR>& x_dims,
+    const std::array<_string_riffle_delimiter, ND>& del_array)
+{
+    size_t string_size = 0u;
+    x.for_each([&](const string& s) { string_size += s.byte_size(); });
+
+    size_t delimiter_size = 0u;
+    for (auto i = int64_t(XR) - 1; i >= 0; --i)
+    {
+        delimiter_size *= x_dims[i];
+        if constexpr (ND == 0u)
+            delimiter_size += (x_dims[i] > 2u) ? x_dims[i] - 1u : 0u;
+        else
+            delimiter_size += del_array[i].extra_byte_size(x_dims[i]);
+    }
+    return string_size + delimiter_size;
+}
+
+constexpr char newline_delimiter[] = "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+static_assert(MaximumArrayRank == 16u, WL_ERROR_INTERNAL);
+
+template<size_t I, size_t XR, size_t ND>
+void _string_riffle_impl(
+    const string*& x_ptr, const std::array<size_t, XR>& x_dims,
+    const std::array<_string_riffle_delimiter, ND>& del_array, string& ret)
+{
+    if constexpr (ND != 0u)
+        if (del_array[I].triple())
+            ret.template join<false>(del_array[I].left());
+    if constexpr (I + 1u == XR)
+    {
+        auto size = x_dims[XR - 1u];
+        if (size == 0u)
+            return;
+        ret.join<false>(*x_ptr++);
+        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++x_ptr)
+            {
+                if constexpr (ND != 0u)
+                    ret.template join<false>(del_array[XR - 1u].separator());
+                else
+                    ret.template join<false>(" ");
+                ret.join<false>(*x_ptr);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    else
+    {
+        const auto size = x_dims[I];
+        if (size == 0u)
+            return;
+        _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
+        for (size_t i = 1u; i < size; ++i)
+        {
+            if constexpr (ND != 0u)
+                ret.template join<false>(del_array[I].separator());
+            else
+                ret.template append<false>(
+                    (const utf8::char_t*)newline_delimiter, XR - I - 1u);
+            _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
+        }
+    }
+    if constexpr (ND != 0u)
+        if (del_array[I].triple())
+            ret.template join<false>(del_array[I].right());
+    if (I == 0u)
+        ret.place_null_character();
+}
+
+template<typename X, typename... Dels>
+auto string_riffle(const X& x, const Dels&... dels)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto num_dels = sizeof...(Dels);
+    static_assert(num_dels == 0u || num_dels == XR,
+        WL_ERROR_STRING_RIFFLE_DELIMITERS);
+    static_assert(XR >= 1u && is_string_v<value_type_t<X>>,
+        WL_ERROR_STRING_RIFFLE_STRINGS);
+
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto x_dims = valx.dims();
+    auto x_data = valx.data();
+    std::array<_string_riffle_delimiter, num_dels> del_array{dels...};
+    const auto ret_byte_size = _string_riffle_get_byte_size(
+        valx, x_dims, del_array);
+    auto ret = string();
+    if (ret_byte_size > string::small_string_byte_size)
+        ret.set_dynamic_capacity(ret_byte_size);
+    _string_riffle_impl<0u>(x_data, x_dims, del_array, ret);
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 }

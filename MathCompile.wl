@@ -618,6 +618,7 @@ $builtinfunctions=
   "StringEndsQ"     ->"string_ends_q",
   "StringSplit"     ->"string_split",
   "StringPosition"  ->"string_position",
+  "StringRiffle"    ->"string_riffle",
   "StringPattern`PatternConvert"->"_pattern_convert",
   "LetterQ"         ->"letter_q",
   "DigitQ"          ->"digit_q",

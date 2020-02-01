@@ -1,32 +1,32 @@
 #include <immintrin.h>
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <tuple>
 #include <algorithm>
 #include <complex>
 #include <type_traits>
-#include <string>
-#include <tuple>
-#include <limits>
-#include <cstring>
-#include <chrono>
-#include <memory>
-#include <thread>
-#include <vector>
-#include <exception>
-#include <iterator>
-#include <optional>
 #include <cassert>
 #include <array>
 #include <initializer_list>
 #include <numeric>
 #include <variant>
+#include <vector>
+#include <exception>
+#include <iterator>
+#include <optional>
+#include <limits>
+#include <cstring>
+#include <chrono>
+#include <memory>
+#include <thread>
 #include <cmath>
+#include <random>
+#include <iostream>
+#include <functional>
 #include <limits.h>
 #include <stdlib.h>
 #include <inttypes.h>
-#include <iostream>
-#include <functional>
-#include <random>
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  if _MSC_VER < 1920
 #    pragma message (": error cxx::compilerver")
@@ -779,108 +779,6 @@ constexpr auto const_real_infinity = std::numeric_limits<double>::max();
 }
 namespace wl
 {
-namespace simd
-{
-#define WL_DEFINE_DEFULAT_SIMD_UNARY(name)                                  \
-WL_INLINE auto name(__m256i x) { return _mm256_##name(x); }                 \
-WL_INLINE auto name(__m128i x) { return _mm_##name(x); }
-#define WL_DEFINE_DEFULAT_SIMD_BINARY(name)                                 \
-WL_INLINE auto name(__m256i x, __m256i y) { return _mm256_##name(x, y); }   \
-WL_INLINE auto name(__m128i x, __m128i y) { return _mm_##name(x, y); }
-WL_DEFINE_DEFULAT_SIMD_BINARY(unpacklo_epi8)
-WL_DEFINE_DEFULAT_SIMD_BINARY(unpackhi_epi8)
-WL_DEFINE_DEFULAT_SIMD_BINARY(add_epi8)
-WL_DEFINE_DEFULAT_SIMD_BINARY(add_epi16)
-WL_DEFINE_DEFULAT_SIMD_BINARY(sub_epi8)
-WL_DEFINE_DEFULAT_SIMD_BINARY(sub_epi16)
-WL_DEFINE_DEFULAT_SIMD_BINARY(cmpeq_epi8)
-WL_DEFINE_DEFULAT_SIMD_BINARY(cmpgt_epi8)
-WL_DEFINE_DEFULAT_SIMD_UNARY(movemask_epi8)
-WL_INLINE auto testc(__m128i x, __m128i y) { return _mm_testc_si128(x, y); }
-WL_INLINE auto testc(__m256i x, __m256i y) { return _mm256_testc_si256(x, y); }
-template<typename M>
-WL_INLINE auto zero()
-{
-    if constexpr (std::is_same_v<M, __m256i>)
-        return _mm256_setzero_si256();
-    else if constexpr (std::is_same_v<M, __m128i>)
-        return _mm_setzero_si128();
-    else
-        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
-}
-template<typename M, typename T>
-WL_INLINE auto set1(T x)
-{
-    if constexpr (std::is_same_v<M, __m256i>)
-    {
-        if constexpr (sizeof(T) == 1u) return _mm256_set1_epi8(x);
-        else if constexpr (sizeof(T) == 2u) return _mm256_set1_epi16(x);
-        else if constexpr (sizeof(T) == 4u) return _mm256_set1_epi32(x);
-        else if constexpr (sizeof(T) == 8u) return _mm256_set1_epi64(x);
-        else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
-    }
-    else if constexpr (std::is_same_v<M, __m128i>)
-    {
-        if constexpr (sizeof(T) == 1u) return _mm_set1_epi8(x);
-        else if constexpr (sizeof(T) == 2u) return _mm_set1_epi16(x);
-        else if constexpr (sizeof(T) == 4u) return _mm_set1_epi32(x);
-        else if constexpr (sizeof(T) == 8u) return _mm_set1_epi64(x);
-        else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
-    }
-    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
-}
-template<typename M, typename Ptr>
-WL_INLINE auto loadu(const Ptr* ptr)
-{
-    if constexpr (std::is_same_v<M, __m256i>)
-        return _mm256_loadu_si256((const __m256i*)ptr);
-    else if constexpr (std::is_same_v<M, __m128i>)
-        return _mm_loadu_si128((const __m128i*)ptr);
-    else
-        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
-}
-template<typename M, typename Ptr>
-WL_INLINE auto storeu(Ptr* ptr, M x)
-{
-    if constexpr (std::is_same_v<M, __m256i>)
-        return _mm256_storeu_si256((__m256i*)ptr, x);
-    else if constexpr (std::is_same_v<M, __m128i>)
-        return _mm_storeu_si128((__m128i*)ptr, x);
-    else
-        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
-}
-template<int I, typename M>
-WL_INLINE auto extract_epi64(M x)
-{
-    if constexpr (std::is_same_v<M, __m256i>)
-        return _mm256_extract_epi64(x, I);
-    else if constexpr (std::is_same_v<M, __m128i>)
-        return _mm_extract_epi64(x, I);
-    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
-}
-WL_INLINE int64_t hsum_epi8(__m256i v)
-{
-    v = add_epi16(unpacklo_epi8(v, zero<__m256i>()),
-        unpackhi_epi8(v, zero<__m256i>()));
-    auto total = uint64_t(extract_epi64<0>(v) + extract_epi64<1>(v) +
-        extract_epi64<2>(v) + extract_epi64<3>(v));
-    total += total >> 32;
-    total += total >> 16;
-    return int64_t(total & 0xffffu);
-}
-WL_INLINE int64_t hsum_epi8(__m128i v)
-{
-    v = add_epi16(unpacklo_epi8(v, zero<__m128i>()),
-        unpackhi_epi8(v, zero<__m128i>()));
-    auto total = uint64_t(extract_epi64<0>(v) + extract_epi64<1>(v));
-    total += total >> 32;
-    total += total >> 16;
-    return int64_t(total & 0xffffu);
-}
-}
-}
-namespace wl
-{
 struct scalar_indexer; // I
 struct all_indexer;    // A
 struct unit_indexer;   // U
@@ -1052,6 +950,108 @@ struct view_derive_impl<State>
 };
 template<typename... Indexers>
 using view_type = typename view_derive_impl<I_<0u, 0u, 0u>, Indexers...>::type;
+}
+}
+namespace wl
+{
+namespace simd
+{
+#define WL_DEFINE_DEFULAT_SIMD_UNARY(name)                                  \
+WL_INLINE auto name(__m256i x) { return _mm256_##name(x); }                 \
+WL_INLINE auto name(__m128i x) { return _mm_##name(x); }
+#define WL_DEFINE_DEFULAT_SIMD_BINARY(name)                                 \
+WL_INLINE auto name(__m256i x, __m256i y) { return _mm256_##name(x, y); }   \
+WL_INLINE auto name(__m128i x, __m128i y) { return _mm_##name(x, y); }
+WL_DEFINE_DEFULAT_SIMD_BINARY(unpacklo_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(unpackhi_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(add_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(add_epi16)
+WL_DEFINE_DEFULAT_SIMD_BINARY(sub_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(sub_epi16)
+WL_DEFINE_DEFULAT_SIMD_BINARY(cmpeq_epi8)
+WL_DEFINE_DEFULAT_SIMD_BINARY(cmpgt_epi8)
+WL_DEFINE_DEFULAT_SIMD_UNARY(movemask_epi8)
+WL_INLINE auto testc(__m128i x, __m128i y) { return _mm_testc_si128(x, y); }
+WL_INLINE auto testc(__m256i x, __m256i y) { return _mm256_testc_si256(x, y); }
+template<typename M>
+WL_INLINE auto zero()
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_setzero_si256();
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_setzero_si128();
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<typename M, typename T>
+WL_INLINE auto set1(T x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+    {
+        if constexpr (sizeof(T) == 1u) return _mm256_set1_epi8(x);
+        else if constexpr (sizeof(T) == 2u) return _mm256_set1_epi16(x);
+        else if constexpr (sizeof(T) == 4u) return _mm256_set1_epi32(x);
+        else if constexpr (sizeof(T) == 8u) return _mm256_set1_epi64(x);
+        else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+    }
+    else if constexpr (std::is_same_v<M, __m128i>)
+    {
+        if constexpr (sizeof(T) == 1u) return _mm_set1_epi8(x);
+        else if constexpr (sizeof(T) == 2u) return _mm_set1_epi16(x);
+        else if constexpr (sizeof(T) == 4u) return _mm_set1_epi32(x);
+        else if constexpr (sizeof(T) == 8u) return _mm_set1_epi64(x);
+        else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+    }
+    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<typename M, typename Ptr>
+WL_INLINE auto loadu(const Ptr* ptr)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_loadu_si256((const __m256i*)ptr);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_loadu_si128((const __m128i*)ptr);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<typename M, typename Ptr>
+WL_INLINE auto storeu(Ptr* ptr, M x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_storeu_si256((__m256i*)ptr, x);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_storeu_si128((__m128i*)ptr, x);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<int I, typename M>
+WL_INLINE auto extract_epi64(M x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_extract_epi64(x, I);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_extract_epi64(x, I);
+    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+WL_INLINE int64_t hsum_epi8(__m256i v)
+{
+    v = add_epi16(unpacklo_epi8(v, zero<__m256i>()),
+        unpackhi_epi8(v, zero<__m256i>()));
+    auto total = uint64_t(extract_epi64<0>(v) + extract_epi64<1>(v) +
+        extract_epi64<2>(v) + extract_epi64<3>(v));
+    total += total >> 32;
+    total += total >> 16;
+    return int64_t(total & 0xffffu);
+}
+WL_INLINE int64_t hsum_epi8(__m128i v)
+{
+    v = add_epi16(unpacklo_epi8(v, zero<__m128i>()),
+        unpackhi_epi8(v, zero<__m128i>()));
+    auto total = uint64_t(extract_epi64<0>(v) + extract_epi64<1>(v));
+    total += total >> 32;
+    total += total >> 16;
+    return int64_t(total & 0xffffu);
+}
 }
 }
 namespace wl
@@ -3169,6 +3169,181 @@ struct ndarray
 }
 namespace wl
 {
+struct _returns_function_tag {};
+struct _returns_value_tag {};
+template<typename... Ts>
+struct _branch_type_check_impl;
+template<typename T1, typename... Ts>
+struct _branch_type_check_impl<T1, Ts...>
+{
+    static constexpr auto value = is_value_type_v<T1> ?
+        std::conjunction_v<std::is_same<T1, Ts>...> :
+        std::conjunction_v<std::bool_constant<!is_value_type_v<Ts>>...>;
+};
+template<typename... Ts>
+struct _branch_type_check : _branch_type_check_impl<remove_cvref_t<Ts>...> {};
+template<typename T1, typename...>
+struct _branch_returns_value :
+    std::bool_constant<is_value_type_v<remove_cvref_t<T1>>> {};
+template<typename T, typename...>
+struct _get_first_type
+{
+    using type = T;
+};
+template<typename... Ts>
+using _get_first_type_t = typename _get_first_type<Ts...>::type;
+template<typename A, typename B>
+WL_INLINE auto branch_if(const boolean cond, A&& a, B&& b)
+{
+    WL_TRY_BEGIN()
+    using AT = decltype(val(std::declval<A&&>()()));
+    using BT = decltype(val(std::declval<B&&>()()));
+    static_assert(_branch_type_check<AT, BT>::value, WL_ERROR_BRANCH_RETURN);
+    if constexpr (_branch_returns_value<AT>::value)
+    {
+        return cond ? val(std::forward<decltype(a)>(a)()) :
+            val(std::forward<decltype(b)>(b)());
+    }
+    else
+    {
+        return
+            [cond,
+            a = std::forward<decltype(a)>(a)(),
+            b = std::forward<decltype(b)>(b)()
+            ](auto&&... args)
+        {
+            auto ra = [&, a] {
+                return a(std::forward<decltype(args)>(args)...); };
+            auto rb = [&, b] {
+                return b(std::forward<decltype(args)>(args)...); };
+            return branch_if(cond, std::move(ra), std::move(rb));
+        };
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename... Conds>
+auto _which_conditions(Conds&&... conds)
+{
+    static_assert(std::conjunction_v<std::is_same<
+        remove_cvref_t<decltype(conds())>, boolean>...>,
+        WL_ERROR_BRANCH_RETURN);
+    size_t n = 0u;
+    [[maybe_unused]] auto _1 = ((conds() ? true : (++n, false)) || ...);
+    return n;
+}
+template<typename Ret, size_t... Is, typename... Cases>
+auto _which_impl(const size_t n, _returns_value_tag,
+    std::index_sequence<Is...>, Cases&&... cases)
+{
+    if constexpr (std::is_same_v<Ret, void_type>)
+    {
+        [[maybe_unused]] auto _1 = ((n == Is ?
+            (std::forward<decltype(cases)>(cases)(), true) : false
+            ) || ...);
+        return const_null;
+    }
+    else
+    {
+        Ret ret;
+        if (n >= sizeof...(Cases))
+            throw std::logic_error(WL_ERROR_INTERNAL);
+        [[maybe_unused]] auto _1 = ((n == Is ?
+            (ret = val(std::forward<decltype(cases)>(cases)()), true) : false
+            ) || ...);
+        return ret;
+    }
+}
+template<size_t... Is, typename... Cases>
+auto _which_impl(const size_t n, _returns_function_tag,
+    std::index_sequence<Is...>, Cases&&... cases)
+{
+    return
+        [n,
+        cases = std::make_tuple(std::forward<decltype(cases)>(cases)()...)
+        ](auto&&... args)
+    {
+        return _which_impl(n, std::get<Is>(cases)...);
+    };
+}
+template<typename... Cases>
+auto which(const size_t n, Cases&&... cases)
+{
+    WL_TRY_BEGIN()
+    static_assert(_branch_type_check<
+        decltype(val(std::declval<Cases&&>()()))...>::value,
+        WL_ERROR_BRANCH_RETURN);
+    using FirstType =
+        decltype(val(std::declval<_get_first_type_t<Cases&&...>>()()));
+    if constexpr (_branch_returns_value<FirstType>::value)
+    {
+        return _which_impl<remove_cvref_t<FirstType>>(
+            n, _returns_value_tag{},
+            std::make_index_sequence<sizeof...(Cases)>{},
+            std::forward<decltype(cases)>(cases)...);
+    }
+    else
+    {
+        return _which_impl(
+            n, _returns_function_tag{},
+            std::make_index_sequence<sizeof...(Cases)>{},
+            std::forward<decltype(cases)>(cases)...);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Test, typename Incr, typename Body>
+auto loop_for(Test test, Incr incr, Body body)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
+        WL_ERROR_LOOP_TEST);
+    try
+    {
+        for (;;)
+        {
+            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
+            {
+                if (!test())
+                    return const_null;
+                body();
+                incr();
+            }
+            WL_THROW_IF_ABORT()
+        }
+    }
+    catch (const loop_break&)
+    {
+    }
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Test, typename Body>
+auto loop_while(Test test, Body body)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
+        WL_ERROR_LOOP_TEST);
+    try
+    {
+        for (;;)
+        {
+            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
+            {
+                if (!test())
+                    return const_null;
+                body();
+            }
+            WL_THROW_IF_ABORT()
+        }
+    }
+    catch (const loop_break&)
+    {
+    }
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+}
+namespace wl
+{
 namespace utils
 {
 template<typename Fn, typename X>
@@ -4143,1916 +4318,6 @@ auto chop(X&& x, const Y& y)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
-/*************************************************
-*       Perl-Compatible Regular Expressions      *
-*************************************************/
-/* This is the public header file for the PCRE library, second API, to be
-#included by applications that call PCRE2 functions.
-           Copyright (c) 2016-2019 University of Cambridge
------------------------------------------------------------------------------
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the University of Cambridge nor the names of its
-      contributors may be used to endorse or promote products derived from
-      this software without specific prior written permission.
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------------
-*/
-#ifndef PCRE2_H_IDEMPOTENT_GUARD
-#define PCRE2_H_IDEMPOTENT_GUARD
-/* The current PCRE version information. */
-#define PCRE2_MAJOR           10
-#define PCRE2_MINOR           34
-#define PCRE2_PRERELEASE      
-#define PCRE2_DATE            2019-11-21
-/* When an application links to a PCRE DLL in Windows, the symbols that are
-imported have to be identified as such. When building PCRE2, the appropriate
-export setting is defined in pcre2_internal.h, which includes this file. So we
-don't change existing definitions of PCRE2_EXP_DECL. */
-#if defined(_WIN32) && !defined(PCRE2_STATIC)
-#  ifndef PCRE2_EXP_DECL
-#    define PCRE2_EXP_DECL  extern __declspec(dllimport)
-#  endif
-#endif
-/* By default, we use the standard "extern" declarations. */
-#ifndef PCRE2_EXP_DECL
-#  ifdef __cplusplus
-#    define PCRE2_EXP_DECL  extern "C"
-#  else
-#    define PCRE2_EXP_DECL  extern
-#  endif
-#endif
-/* When compiling with the MSVC compiler, it is sometimes necessary to include
-a "calling convention" before exported function names. (This is secondhand
-information; I know nothing about MSVC myself). For example, something like
-  void __cdecl function(....)
-might be needed. In order so make this easy, all the exported functions have
-PCRE2_CALL_CONVENTION just before their names. It is rarely needed; if not
-set, we ensure here that it has no effect. */
-#ifndef PCRE2_CALL_CONVENTION
-#define PCRE2_CALL_CONVENTION
-#endif
-/* Have to include limits.h, stdlib.h, and inttypes.h to ensure that size_t and
-uint8_t, UCHAR_MAX, etc are defined. Some systems that do have inttypes.h do
-not have stdint.h, which is why we use inttypes.h, which according to the C
-standard is a superset of stdint.h. If none of these headers are available,
-the relevant values must be provided by some other means. */
-/* Allow for C++ users compiling this directly. */
-#ifdef __cplusplus
-extern "C" {
-#endif
-/* The following option bits can be passed to pcre2_compile(), pcre2_match(),
-or pcre2_dfa_match(). PCRE2_NO_UTF_CHECK affects only the function to which it
-is passed. Put these bits at the most significant end of the options word so
-others can be added next to them */
-#define PCRE2_ANCHORED            0x80000000u
-#define PCRE2_NO_UTF_CHECK        0x40000000u
-#define PCRE2_ENDANCHORED         0x20000000u
-/* The following option bits can be passed only to pcre2_compile(). However,
-they may affect compilation, JIT compilation, and/or interpretive execution.
-The following tags indicate which:
-C   alters what is compiled by pcre2_compile()
-J   alters what is compiled by pcre2_jit_compile()
-M   is inspected during pcre2_match() execution
-D   is inspected during pcre2_dfa_match() execution
-*/
-#define PCRE2_ALLOW_EMPTY_CLASS   0x00000001u  /* C       */
-#define PCRE2_ALT_BSUX            0x00000002u  /* C       */
-#define PCRE2_AUTO_CALLOUT        0x00000004u  /* C       */
-#define PCRE2_CASELESS            0x00000008u  /* C       */
-#define PCRE2_DOLLAR_ENDONLY      0x00000010u  /*   J M D */
-#define PCRE2_DOTALL              0x00000020u  /* C       */
-#define PCRE2_DUPNAMES            0x00000040u  /* C       */
-#define PCRE2_EXTENDED            0x00000080u  /* C       */
-#define PCRE2_FIRSTLINE           0x00000100u  /*   J M D */
-#define PCRE2_MATCH_UNSET_BACKREF 0x00000200u  /* C J M   */
-#define PCRE2_MULTILINE           0x00000400u  /* C       */
-#define PCRE2_NEVER_UCP           0x00000800u  /* C       */
-#define PCRE2_NEVER_UTF           0x00001000u  /* C       */
-#define PCRE2_NO_AUTO_CAPTURE     0x00002000u  /* C       */
-#define PCRE2_NO_AUTO_POSSESS     0x00004000u  /* C       */
-#define PCRE2_NO_DOTSTAR_ANCHOR   0x00008000u  /* C       */
-#define PCRE2_NO_START_OPTIMIZE   0x00010000u  /*   J M D */
-#define PCRE2_UCP                 0x00020000u  /* C J M D */
-#define PCRE2_UNGREEDY            0x00040000u  /* C       */
-#define PCRE2_UTF                 0x00080000u  /* C J M D */
-#define PCRE2_NEVER_BACKSLASH_C   0x00100000u  /* C       */
-#define PCRE2_ALT_CIRCUMFLEX      0x00200000u  /*   J M D */
-#define PCRE2_ALT_VERBNAMES       0x00400000u  /* C       */
-#define PCRE2_USE_OFFSET_LIMIT    0x00800000u  /*   J M D */
-#define PCRE2_EXTENDED_MORE       0x01000000u  /* C       */
-#define PCRE2_LITERAL             0x02000000u  /* C       */
-#define PCRE2_MATCH_INVALID_UTF   0x04000000u  /*   J M D */
-/* An additional compile options word is available in the compile context. */
-#define PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES  0x00000001u  /* C */
-#define PCRE2_EXTRA_BAD_ESCAPE_IS_LITERAL    0x00000002u  /* C */
-#define PCRE2_EXTRA_MATCH_WORD               0x00000004u  /* C */
-#define PCRE2_EXTRA_MATCH_LINE               0x00000008u  /* C */
-#define PCRE2_EXTRA_ESCAPED_CR_IS_LF         0x00000010u  /* C */
-#define PCRE2_EXTRA_ALT_BSUX                 0x00000020u  /* C */
-/* These are for pcre2_jit_compile(). */
-#define PCRE2_JIT_COMPLETE        0x00000001u  /* For full matching */
-#define PCRE2_JIT_PARTIAL_SOFT    0x00000002u
-#define PCRE2_JIT_PARTIAL_HARD    0x00000004u
-#define PCRE2_JIT_INVALID_UTF     0x00000100u
-/* These are for pcre2_match(), pcre2_dfa_match(), pcre2_jit_match(), and
-pcre2_substitute(). Some are allowed only for one of the functions, and in
-these cases it is noted below. Note that PCRE2_ANCHORED, PCRE2_ENDANCHORED and
-PCRE2_NO_UTF_CHECK can also be passed to these functions (though
-pcre2_jit_match() ignores the latter since it bypasses all sanity checks). */
-#define PCRE2_NOTBOL                      0x00000001u
-#define PCRE2_NOTEOL                      0x00000002u
-#define PCRE2_NOTEMPTY                    0x00000004u  /* ) These two must be kept */
-#define PCRE2_NOTEMPTY_ATSTART            0x00000008u  /* ) adjacent to each other. */
-#define PCRE2_PARTIAL_SOFT                0x00000010u
-#define PCRE2_PARTIAL_HARD                0x00000020u
-#define PCRE2_DFA_RESTART                 0x00000040u  /* pcre2_dfa_match() only */
-#define PCRE2_DFA_SHORTEST                0x00000080u  /* pcre2_dfa_match() only */
-#define PCRE2_SUBSTITUTE_GLOBAL           0x00000100u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_EXTENDED         0x00000200u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_UNSET_EMPTY      0x00000400u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_UNKNOWN_UNSET    0x00000800u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_OVERFLOW_LENGTH  0x00001000u  /* pcre2_substitute() only */
-#define PCRE2_NO_JIT                      0x00002000u  /* Not for pcre2_dfa_match() */
-#define PCRE2_COPY_MATCHED_SUBJECT        0x00004000u
-/* Options for pcre2_pattern_convert(). */
-#define PCRE2_CONVERT_UTF                    0x00000001u
-#define PCRE2_CONVERT_NO_UTF_CHECK           0x00000002u
-#define PCRE2_CONVERT_POSIX_BASIC            0x00000004u
-#define PCRE2_CONVERT_POSIX_EXTENDED         0x00000008u
-#define PCRE2_CONVERT_GLOB                   0x00000010u
-#define PCRE2_CONVERT_GLOB_NO_WILD_SEPARATOR 0x00000030u
-#define PCRE2_CONVERT_GLOB_NO_STARSTAR       0x00000050u
-/* Newline and \R settings, for use in compile contexts. The newline values
-must be kept in step with values set in config.h and both sets must all be
-greater than zero. */
-#define PCRE2_NEWLINE_CR          1
-#define PCRE2_NEWLINE_LF          2
-#define PCRE2_NEWLINE_CRLF        3
-#define PCRE2_NEWLINE_ANY         4
-#define PCRE2_NEWLINE_ANYCRLF     5
-#define PCRE2_NEWLINE_NUL         6
-#define PCRE2_BSR_UNICODE         1
-#define PCRE2_BSR_ANYCRLF         2
-/* Error codes for pcre2_compile(). Some of these are also used by
-pcre2_pattern_convert(). */
-#define PCRE2_ERROR_END_BACKSLASH                  101
-#define PCRE2_ERROR_END_BACKSLASH_C                102
-#define PCRE2_ERROR_UNKNOWN_ESCAPE                 103
-#define PCRE2_ERROR_QUANTIFIER_OUT_OF_ORDER        104
-#define PCRE2_ERROR_QUANTIFIER_TOO_BIG             105
-#define PCRE2_ERROR_MISSING_SQUARE_BRACKET         106
-#define PCRE2_ERROR_ESCAPE_INVALID_IN_CLASS        107
-#define PCRE2_ERROR_CLASS_RANGE_ORDER              108
-#define PCRE2_ERROR_QUANTIFIER_INVALID             109
-#define PCRE2_ERROR_INTERNAL_UNEXPECTED_REPEAT     110
-#define PCRE2_ERROR_INVALID_AFTER_PARENS_QUERY     111
-#define PCRE2_ERROR_POSIX_CLASS_NOT_IN_CLASS       112
-#define PCRE2_ERROR_POSIX_NO_SUPPORT_COLLATING     113
-#define PCRE2_ERROR_MISSING_CLOSING_PARENTHESIS    114
-#define PCRE2_ERROR_BAD_SUBPATTERN_REFERENCE       115
-#define PCRE2_ERROR_NULL_PATTERN                   116
-#define PCRE2_ERROR_BAD_OPTIONS                    117
-#define PCRE2_ERROR_MISSING_COMMENT_CLOSING        118
-#define PCRE2_ERROR_PARENTHESES_NEST_TOO_DEEP      119
-#define PCRE2_ERROR_PATTERN_TOO_LARGE              120
-#define PCRE2_ERROR_HEAP_FAILED                    121
-#define PCRE2_ERROR_UNMATCHED_CLOSING_PARENTHESIS  122
-#define PCRE2_ERROR_INTERNAL_CODE_OVERFLOW         123
-#define PCRE2_ERROR_MISSING_CONDITION_CLOSING      124
-#define PCRE2_ERROR_LOOKBEHIND_NOT_FIXED_LENGTH    125
-#define PCRE2_ERROR_ZERO_RELATIVE_REFERENCE        126
-#define PCRE2_ERROR_TOO_MANY_CONDITION_BRANCHES    127
-#define PCRE2_ERROR_CONDITION_ASSERTION_EXPECTED   128
-#define PCRE2_ERROR_BAD_RELATIVE_REFERENCE         129
-#define PCRE2_ERROR_UNKNOWN_POSIX_CLASS            130
-#define PCRE2_ERROR_INTERNAL_STUDY_ERROR           131
-#define PCRE2_ERROR_UNICODE_NOT_SUPPORTED          132
-#define PCRE2_ERROR_PARENTHESES_STACK_CHECK        133
-#define PCRE2_ERROR_CODE_POINT_TOO_BIG             134
-#define PCRE2_ERROR_LOOKBEHIND_TOO_COMPLICATED     135
-#define PCRE2_ERROR_LOOKBEHIND_INVALID_BACKSLASH_C 136
-#define PCRE2_ERROR_UNSUPPORTED_ESCAPE_SEQUENCE    137
-#define PCRE2_ERROR_CALLOUT_NUMBER_TOO_BIG         138
-#define PCRE2_ERROR_MISSING_CALLOUT_CLOSING        139
-#define PCRE2_ERROR_ESCAPE_INVALID_IN_VERB         140
-#define PCRE2_ERROR_UNRECOGNIZED_AFTER_QUERY_P     141
-#define PCRE2_ERROR_MISSING_NAME_TERMINATOR        142
-#define PCRE2_ERROR_DUPLICATE_SUBPATTERN_NAME      143
-#define PCRE2_ERROR_INVALID_SUBPATTERN_NAME        144
-#define PCRE2_ERROR_UNICODE_PROPERTIES_UNAVAILABLE 145
-#define PCRE2_ERROR_MALFORMED_UNICODE_PROPERTY     146
-#define PCRE2_ERROR_UNKNOWN_UNICODE_PROPERTY       147
-#define PCRE2_ERROR_SUBPATTERN_NAME_TOO_LONG       148
-#define PCRE2_ERROR_TOO_MANY_NAMED_SUBPATTERNS     149
-#define PCRE2_ERROR_CLASS_INVALID_RANGE            150
-#define PCRE2_ERROR_OCTAL_BYTE_TOO_BIG             151
-#define PCRE2_ERROR_INTERNAL_OVERRAN_WORKSPACE     152
-#define PCRE2_ERROR_INTERNAL_MISSING_SUBPATTERN    153
-#define PCRE2_ERROR_DEFINE_TOO_MANY_BRANCHES       154
-#define PCRE2_ERROR_BACKSLASH_O_MISSING_BRACE      155
-#define PCRE2_ERROR_INTERNAL_UNKNOWN_NEWLINE       156
-#define PCRE2_ERROR_BACKSLASH_G_SYNTAX             157
-#define PCRE2_ERROR_PARENS_QUERY_R_MISSING_CLOSING 158
-/* Error 159 is obsolete and should now never occur */
-#define PCRE2_ERROR_VERB_ARGUMENT_NOT_ALLOWED      159
-#define PCRE2_ERROR_VERB_UNKNOWN                   160
-#define PCRE2_ERROR_SUBPATTERN_NUMBER_TOO_BIG      161
-#define PCRE2_ERROR_SUBPATTERN_NAME_EXPECTED       162
-#define PCRE2_ERROR_INTERNAL_PARSED_OVERFLOW       163
-#define PCRE2_ERROR_INVALID_OCTAL                  164
-#define PCRE2_ERROR_SUBPATTERN_NAMES_MISMATCH      165
-#define PCRE2_ERROR_MARK_MISSING_ARGUMENT          166
-#define PCRE2_ERROR_INVALID_HEXADECIMAL            167
-#define PCRE2_ERROR_BACKSLASH_C_SYNTAX             168
-#define PCRE2_ERROR_BACKSLASH_K_SYNTAX             169
-#define PCRE2_ERROR_INTERNAL_BAD_CODE_LOOKBEHINDS  170
-#define PCRE2_ERROR_BACKSLASH_N_IN_CLASS           171
-#define PCRE2_ERROR_CALLOUT_STRING_TOO_LONG        172
-#define PCRE2_ERROR_UNICODE_DISALLOWED_CODE_POINT  173
-#define PCRE2_ERROR_UTF_IS_DISABLED                174
-#define PCRE2_ERROR_UCP_IS_DISABLED                175
-#define PCRE2_ERROR_VERB_NAME_TOO_LONG             176
-#define PCRE2_ERROR_BACKSLASH_U_CODE_POINT_TOO_BIG 177
-#define PCRE2_ERROR_MISSING_OCTAL_OR_HEX_DIGITS    178
-#define PCRE2_ERROR_VERSION_CONDITION_SYNTAX       179
-#define PCRE2_ERROR_INTERNAL_BAD_CODE_AUTO_POSSESS 180
-#define PCRE2_ERROR_CALLOUT_NO_STRING_DELIMITER    181
-#define PCRE2_ERROR_CALLOUT_BAD_STRING_DELIMITER   182
-#define PCRE2_ERROR_BACKSLASH_C_CALLER_DISABLED    183
-#define PCRE2_ERROR_QUERY_BARJX_NEST_TOO_DEEP      184
-#define PCRE2_ERROR_BACKSLASH_C_LIBRARY_DISABLED   185
-#define PCRE2_ERROR_PATTERN_TOO_COMPLICATED        186
-#define PCRE2_ERROR_LOOKBEHIND_TOO_LONG            187
-#define PCRE2_ERROR_PATTERN_STRING_TOO_LONG        188
-#define PCRE2_ERROR_INTERNAL_BAD_CODE              189
-#define PCRE2_ERROR_INTERNAL_BAD_CODE_IN_SKIP      190
-#define PCRE2_ERROR_NO_SURROGATES_IN_UTF16         191
-#define PCRE2_ERROR_BAD_LITERAL_OPTIONS            192
-#define PCRE2_ERROR_SUPPORTED_ONLY_IN_UNICODE      193
-#define PCRE2_ERROR_INVALID_HYPHEN_IN_OPTIONS      194
-#define PCRE2_ERROR_ALPHA_ASSERTION_UNKNOWN        195
-#define PCRE2_ERROR_SCRIPT_RUN_NOT_AVAILABLE       196
-#define PCRE2_ERROR_TOO_MANY_CAPTURES              197
-#define PCRE2_ERROR_CONDITION_ATOMIC_ASSERTION_EXPECTED  198
-/* "Expected" matching error codes: no match and partial match. */
-#define PCRE2_ERROR_NOMATCH          (-1)
-#define PCRE2_ERROR_PARTIAL          (-2)
-/* Error codes for UTF-8 validity checks */
-#define PCRE2_ERROR_UTF8_ERR1        (-3)
-#define PCRE2_ERROR_UTF8_ERR2        (-4)
-#define PCRE2_ERROR_UTF8_ERR3        (-5)
-#define PCRE2_ERROR_UTF8_ERR4        (-6)
-#define PCRE2_ERROR_UTF8_ERR5        (-7)
-#define PCRE2_ERROR_UTF8_ERR6        (-8)
-#define PCRE2_ERROR_UTF8_ERR7        (-9)
-#define PCRE2_ERROR_UTF8_ERR8       (-10)
-#define PCRE2_ERROR_UTF8_ERR9       (-11)
-#define PCRE2_ERROR_UTF8_ERR10      (-12)
-#define PCRE2_ERROR_UTF8_ERR11      (-13)
-#define PCRE2_ERROR_UTF8_ERR12      (-14)
-#define PCRE2_ERROR_UTF8_ERR13      (-15)
-#define PCRE2_ERROR_UTF8_ERR14      (-16)
-#define PCRE2_ERROR_UTF8_ERR15      (-17)
-#define PCRE2_ERROR_UTF8_ERR16      (-18)
-#define PCRE2_ERROR_UTF8_ERR17      (-19)
-#define PCRE2_ERROR_UTF8_ERR18      (-20)
-#define PCRE2_ERROR_UTF8_ERR19      (-21)
-#define PCRE2_ERROR_UTF8_ERR20      (-22)
-#define PCRE2_ERROR_UTF8_ERR21      (-23)
-/* Error codes for UTF-16 validity checks */
-#define PCRE2_ERROR_UTF16_ERR1      (-24)
-#define PCRE2_ERROR_UTF16_ERR2      (-25)
-#define PCRE2_ERROR_UTF16_ERR3      (-26)
-/* Error codes for UTF-32 validity checks */
-#define PCRE2_ERROR_UTF32_ERR1      (-27)
-#define PCRE2_ERROR_UTF32_ERR2      (-28)
-/* Miscellaneous error codes for pcre2[_dfa]_match(), substring extraction
-functions, context functions, and serializing functions. They are in numerical
-order. Originally they were in alphabetical order too, but now that PCRE2 is
-released, the numbers must not be changed. */
-#define PCRE2_ERROR_BADDATA           (-29)
-#define PCRE2_ERROR_MIXEDTABLES       (-30)  /* Name was changed */
-#define PCRE2_ERROR_BADMAGIC          (-31)
-#define PCRE2_ERROR_BADMODE           (-32)
-#define PCRE2_ERROR_BADOFFSET         (-33)
-#define PCRE2_ERROR_BADOPTION         (-34)
-#define PCRE2_ERROR_BADREPLACEMENT    (-35)
-#define PCRE2_ERROR_BADUTFOFFSET      (-36)
-#define PCRE2_ERROR_CALLOUT           (-37)  /* Never used by PCRE2 itself */
-#define PCRE2_ERROR_DFA_BADRESTART    (-38)
-#define PCRE2_ERROR_DFA_RECURSE       (-39)
-#define PCRE2_ERROR_DFA_UCOND         (-40)
-#define PCRE2_ERROR_DFA_UFUNC         (-41)
-#define PCRE2_ERROR_DFA_UITEM         (-42)
-#define PCRE2_ERROR_DFA_WSSIZE        (-43)
-#define PCRE2_ERROR_INTERNAL          (-44)
-#define PCRE2_ERROR_JIT_BADOPTION     (-45)
-#define PCRE2_ERROR_JIT_STACKLIMIT    (-46)
-#define PCRE2_ERROR_MATCHLIMIT        (-47)
-#define PCRE2_ERROR_NOMEMORY          (-48)
-#define PCRE2_ERROR_NOSUBSTRING       (-49)
-#define PCRE2_ERROR_NOUNIQUESUBSTRING (-50)
-#define PCRE2_ERROR_NULL              (-51)
-#define PCRE2_ERROR_RECURSELOOP       (-52)
-#define PCRE2_ERROR_DEPTHLIMIT        (-53)
-#define PCRE2_ERROR_RECURSIONLIMIT    (-53)  /* Obsolete synonym */
-#define PCRE2_ERROR_UNAVAILABLE       (-54)
-#define PCRE2_ERROR_UNSET             (-55)
-#define PCRE2_ERROR_BADOFFSETLIMIT    (-56)
-#define PCRE2_ERROR_BADREPESCAPE      (-57)
-#define PCRE2_ERROR_REPMISSINGBRACE   (-58)
-#define PCRE2_ERROR_BADSUBSTITUTION   (-59)
-#define PCRE2_ERROR_BADSUBSPATTERN    (-60)
-#define PCRE2_ERROR_TOOMANYREPLACE    (-61)
-#define PCRE2_ERROR_BADSERIALIZEDDATA (-62)
-#define PCRE2_ERROR_HEAPLIMIT         (-63)
-#define PCRE2_ERROR_CONVERT_SYNTAX    (-64)
-#define PCRE2_ERROR_INTERNAL_DUPMATCH (-65)
-#define PCRE2_ERROR_DFA_UINVALID_UTF  (-66)
-/* Request types for pcre2_pattern_info() */
-#define PCRE2_INFO_ALLOPTIONS            0
-#define PCRE2_INFO_ARGOPTIONS            1
-#define PCRE2_INFO_BACKREFMAX            2
-#define PCRE2_INFO_BSR                   3
-#define PCRE2_INFO_CAPTURECOUNT          4
-#define PCRE2_INFO_FIRSTCODEUNIT         5
-#define PCRE2_INFO_FIRSTCODETYPE         6
-#define PCRE2_INFO_FIRSTBITMAP           7
-#define PCRE2_INFO_HASCRORLF             8
-#define PCRE2_INFO_JCHANGED              9
-#define PCRE2_INFO_JITSIZE              10
-#define PCRE2_INFO_LASTCODEUNIT         11
-#define PCRE2_INFO_LASTCODETYPE         12
-#define PCRE2_INFO_MATCHEMPTY           13
-#define PCRE2_INFO_MATCHLIMIT           14
-#define PCRE2_INFO_MAXLOOKBEHIND        15
-#define PCRE2_INFO_MINLENGTH            16
-#define PCRE2_INFO_NAMECOUNT            17
-#define PCRE2_INFO_NAMEENTRYSIZE        18
-#define PCRE2_INFO_NAMETABLE            19
-#define PCRE2_INFO_NEWLINE              20
-#define PCRE2_INFO_DEPTHLIMIT           21
-#define PCRE2_INFO_RECURSIONLIMIT       21  /* Obsolete synonym */
-#define PCRE2_INFO_SIZE                 22
-#define PCRE2_INFO_HASBACKSLASHC        23
-#define PCRE2_INFO_FRAMESIZE            24
-#define PCRE2_INFO_HEAPLIMIT            25
-#define PCRE2_INFO_EXTRAOPTIONS         26
-/* Request types for pcre2_config(). */
-#define PCRE2_CONFIG_BSR                     0
-#define PCRE2_CONFIG_JIT                     1
-#define PCRE2_CONFIG_JITTARGET               2
-#define PCRE2_CONFIG_LINKSIZE                3
-#define PCRE2_CONFIG_MATCHLIMIT              4
-#define PCRE2_CONFIG_NEWLINE                 5
-#define PCRE2_CONFIG_PARENSLIMIT             6
-#define PCRE2_CONFIG_DEPTHLIMIT              7
-#define PCRE2_CONFIG_RECURSIONLIMIT          7  /* Obsolete synonym */
-#define PCRE2_CONFIG_STACKRECURSE            8  /* Obsolete */
-#define PCRE2_CONFIG_UNICODE                 9
-#define PCRE2_CONFIG_UNICODE_VERSION        10
-#define PCRE2_CONFIG_VERSION                11
-#define PCRE2_CONFIG_HEAPLIMIT              12
-#define PCRE2_CONFIG_NEVER_BACKSLASH_C      13
-#define PCRE2_CONFIG_COMPILED_WIDTHS        14
-/* Types for code units in patterns and subject strings. */
-typedef uint8_t  PCRE2_UCHAR8;
-typedef uint16_t PCRE2_UCHAR16;
-typedef uint32_t PCRE2_UCHAR32;
-typedef const PCRE2_UCHAR8  *PCRE2_SPTR8;
-typedef const PCRE2_UCHAR16 *PCRE2_SPTR16;
-typedef const PCRE2_UCHAR32 *PCRE2_SPTR32;
-/* The PCRE2_SIZE type is used for all string lengths and offsets in PCRE2,
-including pattern offsets for errors and subject offsets after a match. We
-define special values to indicate zero-terminated strings and unset offsets in
-the offset vector (ovector). */
-#define PCRE2_SIZE            size_t
-#define PCRE2_SIZE_MAX        SIZE_MAX
-#define PCRE2_ZERO_TERMINATED (~(PCRE2_SIZE)0)
-#define PCRE2_UNSET           (~(PCRE2_SIZE)0)
-/* Generic types for opaque structures and JIT callback functions. These
-declarations are defined in a macro that is expanded for each width later. */
-#define PCRE2_TYPES_LIST \
-struct pcre2_real_general_context; \
-typedef struct pcre2_real_general_context pcre2_general_context; \
-\
-struct pcre2_real_compile_context; \
-typedef struct pcre2_real_compile_context pcre2_compile_context; \
-\
-struct pcre2_real_match_context; \
-typedef struct pcre2_real_match_context pcre2_match_context; \
-\
-struct pcre2_real_convert_context; \
-typedef struct pcre2_real_convert_context pcre2_convert_context; \
-\
-struct pcre2_real_code; \
-typedef struct pcre2_real_code pcre2_code; \
-\
-struct pcre2_real_match_data; \
-typedef struct pcre2_real_match_data pcre2_match_data; \
-\
-struct pcre2_real_jit_stack; \
-typedef struct pcre2_real_jit_stack pcre2_jit_stack; \
-\
-typedef pcre2_jit_stack *(*pcre2_jit_callback)(void *);
-/* The structures for passing out data via callout functions. We use structures
-so that new fields can be added on the end in future versions, without changing
-the API of the function, thereby allowing old clients to work without
-modification. Define the generic versions in a macro; the width-specific
-versions are generated from this macro below. */
-/* Flags for the callout_flags field. These are cleared after a callout. */
-#define PCRE2_CALLOUT_STARTMATCH    0x00000001u  /* Set for each bumpalong */
-#define PCRE2_CALLOUT_BACKTRACK     0x00000002u  /* Set after a backtrack */
-#define PCRE2_STRUCTURE_LIST \
-typedef struct pcre2_callout_block { \
-  uint32_t      version;           /* Identifies version of block */ \
-  /* ------------------------ Version 0 ------------------------------- */ \
-  uint32_t      callout_number;    /* Number compiled into pattern */ \
-  uint32_t      capture_top;       /* Max current capture */ \
-  uint32_t      capture_last;      /* Most recently closed capture */ \
-  PCRE2_SIZE   *offset_vector;     /* The offset vector */ \
-  PCRE2_SPTR    mark;              /* Pointer to current mark or NULL */ \
-  PCRE2_SPTR    subject;           /* The subject being matched */ \
-  PCRE2_SIZE    subject_length;    /* The length of the subject */ \
-  PCRE2_SIZE    start_match;       /* Offset to start of this match attempt */ \
-  PCRE2_SIZE    current_position;  /* Where we currently are in the subject */ \
-  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
-  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
-  /* ------------------- Added for Version 1 -------------------------- */ \
-  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
-  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
-  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
-  /* ------------------- Added for Version 2 -------------------------- */ \
-  uint32_t      callout_flags;     /* See above for list */ \
-  /* ------------------------------------------------------------------ */ \
-} pcre2_callout_block; \
-\
-typedef struct pcre2_callout_enumerate_block { \
-  uint32_t      version;           /* Identifies version of block */ \
-  /* ------------------------ Version 0 ------------------------------- */ \
-  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
-  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
-  uint32_t      callout_number;    /* Number compiled into pattern */ \
-  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
-  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
-  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
-  /* ------------------------------------------------------------------ */ \
-} pcre2_callout_enumerate_block; \
-\
-typedef struct pcre2_substitute_callout_block { \
-  uint32_t      version;           /* Identifies version of block */ \
-  /* ------------------------ Version 0 ------------------------------- */ \
-  PCRE2_SPTR    input;             /* Pointer to input subject string */ \
-  PCRE2_SPTR    output;            /* Pointer to output buffer */ \
-  PCRE2_SIZE    output_offsets[2]; /* Changed portion of the output */ \
-  PCRE2_SIZE   *ovector;           /* Pointer to current ovector */ \
-  uint32_t      oveccount;         /* Count of pairs set in ovector */ \
-  uint32_t      subscount;         /* Substitution number */ \
-  /* ------------------------------------------------------------------ */ \
-} pcre2_substitute_callout_block;
-/* List the generic forms of all other functions in macros, which will be
-expanded for each width below. Start with functions that give general
-information. */
-#define PCRE2_GENERAL_INFO_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION pcre2_config(uint32_t, void *);
-/* Functions for manipulating contexts. */
-#define PCRE2_GENERAL_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
-  *pcre2_general_context_copy(pcre2_general_context *); \
-PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
-  *pcre2_general_context_create(void *(*)(PCRE2_SIZE, void *), \
-    void (*)(void *, void *), void *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_general_context_free(pcre2_general_context *);
-#define PCRE2_COMPILE_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
-  *pcre2_compile_context_copy(pcre2_compile_context *); \
-PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
-  *pcre2_compile_context_create(pcre2_general_context *);\
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_compile_context_free(pcre2_compile_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_bsr(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_character_tables(pcre2_compile_context *, const uint8_t *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_compile_extra_options(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_max_pattern_length(pcre2_compile_context *, PCRE2_SIZE); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_newline(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_parens_nest_limit(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_compile_recursion_guard(pcre2_compile_context *, \
-    int (*)(uint32_t, void *), void *);
-#define PCRE2_MATCH_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
-  *pcre2_match_context_copy(pcre2_match_context *); \
-PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
-  *pcre2_match_context_create(pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_match_context_free(pcre2_match_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_callout(pcre2_match_context *, \
-    int (*)(pcre2_callout_block *, void *), void *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_substitute_callout(pcre2_match_context *, \
-    int (*)(pcre2_substitute_callout_block *, void *), void *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_depth_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_heap_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_match_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_offset_limit(pcre2_match_context *, PCRE2_SIZE); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_recursion_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_recursion_memory_management(pcre2_match_context *, \
-    void *(*)(PCRE2_SIZE, void *), void (*)(void *, void *), void *);
-#define PCRE2_CONVERT_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
-  *pcre2_convert_context_copy(pcre2_convert_context *); \
-PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
-  *pcre2_convert_context_create(pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_convert_context_free(pcre2_convert_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_glob_escape(pcre2_convert_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_glob_separator(pcre2_convert_context *, uint32_t);
-/* Functions concerned with compiling a pattern to PCRE internal code. */
-#define PCRE2_COMPILE_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
-  *pcre2_compile(PCRE2_SPTR, PCRE2_SIZE, uint32_t, int *, PCRE2_SIZE *, \
-    pcre2_compile_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_code_free(pcre2_code *); \
-PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
-  *pcre2_code_copy(const pcre2_code *); \
-PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
-  *pcre2_code_copy_with_tables(const pcre2_code *);
-/* Functions that give information about a compiled pattern. */
-#define PCRE2_PATTERN_INFO_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_pattern_info(const pcre2_code *, uint32_t, void *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_callout_enumerate(const pcre2_code *, \
-    int (*)(pcre2_callout_enumerate_block *, void *), void *);
-/* Functions for running a match and inspecting the result. */
-#define PCRE2_MATCH_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
-  *pcre2_match_data_create(uint32_t, pcre2_general_context *); \
-PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
-  *pcre2_match_data_create_from_pattern(const pcre2_code *, \
-    pcre2_general_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_dfa_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *, int *, PCRE2_SIZE); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_match_data_free(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SPTR PCRE2_CALL_CONVENTION \
-  pcre2_get_mark(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
-  pcre2_get_match_data_size(pcre2_match_data *); \
-PCRE2_EXP_DECL uint32_t PCRE2_CALL_CONVENTION \
-  pcre2_get_ovector_count(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
-  *pcre2_get_ovector_pointer(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
-  pcre2_get_startchar(pcre2_match_data *);
-/* Convenience functions for handling matched substrings. */
-#define PCRE2_SUBSTRING_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_copy_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR *, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_copy_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR *, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_substring_free(PCRE2_UCHAR *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_get_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR **, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_get_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR **, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_length_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_length_bynumber(pcre2_match_data *, uint32_t, PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_nametable_scan(const pcre2_code *, PCRE2_SPTR, PCRE2_SPTR *, \
-    PCRE2_SPTR *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_number_from_name(const pcre2_code *, PCRE2_SPTR); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_substring_list_free(PCRE2_SPTR *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_list_get(pcre2_match_data *, PCRE2_UCHAR ***, PCRE2_SIZE **);
-/* Functions for serializing / deserializing compiled patterns. */
-#define PCRE2_SERIALIZE_FUNCTIONS \
-PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
-  pcre2_serialize_encode(const pcre2_code **, int32_t, uint8_t **, \
-    PCRE2_SIZE *, pcre2_general_context *); \
-PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
-  pcre2_serialize_decode(pcre2_code **, int32_t, const uint8_t *, \
-    pcre2_general_context *); \
-PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
-  pcre2_serialize_get_number_of_codes(const uint8_t *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_serialize_free(uint8_t *);
-/* Convenience function for match + substitute. */
-#define PCRE2_SUBSTITUTE_FUNCTION \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substitute(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *, PCRE2_SPTR, \
-    PCRE2_SIZE, PCRE2_UCHAR *, PCRE2_SIZE *);
-/* Functions for converting pattern source strings. */
-#define PCRE2_CONVERT_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_pattern_convert(PCRE2_SPTR, PCRE2_SIZE, uint32_t, PCRE2_UCHAR **, \
-    PCRE2_SIZE *, pcre2_convert_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_converted_pattern_free(PCRE2_UCHAR *);
-/* Functions for JIT processing */
-#define PCRE2_JIT_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_jit_compile(pcre2_code *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_jit_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_jit_free_unused_memory(pcre2_general_context *); \
-PCRE2_EXP_DECL pcre2_jit_stack PCRE2_CALL_CONVENTION \
-  *pcre2_jit_stack_create(PCRE2_SIZE, PCRE2_SIZE, pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_jit_stack_assign(pcre2_match_context *, pcre2_jit_callback, void *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_jit_stack_free(pcre2_jit_stack *);
-/* Other miscellaneous functions. */
-#define PCRE2_OTHER_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_get_error_message(int, PCRE2_UCHAR *, PCRE2_SIZE); \
-PCRE2_EXP_DECL const uint8_t PCRE2_CALL_CONVENTION \
-  *pcre2_maketables(pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_maketables_free(pcre2_general_context *, const uint8_t *);
-/* Define macros that generate width-specific names from generic versions. The
-three-level macro scheme is necessary to get the macros expanded when we want
-them to be. First we get the width from PCRE2_LOCAL_WIDTH, which is used for
-generating three versions of everything below. After that, PCRE2_SUFFIX will be
-re-defined to use PCRE2_CODE_UNIT_WIDTH, for use when macros such as
-pcre2_compile are called by application code. */
-#define PCRE2_JOIN(a,b) a ## b
-#define PCRE2_GLUE(a,b) PCRE2_JOIN(a,b)
-#define PCRE2_SUFFIX(a) PCRE2_GLUE(a,PCRE2_LOCAL_WIDTH)
-/* Data types */
-#define PCRE2_UCHAR                 PCRE2_SUFFIX(PCRE2_UCHAR)
-#define PCRE2_SPTR                  PCRE2_SUFFIX(PCRE2_SPTR)
-#define pcre2_code                  PCRE2_SUFFIX(pcre2_code_)
-#define pcre2_jit_callback          PCRE2_SUFFIX(pcre2_jit_callback_)
-#define pcre2_jit_stack             PCRE2_SUFFIX(pcre2_jit_stack_)
-#define pcre2_real_code             PCRE2_SUFFIX(pcre2_real_code_)
-#define pcre2_real_general_context  PCRE2_SUFFIX(pcre2_real_general_context_)
-#define pcre2_real_compile_context  PCRE2_SUFFIX(pcre2_real_compile_context_)
-#define pcre2_real_convert_context  PCRE2_SUFFIX(pcre2_real_convert_context_)
-#define pcre2_real_match_context    PCRE2_SUFFIX(pcre2_real_match_context_)
-#define pcre2_real_jit_stack        PCRE2_SUFFIX(pcre2_real_jit_stack_)
-#define pcre2_real_match_data       PCRE2_SUFFIX(pcre2_real_match_data_)
-/* Data blocks */
-#define pcre2_callout_block            PCRE2_SUFFIX(pcre2_callout_block_)
-#define pcre2_callout_enumerate_block  PCRE2_SUFFIX(pcre2_callout_enumerate_block_)
-#define pcre2_substitute_callout_block PCRE2_SUFFIX(pcre2_substitute_callout_block_)
-#define pcre2_general_context          PCRE2_SUFFIX(pcre2_general_context_)
-#define pcre2_compile_context          PCRE2_SUFFIX(pcre2_compile_context_)
-#define pcre2_convert_context          PCRE2_SUFFIX(pcre2_convert_context_)
-#define pcre2_match_context            PCRE2_SUFFIX(pcre2_match_context_)
-#define pcre2_match_data               PCRE2_SUFFIX(pcre2_match_data_)
-/* Functions: the complete list in alphabetical order */
-#define pcre2_callout_enumerate               PCRE2_SUFFIX(pcre2_callout_enumerate_)
-#define pcre2_code_copy                       PCRE2_SUFFIX(pcre2_code_copy_)
-#define pcre2_code_copy_with_tables           PCRE2_SUFFIX(pcre2_code_copy_with_tables_)
-#define pcre2_code_free                       PCRE2_SUFFIX(pcre2_code_free_)
-#define pcre2_compile                         PCRE2_SUFFIX(pcre2_compile_)
-#define pcre2_compile_context_copy            PCRE2_SUFFIX(pcre2_compile_context_copy_)
-#define pcre2_compile_context_create          PCRE2_SUFFIX(pcre2_compile_context_create_)
-#define pcre2_compile_context_free            PCRE2_SUFFIX(pcre2_compile_context_free_)
-#define pcre2_config                          PCRE2_SUFFIX(pcre2_config_)
-#define pcre2_convert_context_copy            PCRE2_SUFFIX(pcre2_convert_context_copy_)
-#define pcre2_convert_context_create          PCRE2_SUFFIX(pcre2_convert_context_create_)
-#define pcre2_convert_context_free            PCRE2_SUFFIX(pcre2_convert_context_free_)
-#define pcre2_converted_pattern_free          PCRE2_SUFFIX(pcre2_converted_pattern_free_)
-#define pcre2_dfa_match                       PCRE2_SUFFIX(pcre2_dfa_match_)
-#define pcre2_general_context_copy            PCRE2_SUFFIX(pcre2_general_context_copy_)
-#define pcre2_general_context_create          PCRE2_SUFFIX(pcre2_general_context_create_)
-#define pcre2_general_context_free            PCRE2_SUFFIX(pcre2_general_context_free_)
-#define pcre2_get_error_message               PCRE2_SUFFIX(pcre2_get_error_message_)
-#define pcre2_get_mark                        PCRE2_SUFFIX(pcre2_get_mark_)
-#define pcre2_get_match_data_size             PCRE2_SUFFIX(pcre2_get_match_data_size_)
-#define pcre2_get_ovector_pointer             PCRE2_SUFFIX(pcre2_get_ovector_pointer_)
-#define pcre2_get_ovector_count               PCRE2_SUFFIX(pcre2_get_ovector_count_)
-#define pcre2_get_startchar                   PCRE2_SUFFIX(pcre2_get_startchar_)
-#define pcre2_jit_compile                     PCRE2_SUFFIX(pcre2_jit_compile_)
-#define pcre2_jit_match                       PCRE2_SUFFIX(pcre2_jit_match_)
-#define pcre2_jit_free_unused_memory          PCRE2_SUFFIX(pcre2_jit_free_unused_memory_)
-#define pcre2_jit_stack_assign                PCRE2_SUFFIX(pcre2_jit_stack_assign_)
-#define pcre2_jit_stack_create                PCRE2_SUFFIX(pcre2_jit_stack_create_)
-#define pcre2_jit_stack_free                  PCRE2_SUFFIX(pcre2_jit_stack_free_)
-#define pcre2_maketables                      PCRE2_SUFFIX(pcre2_maketables_)
-#define pcre2_maketables_free                 PCRE2_SUFFIX(pcre2_maketables_free_)
-#define pcre2_match                           PCRE2_SUFFIX(pcre2_match_)
-#define pcre2_match_context_copy              PCRE2_SUFFIX(pcre2_match_context_copy_)
-#define pcre2_match_context_create            PCRE2_SUFFIX(pcre2_match_context_create_)
-#define pcre2_match_context_free              PCRE2_SUFFIX(pcre2_match_context_free_)
-#define pcre2_match_data_create               PCRE2_SUFFIX(pcre2_match_data_create_)
-#define pcre2_match_data_create_from_pattern  PCRE2_SUFFIX(pcre2_match_data_create_from_pattern_)
-#define pcre2_match_data_free                 PCRE2_SUFFIX(pcre2_match_data_free_)
-#define pcre2_pattern_convert                 PCRE2_SUFFIX(pcre2_pattern_convert_)
-#define pcre2_pattern_info                    PCRE2_SUFFIX(pcre2_pattern_info_)
-#define pcre2_serialize_decode                PCRE2_SUFFIX(pcre2_serialize_decode_)
-#define pcre2_serialize_encode                PCRE2_SUFFIX(pcre2_serialize_encode_)
-#define pcre2_serialize_free                  PCRE2_SUFFIX(pcre2_serialize_free_)
-#define pcre2_serialize_get_number_of_codes   PCRE2_SUFFIX(pcre2_serialize_get_number_of_codes_)
-#define pcre2_set_bsr                         PCRE2_SUFFIX(pcre2_set_bsr_)
-#define pcre2_set_callout                     PCRE2_SUFFIX(pcre2_set_callout_)
-#define pcre2_set_character_tables            PCRE2_SUFFIX(pcre2_set_character_tables_)
-#define pcre2_set_compile_extra_options       PCRE2_SUFFIX(pcre2_set_compile_extra_options_)
-#define pcre2_set_compile_recursion_guard     PCRE2_SUFFIX(pcre2_set_compile_recursion_guard_)
-#define pcre2_set_depth_limit                 PCRE2_SUFFIX(pcre2_set_depth_limit_)
-#define pcre2_set_glob_escape                 PCRE2_SUFFIX(pcre2_set_glob_escape_)
-#define pcre2_set_glob_separator              PCRE2_SUFFIX(pcre2_set_glob_separator_)
-#define pcre2_set_heap_limit                  PCRE2_SUFFIX(pcre2_set_heap_limit_)
-#define pcre2_set_match_limit                 PCRE2_SUFFIX(pcre2_set_match_limit_)
-#define pcre2_set_max_pattern_length          PCRE2_SUFFIX(pcre2_set_max_pattern_length_)
-#define pcre2_set_newline                     PCRE2_SUFFIX(pcre2_set_newline_)
-#define pcre2_set_parens_nest_limit           PCRE2_SUFFIX(pcre2_set_parens_nest_limit_)
-#define pcre2_set_offset_limit                PCRE2_SUFFIX(pcre2_set_offset_limit_)
-#define pcre2_set_substitute_callout          PCRE2_SUFFIX(pcre2_set_substitute_callout_)
-#define pcre2_substitute                      PCRE2_SUFFIX(pcre2_substitute_)
-#define pcre2_substring_copy_byname           PCRE2_SUFFIX(pcre2_substring_copy_byname_)
-#define pcre2_substring_copy_bynumber         PCRE2_SUFFIX(pcre2_substring_copy_bynumber_)
-#define pcre2_substring_free                  PCRE2_SUFFIX(pcre2_substring_free_)
-#define pcre2_substring_get_byname            PCRE2_SUFFIX(pcre2_substring_get_byname_)
-#define pcre2_substring_get_bynumber          PCRE2_SUFFIX(pcre2_substring_get_bynumber_)
-#define pcre2_substring_length_byname         PCRE2_SUFFIX(pcre2_substring_length_byname_)
-#define pcre2_substring_length_bynumber       PCRE2_SUFFIX(pcre2_substring_length_bynumber_)
-#define pcre2_substring_list_get              PCRE2_SUFFIX(pcre2_substring_list_get_)
-#define pcre2_substring_list_free             PCRE2_SUFFIX(pcre2_substring_list_free_)
-#define pcre2_substring_nametable_scan        PCRE2_SUFFIX(pcre2_substring_nametable_scan_)
-#define pcre2_substring_number_from_name      PCRE2_SUFFIX(pcre2_substring_number_from_name_)
-/* Keep this old function name for backwards compatibility */
-#define pcre2_set_recursion_limit PCRE2_SUFFIX(pcre2_set_recursion_limit_)
-/* Keep this obsolete function for backwards compatibility: it is now a noop. */
-#define pcre2_set_recursion_memory_management PCRE2_SUFFIX(pcre2_set_recursion_memory_management_)
-/* Now generate all three sets of width-specific structures and function
-prototypes. */
-#define PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS \
-PCRE2_TYPES_LIST \
-PCRE2_STRUCTURE_LIST \
-PCRE2_GENERAL_INFO_FUNCTIONS \
-PCRE2_GENERAL_CONTEXT_FUNCTIONS \
-PCRE2_COMPILE_CONTEXT_FUNCTIONS \
-PCRE2_CONVERT_CONTEXT_FUNCTIONS \
-PCRE2_CONVERT_FUNCTIONS \
-PCRE2_MATCH_CONTEXT_FUNCTIONS \
-PCRE2_COMPILE_FUNCTIONS \
-PCRE2_PATTERN_INFO_FUNCTIONS \
-PCRE2_MATCH_FUNCTIONS \
-PCRE2_SUBSTRING_FUNCTIONS \
-PCRE2_SERIALIZE_FUNCTIONS \
-PCRE2_SUBSTITUTE_FUNCTION \
-PCRE2_JIT_FUNCTIONS \
-PCRE2_OTHER_FUNCTIONS
-#define PCRE2_LOCAL_WIDTH 8
-PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-#undef PCRE2_LOCAL_WIDTH
-#define PCRE2_LOCAL_WIDTH 16
-PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-#undef PCRE2_LOCAL_WIDTH
-#define PCRE2_LOCAL_WIDTH 32
-PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-#undef PCRE2_LOCAL_WIDTH
-/* Undefine the list macros; they are no longer needed. */
-#undef PCRE2_TYPES_LIST
-#undef PCRE2_STRUCTURE_LIST
-#undef PCRE2_GENERAL_INFO_FUNCTIONS
-#undef PCRE2_GENERAL_CONTEXT_FUNCTIONS
-#undef PCRE2_COMPILE_CONTEXT_FUNCTIONS
-#undef PCRE2_CONVERT_CONTEXT_FUNCTIONS
-#undef PCRE2_MATCH_CONTEXT_FUNCTIONS
-#undef PCRE2_COMPILE_FUNCTIONS
-#undef PCRE2_PATTERN_INFO_FUNCTIONS
-#undef PCRE2_MATCH_FUNCTIONS
-#undef PCRE2_SUBSTRING_FUNCTIONS
-#undef PCRE2_SERIALIZE_FUNCTIONS
-#undef PCRE2_SUBSTITUTE_FUNCTION
-#undef PCRE2_JIT_FUNCTIONS
-#undef PCRE2_OTHER_FUNCTIONS
-#undef PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-/* PCRE2_CODE_UNIT_WIDTH must be defined. If it is 8, 16, or 32, redefine
-PCRE2_SUFFIX to use it. If it is 0, undefine the other macros and make
-PCRE2_SUFFIX a no-op. Otherwise, generate an error. */
-#undef PCRE2_SUFFIX
-#ifndef PCRE2_CODE_UNIT_WIDTH
-#error PCRE2_CODE_UNIT_WIDTH must be defined before including pcre2.h.
-#error Use 8, 16, or 32; or 0 for a multi-width application.
-#else  /* PCRE2_CODE_UNIT_WIDTH is defined */
-#if PCRE2_CODE_UNIT_WIDTH == 8 || \
-    PCRE2_CODE_UNIT_WIDTH == 16 || \
-    PCRE2_CODE_UNIT_WIDTH == 32
-#define PCRE2_SUFFIX(a) PCRE2_GLUE(a, PCRE2_CODE_UNIT_WIDTH)
-#elif PCRE2_CODE_UNIT_WIDTH == 0
-#undef PCRE2_JOIN
-#undef PCRE2_GLUE
-#define PCRE2_SUFFIX(a) a
-#else
-#error PCRE2_CODE_UNIT_WIDTH must be 0, 8, 16, or 32.
-#endif
-#endif  /* PCRE2_CODE_UNIT_WIDTH is defined */
-#ifdef __cplusplus
-}  /* extern "C" */
-#endif
-#endif  /* PCRE2_H_IDEMPOTENT_GUARD */
-/* End of pcre2.h */
-namespace wl
-{
-namespace utf8
-{
-using char_t   = uint8_t;
-using char21_t = uint32_t;
-constexpr char_t null_character = '\0';
-constexpr char21_t max_ascii_code_point = 0x7fu;
-constexpr char21_t max_code_point = 0x0010'ffffu;
-inline constexpr char_t operator""_c(const char ch)
-{
-    return char_t(ch);
-}
-template<typename Char>
-constexpr bool is_ascii(Char ch)
-{
-    static_assert(std::is_unsigned_v<Char>, WL_ERROR_INTERNAL);
-    return ch <= Char(max_ascii_code_point);
-}
-template<typename Char>
-std::pair<size_t, std::array<char_t, 4>> from_code_point(Char ch)
-{
-    if (ch < Char(0x80u))
-        return {1u, {char_t(ch), 0, 0, 0}};
-    else if (ch < 0x0800u)
-        return {2u, {char_t((ch >> 6) | 0xc0u),
-            char_t(ch & 0x3fu | 0x80u), 0, 0}};
-    else if (ch < Char(0x0001'0000u))
-        return {3u, {char_t((ch >> 12) | 0xe0u),
-            char_t((ch >> 6) & 0x3fu | 0x80u),
-            char_t(ch & 0x3fu | 0x80u), 0}};
-    else if (ch < Char(0x0011'0000u))
-        return {4u, {char_t((ch >> 18) | 0xf0u),
-            char_t((ch >> 12) & 0x3fu | 0x80u),
-            char_t((ch >> 6) & 0x3fu | 0x80u),
-            char_t(ch & 0x3fu | 0x80u)}};
-    else
-        throw std::logic_error(WL_ERROR_INVALID_CODEPOINT);
-}
-inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
-{
-    WL_THROW_IF_ABORT()
-#if defined(__AVX2__) || defined(__SSE4_1__)
-    using namespace wl::simd;
-#  if defined(__AVX2__)
-    using M = __m256i;
-#  else
-    using M = __m128i;
-#  endif
-    const auto upper = set1<M>(int8_t(0b1100'0000));
-    size_t i_byte = 0u;
-    bool ascii_only = true;
-    int zmask = 0;
-    M data;
-    for (; true; str += sizeof(M), i_byte += sizeof(M))
-    {
-        data = loadu<M>(str);
-        zmask = movemask_epi8(cmpeq_epi8(data, zero<M>()));
-        if (zmask)
-            break;
-        if (ascii_only && movemask_epi8(data))
-            ascii_only = false;
-    }
-    auto excess_byte = utils::tzcnt_u64(uint64_t(unsigned(zmask)));
-    if (ascii_only && excess_byte > 0)
-    {
-        auto nmask = uint64_t(unsigned(movemask_epi8(data)));
-        ascii_only = !bool(nmask << (64u - excess_byte));
-    }
-    ret_ascii_only = ascii_only;
-    return i_byte + excess_byte;
-#else
-    auto str0 = str;
-    bool ascii_only = true;
-    for (; ascii_only; ++str)
-    {
-        auto byte = *str;
-        if (!byte)
-        {
-            ret_ascii_only = true;
-            return size_t(str - str0);
-        }
-        else if (uint8_t(byte) >= 0b1000'0000u)
-        {
-            ret_ascii_only = false;
-            break;
-        }
-    }
-    while (*++str)
-    {
-    }
-    return size_t(str - str0);
-#endif
-}
-inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
-{
-    WL_THROW_IF_ABORT()
-#if defined(__AVX2__) || defined(__SSE4_1__)
-    using namespace wl::simd;
-#  if defined(__AVX2__)
-    using M = __m256i;
-#  else
-    using M = __m128i;
-#  endif
-    const auto upper = set1<M>(int8_t(0b1100'0000));
-    auto trailing = zero<M>();
-    size_t trailing_size = 0u;
-    size_t i_byte = 0u;
-    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
-        ++i, str += sizeof(M), i_byte += sizeof(M))
-    {
-        trailing = sub_epi8(trailing, cmpgt_epi8(upper, loadu<M>(str)));
-        if (i >= 100u)
-        {
-            trailing_size += hsum_epi8(trailing);
-            trailing = zero<M>();
-            i = 0u;
-        }
-    }
-    auto tmask = unsigned(movemask_epi8(cmpgt_epi8(upper, loadu<M>(str))));
-    auto excess_trailing = utils::_popcnt(
-        uint64_t(tmask) << (64u - (byte_size - i_byte)));
-    trailing_size += hsum_epi8(trailing);
-    trailing_size += excess_trailing;
-    return byte_size - trailing_size;
-#else
-    size_t trailing_size = 0u;
-    for (size_t i = 0; i < byte_size; ++i)
-    {
-        if (int8_t(str[i]) < int8_t(0b1100'0000))
-            ++trailing_size;
-    }
-    return byte_size - trailing_size;
-#endif
-}
-inline size_t _get_string_size_check_valid_impl(
-    const char_t* in_str, const size_t ref_byte_size)
-{
-    WL_THROW_IF_ABORT()
-    size_t byte_size = 0;
-    size_t trailing_size = 0;
-    auto str_begin = reinterpret_cast<const int8_t*>(in_str);
-    auto str = str_begin;
-    for (;;)
-    {
-        size_t n_bytes = 0u;
-        char_t byte = *str++;
-        if (!byte)
-        {
-            if (byte_size != ref_byte_size)
-                throw std::logic_error(WL_ERROR_INTERNAL);
-            return byte_size - trailing_size;
-        }
-        if (byte_size >= ref_byte_size)
-            throw std::logic_error(WL_ERROR_BAD_UTF8_NULL_TERMINATED);
-        if (byte < 0b1000'0000u)
-            n_bytes = 1u;
-        else if ((byte & 0b1110'0000u) == 0b1100'0000u)
-            n_bytes = 2u;
-        else if ((byte & 0b1111'0000u) == 0b1110'0000u)
-            n_bytes = 3u;
-        else if ((byte & 0b1111'1000u) == 0b1111'0000u)
-            n_bytes = 4u;
-        else
-            throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
-        for (size_t i = 1u; i < n_bytes; ++i)
-        {
-            if ((*str++ & 0b1100'0000u) != 0b1000'0000u)
-                throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
-        }
-        trailing_size += n_bytes - 1u;
-        byte_size += n_bytes;
-    }
-}
-template<bool CheckValid = false>
-size_t get_string_size(const char_t* str, const size_t byte_size)
-{
-    if constexpr (CheckValid)
-        return _get_string_size_check_valid_impl(str, byte_size);
-    else
-        return _get_string_size_impl(str, byte_size);
-}
-bool is_ascii_only(const char_t* str, const size_t byte_size)
-{
-    WL_THROW_IF_ABORT()
-#if defined(__AVX2__) || defined(__SSE4_1__)
-    using namespace wl::simd;
-#  if defined(__AVX2__)
-    using M = __m256i;
-#  else
-    using M = __m128i;
-#endif
-    const auto upper = set1<M>(int8_t(0b1100'0000));
-    size_t i_byte = 0u;
-    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
-        ++i, str += sizeof(M), i_byte += sizeof(M))
-    {
-        auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
-        if (tmask)
-            return false;
-    }
-    auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
-    return !bool(uint64_t(tmask) << (64u - (byte_size - i_byte)));
-#else
-    size_t trailing_size = 0u;
-    for (size_t i = 0; i < byte_size; ++i)
-    {
-        if (int8_t(str[i]) < int8_t(0b1100'0000))
-            return true;
-    }
-    return false;
-#endif
-}
-struct string_iterator
-{
-    using iterator_category = std::bidirectional_iterator_tag;
-    using value_type = char21_t;
-    using difference_type = ptrdiff_t;
-    using pointer = void;
-    using reference = char21_t;
-    const char_t* ptr_;
-    string_iterator() : ptr_{nullptr}
-    {
-    }
-    string_iterator(const char_t* ptr) : ptr_{ptr}
-    {
-    }
-    WL_INLINE static bool _is_valid_codepoint_leading(uint8_t byte)
-    {
-        return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
-    }
-    WL_INLINE static bool _is_valid_codepoint_tailing(uint8_t byte)
-    {
-        return (byte & 0b1100'0000u) == 0b1000'0000u;
-    }
-    const char_t* get_pointer() const
-    {
-        return ptr_;
-    }
-    operator const char*() const
-    {
-        return (const char*)ptr_;
-    }
-    string_iterator& operator=(const utf8::char_t* other)
-    {
-        ptr_ = other;
-        return *this;
-    }
-    string_iterator& operator=(const char* other)
-    {
-        *this = (const utf8::char_t*)other;
-        return *this;
-    }
-    string_iterator& operator++()
-    {
-        ptr_ += num_bytes();
-        return *this;
-    }
-    string_iterator& operator--()
-    {
-        ptr_ -= previous_num_bytes();
-        return *this;
-    }
-    string_iterator operator++(int)
-    {
-        const auto copy = *this;
-        ++(*this);
-        return copy;
-    }
-    string_iterator operator--(int)
-    {
-        const auto copy = *this;
-        --(*this);
-        return copy;
-    }
-    string_iterator& operator+=(ptrdiff_t n)
-    {
-        apply_offset(n);
-        return *this;
-    }
-    string_iterator& operator-=(ptrdiff_t n)
-    {
-        apply_offset(-n);
-        return *this;
-    }
-    bool operator==(const string_iterator& other) const
-    {
-        return this->ptr_ == other.ptr_;
-    }
-    bool operator!=(const string_iterator& other) const
-    {
-        return this->ptr_ != other.ptr_;
-    }
-    bool operator<(const string_iterator& other) const
-    {
-        return this->ptr_ < other.ptr_;
-    }
-    bool operator>(const string_iterator& other) const
-    {
-        return this->ptr_ > other.ptr_;
-    }
-    bool operator<=(const string_iterator& other) const
-    {
-        return this->ptr_ <= other.ptr_;
-    }
-    bool operator>=(const string_iterator& other) const
-    {
-        return this->ptr_ >= other.ptr_;
-    }
-    ptrdiff_t operator-(const string_iterator& other) const
-    {
-        bool this_is_behind = this->ptr_ > other.ptr_;
-        const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
-        const auto* end = this_is_behind ? this->ptr_ : other.ptr_;
-        assert(_is_valid_codepoint_leading(*begin));
-        assert(_is_valid_codepoint_leading(*end));
-        ptrdiff_t n = 0;
-        for (; begin != end; ++begin)
-            n += ptrdiff_t(_is_valid_codepoint_leading(*begin));
-        return this_is_behind ? n : -n;
-    }
-    char21_t operator*() const
-    {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
-        switch (num_bytes())
-        {
-        case 1:
-            return char21_t(ptr_[0]);
-        case 2:
-            return char21_t(
-                ((ptr_[0] & 0b0001'1111) << 6) |
-                ((ptr_[1] & 0b0011'1111)));
-        case 3:
-            return char21_t(
-                ((ptr_[0] & 0b0000'1111) << 12) |
-                ((ptr_[1] & 0b0011'1111) << 6) |
-                ((ptr_[2] & 0b0011'1111)));
-        case 4:
-            return char21_t(
-                ((ptr_[0] & 0b0000'0111) << 18) |
-                ((ptr_[1] & 0b0011'1111) << 12) |
-                ((ptr_[2] & 0b0011'1111) << 6) |
-                ((ptr_[3] & 0b0011'1111)));
-        default:
-            return char21_t(0);
-        }
-    }
-    ptrdiff_t byte_difference(const string_iterator& other) const
-    {
-        return ptrdiff_t(this->ptr_ - other.ptr_);
-    }
-    void apply_pointer_offset(ptrdiff_t n)
-    {
-        ptr_ += n;
-    }
-    void apply_offset(ptrdiff_t n)
-    {
-        if (n >= 0)
-        {
-            for (ptrdiff_t i = 0u; i < n;)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
-        }
-        else
-        {
-            for (ptrdiff_t i = 0u; i < n;)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
-        }
-    }
-    void apply_offset(ptrdiff_t n, const string_iterator& end)
-    {
-        if (n >= 0)
-        {
-            for (ptrdiff_t i = 0u; (i < n) && (ptr_ <= end.ptr_);)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
-        }
-        else
-        {
-            for (ptrdiff_t i = 0u; (i < -n) && (ptr_ >= end.ptr_);)
-                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
-        }
-    }
-    size_t previous_num_bytes() const
-    {
-        if (ptr_[-1] < 0b1000'0000u)
-        {
-            return 1u;
-        }
-        else if (ptr_[-2] >= 0b1100'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[-1]));
-            return 2u;
-        }
-        else if (ptr_[-3] >= 0b1100'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[-1]));
-            assert(_is_valid_codepoint_tailing(ptr_[-2]));
-            return 3u;
-        }
-        else
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[-1]));
-            assert(_is_valid_codepoint_tailing(ptr_[-2]));
-            assert(_is_valid_codepoint_tailing(ptr_[-3]));
-            assert((*ptr_ > 0u) && _is_valid_codepoint_leading(ptr_[-4]));
-            return 4u;
-        }
-    }
-    size_t num_bytes() const
-    {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
-        if (*ptr_ < 0b1000'0000u)
-        {
-            return 1u;
-        }
-        else if (*ptr_ < 0b1110'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            return 2u;
-        }
-        else if (*ptr_ < 0b1111'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            return 3u;
-        }
-        else
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            assert(_is_valid_codepoint_tailing(ptr_[3]));
-            return 4u;
-        }
-    }
-};
-}
-enum class trilean_t : uint8_t
-{
-    True,
-    False,
-    Unknown
-};
-struct u8string_view
-{
-    using iterator = utf8::string_iterator;
-    static constexpr ptrdiff_t string_size_unknown = -1;
-    iterator begin_{};
-    iterator end_{};
-    mutable trilean_t ascii_only_ = trilean_t::Unknown;
-    mutable ptrdiff_t string_size_ = string_size_unknown;
-    u8string_view() = default;
-    u8string_view(iterator begin, iterator end) :
-        begin_{begin}, end_{end}
-    {
-        assert(begin <= end);
-    }
-    u8string_view(iterator begin, iterator end, bool ascii_only) :
-        u8string_view{begin, end}
-    {
-        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
-        if (ascii_only)
-            string_size_ = byte_size();
-    }
-    u8string_view(iterator begin, iterator end, size_t string_size) :
-        u8string_view{begin, end}
-    {
-        string_size_ = string_size;
-        ascii_only_ = (size() == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-    }
-    template<typename CharT>
-    u8string_view(const CharT* begin, const CharT* end) :
-        begin_{(const utf8::char_t*)begin}, end_{(const utf8::char_t*)end}
-    {
-        static_assert(sizeof(CharT) == 1u, WL_ERROR_INTERNAL);
-    }
-    const utf8::char_t* byte_data() const
-    {
-        return begin_.get_pointer();
-    }
-    size_t byte_size() const
-    {
-        return size_t(end_.byte_difference(begin_));
-    }
-    const utf8::char_t* byte_begin() const
-    {
-        return byte_data();
-    }
-    const utf8::char_t* byte_end() const
-    {
-        return byte_data() + byte_size();
-    }
-    size_t size() const
-    {
-        if (string_size_ == string_size_unknown)
-            string_size_ = utf8::get_string_size(byte_data(), byte_size());
-        ascii_only_ = (string_size_ == byte_size()) ?
-            trilean_t::True : trilean_t::False;
-        return string_size_;
-    }
-    const char* c_str() const
-    {
-        return reinterpret_cast<const char*>(byte_data());
-    }
-    iterator begin() const
-    {
-        return begin_;
-    }
-    iterator end() const
-    {
-        return end_;
-    }
-    WL_INLINE trilean_t* _ascii_only_ptr() const
-    {
-        return &ascii_only_;
-    }
-    bool ascii_only() const
-    {
-        auto only = _ascii_only_ptr();
-        if (*only == trilean_t::Unknown)
-        {
-            if (utf8::is_ascii_only(byte_data(), byte_size()))
-                *only = trilean_t::True;
-            else
-                *only = trilean_t::False;
-        }
-        return *only == trilean_t::True ? true : false;
-    }
-};
-union u8string
-{
-    static constexpr size_t small_string_byte_size = 28u; // excluding \0
-    static_assert(sizeof(char) == 1u, WL_ERROR_SIZEOF_CHAR);
-    using iterator = utf8::string_iterator;
-    
-    struct static_t
-    {
-        static constexpr size_t capacity_ = small_string_byte_size;
-        bool is_static_ = true;
-        mutable trilean_t ascii_only_ = trilean_t::Unknown;
-        uint8_t byte_size_ = 0u;
-        utf8::char_t string_[small_string_byte_size + 1u];
-        static_t() = default;
-        static_t(size_t byte_size, trilean_t ascii_only) :
-            byte_size_{uint8_t(byte_size)}, ascii_only_{ascii_only}
-        {
-            assert(byte_size_ <= capacity_);
-        }
-        void place_null_character()
-        {
-            string_[byte_size_] = utf8::null_character;
-        }
-        template<bool PlaceNull = true, bool UpdateASCII = true>
-        void push(utf8::char_t ch)
-        {
-            assert(byte_size_ + 1u <= size_t(capacity_));
-            string_[byte_size_++] = ch;
-            if constexpr (UpdateASCII)
-                if (!utf8::is_ascii(ch))
-                    ascii_only_ = trilean_t::False;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-        template<bool PlaceNull = true>
-        void push(const utf8::char_t* ch, size_t size)
-        {
-            assert(byte_size_ + size <= size_t(capacity_));
-            utils::restrict_copy_n(ch, size, string_ + byte_size_);
-            byte_size_ += uint8_t(size);
-            ascii_only_ = trilean_t::Unknown;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-    };
-    struct dynamic_t
-    {
-        bool is_static_ = false;
-        mutable trilean_t ascii_only_ = trilean_t::Unknown;
-        uint64_t byte_size_ = 0u;
-        uint64_t capacity_ = 0u;
-        utf8::char_t* string_ = nullptr;
-        dynamic_t(size_t byte_size, trilean_t ascii_only) :
-            byte_size_{byte_size}, ascii_only_{ascii_only}
-        {
-            resize_buffer(byte_size_);
-        }
-        dynamic_t(size_t byte_size, size_t capacity, trilean_t ascii_only) :
-            byte_size_{byte_size}, ascii_only_{ascii_only}
-        {
-            capacity = std::max(byte_size, capacity);
-            resize_buffer(capacity);
-        }
-        ~dynamic_t()
-        {
-            free_buffer();
-        }
-        dynamic_t(const dynamic_t& other)
-        {
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            resize_buffer(byte_size_);
-            std::copy_n(other.string_, byte_size_ + 1u, string_);
-        }
-        dynamic_t(dynamic_t&& other)
-        {
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            std::swap(string_, other.string_);
-            std::swap(capacity_, other.capacity_);
-        }
-        dynamic_t& operator=(const dynamic_t& other)
-        {
-            free_buffer();
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            resize_buffer(byte_size_);
-            std::copy_n(other.string_, byte_size_ + 1u, string_);
-            return *this;
-        }
-        dynamic_t& operator=(dynamic_t&& other)
-        {
-            ascii_only_ = other.ascii_only_;
-            byte_size_  = other.byte_size_;
-            std::swap(string_, other.string_);
-            std::swap(capacity_, other.capacity_);
-            return *this;
-        }
-        void place_null_character()
-        {
-            string_[byte_size_] = utf8::null_character;
-        }
-        template<bool PlaceNull = true, bool UpdateASCII = true>
-        void push(utf8::char_t ch)
-        {
-            if (byte_size_ >= capacity_)
-                grow_buffer();
-            assert(byte_size_ + 1u <= capacity_);
-            string_[byte_size_++] = ch;
-            if constexpr (UpdateASCII)
-                if (!utf8::is_ascii(ch))
-                    ascii_only_ = trilean_t::False;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-        template<bool PlaceNull = true>
-        void push(const utf8::char_t* ch, size_t size)
-        {
-            if (byte_size_ + size > capacity_)
-                grow_buffer(size);
-            assert(byte_size_ + size <= capacity_);
-            utils::restrict_copy_n(ch, size, string_ + byte_size_);
-            byte_size_ += uint8_t(size);
-            ascii_only_ = trilean_t::Unknown;
-            if constexpr (PlaceNull)
-                place_null_character();
-        }
-        void resize_buffer(size_t new_capacity)
-        {
-            if (new_capacity <= capacity_)
-                return;
-            auto new_buffer_size = new_capacity + 1u;
-            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
-            if (!storage)
-                throw std::bad_alloc();
-            string_ = storage;
-            capacity_ = new_capacity;
-        }
-        void grow_buffer(size_t extra = 0u)
-        {
-            auto new_buffer_size = capacity_ + 1u;
-            new_buffer_size += std::max(size_t(capacity_ + 1u), extra);
-            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
-            if (!storage)
-                throw std::bad_alloc();
-            string_ = storage;
-            capacity_ = new_buffer_size - 1u;
-        }
-        void free_buffer()
-        {
-            assert(string_);
-            std::free(string_);
-            string_ = nullptr;
-            capacity_ = 0u;
-        }
-    };
-    
-    static_assert(sizeof(bool) == 1u, WL_ERROR_INTERNAL);
-    static_assert(sizeof(static_t) == 32u, WL_ERROR_INTERNAL);
-    static_assert(sizeof(dynamic_t) == 32u, WL_ERROR_INTERNAL);
-    static_t  static_;
-    dynamic_t dynamic_;
-    u8string()
-    {
-        new(&static_) static_t(0u, trilean_t::True);
-        static_.place_null_character();
-        assert(check_validity());
-    }
-    explicit u8string(size_t byte_size)
-    {
-        if (byte_size <= small_string_byte_size)
-        {
-            new(&static_) static_t(byte_size, trilean_t::Unknown);
-            static_.place_null_character();
-        }
-        else
-        {
-            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
-            dynamic_.place_null_character();
-        }
-    }
-    explicit u8string(size_t byte_size, bool ascii_only) : u8string(byte_size)
-    {
-        set_ascii_only(ascii_only);
-    }
-    u8string(const iterator& begin, const iterator& end) :
-        u8string(begin.get_pointer(), end.byte_difference(begin))
-    {
-    }
-    u8string(const iterator& begin, const iterator& end, bool ascii_only) :
-        u8string(begin.get_pointer(), end.byte_difference(begin), ascii_only)
-    {
-    }
-    u8string(const utf8::char_t* str, const size_t byte_size)
-    {
-        assert(ptrdiff_t(byte_size) >= 0);
-        if (byte_size <= small_string_byte_size)
-        {
-            new(&static_) static_t(byte_size, trilean_t::Unknown);
-            if (byte_size > 0)
-                utils::restrict_copy_n(str, byte_size, static_.string_);
-            static_.place_null_character();
-        }
-        else
-        {
-            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
-            utils::restrict_copy_n(str, byte_size, dynamic_.string_);
-            dynamic_.place_null_character();
-        }
-        assert(check_validity());
-    }
-    u8string(const utf8::char_t* str, const size_t byte_size,
-        bool ascii_only) : u8string(str, byte_size)
-    {
-        set_ascii_only(ascii_only);
-        assert(check_validity());
-    }
-    template<size_t N>
-    explicit u8string(const char(&str)[N]) :
-        u8string((const utf8::char_t*)str, N - 1u)
-    {
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        assert(check_validity());
-    }
-    template<size_t N>
-    explicit u8string(const char(&str)[N], bool ascii_only) : u8string(str)
-    {
-        set_ascii_only(ascii_only);
-        assert(check_validity());
-    }
-    explicit u8string(const u8string_view& other) :
-        u8string(other.byte_begin(), other.byte_size())
-    {
-    }
-    explicit u8string(const char* str) :
-        u8string((const utf8::char_t*)str, std::strlen(str))
-    {
-        assert(check_validity());
-    }
-    u8string(const u8string& other) : u8string()
-    {
-        copy_from(other);
-        assert(check_validity());
-    }
-    u8string(u8string&& other) : u8string()
-    {
-        swap_with(other);
-        assert(check_validity());
-    }
-    ~u8string()
-    {
-        destroy();
-    }
-    u8string& operator=(const u8string& other)
-    {
-        destroy();
-        copy_from(other);
-        return *this;
-    }
-    u8string& operator=(u8string&& other)
-    {
-        swap_with(other);
-        return *this;
-    }
-    void destroy()
-    {
-        if (!is_static())
-            dynamic_.~dynamic_t();
-    }
-    void swap_with(u8string& other)
-    {
-        char buffer[sizeof(u8string)];
-        std::memcpy(buffer, &other, sizeof(u8string));
-        std::memcpy(&other, this, sizeof(u8string));
-        std::memcpy(this, buffer, sizeof(u8string));
-    }
-    void copy_from(const u8string& other)
-    {
-        if (other.is_static())
-        {
-            new(&static_) static_t(other.static_);
-        }
-        else
-        {
-            const auto byte_size = other.byte_size();
-            if (byte_size <= small_string_byte_size)
-            { // convert to static
-                new(&static_) static_t(byte_size, other.static_.ascii_only_);
-                utils::restrict_copy_n(
-                    other.byte_data(), byte_size + 1u, byte_data());
-            }
-            else
-            { // remain dynamic
-                new(&dynamic_) dynamic_t(byte_size, other.static_.ascii_only_);
-                utils::restrict_copy_n(
-                    other.byte_data(), byte_size + 1u, byte_data());
-            }
-        }
-    }
-    void set_dynamic_capacity(size_t capacity)
-    {
-        if (is_static())
-        {
-            const auto copy = static_;
-            const auto byte_size = copy.byte_size_;
-            const auto ascii_only = copy.ascii_only_;
-            new(&dynamic_) dynamic_t(byte_size, capacity, ascii_only);
-            utils::restrict_copy_n(
-                copy.string_, size_t(byte_size) + 1u, dynamic_.string_);
-            dynamic_.ascii_only_ = copy.ascii_only_;
-        }
-        else
-        {
-            dynamic_.resize_buffer(capacity);
-        }
-    }
-    WL_INLINE bool is_static() const
-    {
-        bool value;
-        std::memcpy(&value, &static_.is_static_, sizeof(bool));
-        return value;
-    }
-    WL_INLINE size_t byte_size() const
-    {
-        return is_static() ? static_.byte_size_ : dynamic_.byte_size_;
-    }
-    WL_INLINE size_t capacity() const
-    {
-        return is_static() ? static_.capacity_ : dynamic_.capacity_;
-    }
-    WL_INLINE size_t size() const
-    {
-        size_t string_size = 0;
-        if (is_static())
-        {
-            if (static_.ascii_only_ == trilean_t::True)
-                return static_.byte_size_;
-            else
-                string_size = utf8::get_string_size(
-                    static_.string_, static_.byte_size_);
-        }
-        else
-        {
-            if (dynamic_.ascii_only_ == trilean_t::True)
-                return dynamic_.byte_size_;
-            else
-                string_size = utf8::get_string_size(
-                    dynamic_.string_, dynamic_.byte_size_);
-        }
-        set_ascii_only(string_size == byte_size());
-        return string_size;
-    }
-    WL_INLINE utf8::char_t* byte_data()
-    {
-        return is_static() ? static_.string_ : dynamic_.string_;
-    }
-    WL_INLINE const utf8::char_t* byte_data() const
-    {
-        return is_static() ? static_.string_ : dynamic_.string_;
-    }
-    WL_INLINE const char* c_str() const
-    {
-        return reinterpret_cast<const char*>(byte_data());
-    }
-    WL_INLINE trilean_t* _ascii_only_ptr() const
-    {
-        return is_static() ? &static_.ascii_only_ : &dynamic_.ascii_only_;
-    }
-    bool ascii_only() const
-    {
-        auto only = _ascii_only_ptr();
-        if (*only == trilean_t::Unknown)
-        {
-            if (utf8::is_ascii_only(byte_data(), byte_size()))
-                *only = trilean_t::True;
-            else
-                *only = trilean_t::False;
-        }
-        return *only == trilean_t::True ? true : false;
-    }
-    void set_ascii_only(bool ascii_only) const
-    {
-        *_ascii_only_ptr() = ascii_only ? trilean_t::True : trilean_t::False;
-    }
-    utf8::char_t* byte_begin()
-    {
-        return byte_data();
-    }
-    utf8::char_t* byte_end()
-    {
-        return byte_data() + byte_size();
-    }
-    const utf8::char_t* byte_begin() const
-    {
-        return byte_data();
-    }
-    const utf8::char_t* byte_end() const
-    {
-        return byte_data() + byte_size();
-    }
-    iterator begin() const
-    {
-        return iterator{byte_begin()};
-    }
-    iterator end() const
-    {
-        return iterator{byte_end()};
-    }
-    operator u8string_view() const
-    {
-        return u8string_view{begin(), end()};
-    }
-    void place_null_character()
-    {
-        if (is_static())
-            static_.place_null_character();
-        else
-            dynamic_.place_null_character();
-    }
-    template<bool PlaceNull = true>
-    void append(const utf8::char_t* str, const size_t append_size)
-    {
-        const size_t new_byte_size = byte_size() + append_size;
-        if (is_static())
-        {
-            if (new_byte_size > small_string_byte_size)
-            {
-                set_dynamic_capacity(new_byte_size);
-                assert(!is_static());
-                dynamic_.push<PlaceNull>(str, append_size);
-            }
-            else
-            {
-                static_.push<PlaceNull>(str, append_size);
-            }
-        }
-        else
-        {
-            dynamic_.push<PlaceNull>(str, append_size);
-        }
-    }
-    template<bool PlaceNull = true, bool UpdateASCII = true>
-    void append(const utf8::char_t ch)
-    {
-        const size_t new_byte_size = byte_size() + 1u;
-        if (is_static())
-        {
-            if (new_byte_size > small_string_byte_size)
-            {
-                set_dynamic_capacity(new_byte_size);
-                assert(!is_static());
-                dynamic_.push<PlaceNull, UpdateASCII>(ch);
-            }
-            else
-            {
-                static_.push<PlaceNull, UpdateASCII>(ch);
-            }
-        }
-        else
-        {
-            dynamic_.push<PlaceNull, UpdateASCII>(ch);
-        }
-    }
-    template<bool PlaceNull = true>
-    u8string& join(const u8string& other)
-    {
-        append<PlaceNull>(other.byte_data(), other.byte_size());
-        return *this;
-    }
-    template<bool PlaceNull = true, size_t N>
-    u8string& join(const char(&str)[N])
-    {
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        append<PlaceNull>((const utf8::char_t*)str, N - 1u);
-        return *this;
-    }
-    template<bool PlaceNull = true>
-    u8string& join(const u8string_view& other)
-    {
-        append<PlaceNull>(other.byte_data(), other.byte_size());
-        return *this;
-    }
-    bool check_validity() const
-    {
-        if (capacity() < byte_size())
-        {
-            return false;
-        }
-        try
-        {
-            utf8::get_string_size<true>(byte_data(), byte_size());
-            return true;
-        }
-        catch (std::logic_error&)
-        {
-            return false;
-        }
-    }
-    std::string _ascii_string() const
-    {
-        std::string str(size(), ' ');
-        const size_t size = this->size();
-        auto begin = this->begin();
-        auto end = this->end();
-        for (size_t i = 0; i < size; ++i, ++begin)
-        {
-            const auto cp = *begin;
-            str[i] = cp > 128u ? '?' : char(cp);
-        }
-        assert(begin == end);
-        return str;
-    }
-    std::string _string_info() const
-    {
-        std::string info = "{ ";
-        info += "is_static=" +
-            std::string(is_static() ? "true" : "false") + ", ";
-        info += "ascii_only=" +
-            std::string(ascii_only() ? "true" : "false") + ", ";
-        info += "size=" + std::to_string(size()) + ", ";
-        info += "byte_size=" + std::to_string(byte_size()) + ", ";
-        info += "capacity=" + std::to_string(capacity()) + ", ";
-        info += "content=";
-        info += _ascii_string();
-        info += " }";
-        return info;
-    }
-};
-}
 namespace wl
 {
 template<typename T, bool HasVariable>
@@ -6465,1954 +4730,6 @@ auto divide(X&& x, Y&& y)
         is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);
     return utils::listable_function(_scalar_divide,
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-}
-namespace wl
-{
-namespace io
-{
-#if defined(WL_USE_MATHLINK)
-template<typename X>
-auto print(const X& x);
-template<typename X>
-auto echo(X&& x);
-#else
-template<typename X>
-auto print(const X& x)
-{
-    std::cout << x << std::endl;
-    return const_null;
-}
-template<typename X>
-auto echo(X&& x)
-{
-    std::cout << x << std::endl;
-    return std::forward<decltype(x)>(x);
-}
-#endif
-template<typename Function>
-auto echo_function(Function f)
-{
-    return [=](auto&& x)
-    {
-        const auto& xref = x;
-        echo(f(x));
-        return std::forward<decltype(x)>(x);
-    };
-}
-}
-}
-namespace wl
-{
-template<typename F>
-struct function;
-template<typename Ret, typename... Args>
-struct function<Ret(Args...)>
-{
-    std::function<Ret(const Args&...)> f_;
-    function()
-    {
-        f_ = [](const Args&...) { return Ret{}; };
-    }
-    template<typename F>
-    explicit function(F f)
-    {
-        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
-            f(std::declval<const Args&>()...))>>);
-        f_ = f;
-    }
-    template<typename F>
-    auto& operator=(F f)
-    {
-        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
-            f(std::declval<const Args&>()...))>>);
-        f_ = f;
-        return *this;
-    }
-    template<typename... Any>
-    auto operator()(Any&&... any) -> decltype(auto)
-    {
-        static_assert(sizeof...(Any) == sizeof...(Args));
-        static_assert((std::is_same_v<remove_cvref_t<Any>, Args> && ...));
-        return f_(std::forward<decltype(any)>(any)...);
-    }
-};
-template<typename ArgIter, bool HasStride>
-struct argument_pack
-{
-    using value_type = remove_cvref_t<decltype(*std::declval<ArgIter>())>;
-    const ArgIter iter_;
-    const size_t size_;
-    const size_t stride_;
-    argument_pack(ArgIter iter, size_t size, size_t stride = 1u) :
-        iter_{iter}, size_{size}, stride_{stride}
-    {
-    }
-    size_t size() const
-    {
-        return this->size_;
-    }
-    auto get(size_t i) const
-    {
-        if (i >= size_)
-            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
-        if constexpr (HasStride)
-            return *(this->iter_ + i * stride_);
-        else
-            return *(this->iter_ + i);
-    }
-    auto get(size_t i, dim_checked) const
-    {
-        if constexpr (HasStride)
-            return *(this->iter_ + i * stride_);
-        else
-            return *(this->iter_ + i);
-    }
-    auto get_pack(size_t i) const
-    {
-        if (i > size_)
-            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
-        if constexpr (HasStride)
-            return argument_pack(iter_ + i * stride_, size_ - i, stride_);
-        else
-            return argument_pack(iter_ + i, size_ - i);
-    }
-};
-template<typename Normal, typename Variadic>
-struct variadic
-{
-    Normal nf_;
-    Variadic vf_;
-    variadic(Normal nf, Variadic vf) :
-        nf_{std::move(nf)}, vf_{std::move(vf)}
-    {
-    }
-    template<typename... Args>
-    auto operator()(Args&&... args) const -> decltype(auto)
-    {
-        return nf_(std::forward<decltype(args)>(args)...);
-    }
-    template<typename Arg, typename = std::enable_if_t<
-        std::is_invocable_v<Variadic, Arg&&> ||
-        !is_argument_pack_v<remove_cvref_t<Arg>>>>
-    auto operator()(Arg&& arg) const -> decltype(auto)
-    {
-        if constexpr (is_argument_pack_v<remove_cvref_t<Arg>>)
-            return vf_(std::forward<decltype(arg)>(arg));
-        else
-            return nf_(std::forward<decltype(arg)>(arg));
-    }
-};
-template<typename T, typename Args>
-struct _tuple_append;
-template<typename T, typename... Args>
-struct _tuple_append<T, std::tuple<Args...>>
-{
-    using type = std::tuple<Args..., T>;
-};
-template<typename T, typename Args>
-using _tuple_append_t = typename _tuple_append<T, Args>::type;
-template<typename Fn, typename T, typename Args, typename = void>
-struct _apply_nargs : _apply_nargs<Fn, T, _tuple_append_t<T, Args>>
-{
-    static_assert(std::tuple_size_v<Args> <= MaximumArgCount, 
-        WL_ERROR_INTERNAL);
-};
-template<typename Fn, typename T, typename... Args>
-struct _apply_nargs<Fn, T, std::tuple<Args...>,
-    std::void_t<std::invoke_result_t<Fn, Args...>>> :
-    std::integral_constant<size_t, sizeof...(Args)> {};
-template<typename Fn, typename T>
-constexpr auto _apply_nargs_v = _apply_nargs<Fn, T, std::tuple<>>::value;
-template<typename Function, typename Iter, size_t... Is>
-auto _apply_fixed_impl(Function f, Iter iter, ptrdiff_t step,
-    std::index_sequence<Is...>)
-{
-    return f(*(iter + step * Is)...);
-}
-template<typename Function, typename Iter, size_t... Is>
-auto _apply_fixed_impl(Function f, Iter iter, std::index_sequence<Is...>)
-{
-    return f(*(iter + Is)...);
-}
-template<typename Function, typename X, int64_t I>
-auto apply(Function f, const X& x, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(0 <= Level && Level < int64_t(R), WL_ERROR_BAD_LEVEL);
-    const auto& valx = val(std::forward<decltype(x)>(x));
-    auto x_iter = valx.template view_begin<Level + 1u>();
-    const auto argc = valx.dims()[Level];
-    const auto apply_dims = utils::dims_take<1u, Level>(valx.dims());
-    if constexpr (is_variadic_function_v<Function>)
-    {
-        using PackType = argument_pack<decltype(x_iter)>;
-        using RT = remove_cvref_t<decltype(f(std::declval<PackType>()))>;
-        if constexpr (Level == 0u)
-        {
-            return f(PackType(x_iter, argc));
-        }
-        else if constexpr (array_rank_v<RT> == 0u)
-        {
-            ndarray<RT, Level> ret(apply_dims);
-            auto ret_iter = ret.begin();
-            auto ret_size = ret.size();
-            for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
-                *ret_iter = f(PackType(x_iter, argc));
-            return ret;
-        }
-        else
-        {
-            auto first_item = f(PackType(x_iter, argc));
-            const auto item_dims = first_item.dims();
-            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
-                utils::dims_join(apply_dims, item_dims));
-            auto ret_iter = ret.template view_begin<Level>();
-            first_item.copy_to(ret_iter.begin());
-            x_iter += argc;
-            ++ret_iter;
-            for (size_t i = 1; i < utils::size_of_dims(apply_dims);
-                ++i, x_iter += argc, ++ret_iter)
-            {
-                auto item = f(PackType(x_iter, argc));
-                if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
-            }
-            return ret;
-        }
-    }
-    else
-    {
-        constexpr auto function_nargs =
-            _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
-        if (function_nargs > argc)
-            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
-        constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
-        using RT = remove_cvref_t<decltype(
-            _apply_fixed_impl(f, x_iter, index_seq))>;
-        if constexpr (Level == 0u)
-        {
-            return _apply_fixed_impl(f, x_iter, index_seq);
-        }
-        else if constexpr (array_rank_v<RT> == 0u)
-        {
-            ndarray<RT, Level> ret(apply_dims);
-            auto ret_iter = ret.begin();
-            auto ret_size = ret.size();
-            for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
-                *ret_iter = _apply_fixed_impl(f, x_iter, index_seq);
-            return ret;
-        }
-        else
-        {
-            auto first_item = _apply_fixed_impl(f, x_iter, index_seq);
-            const auto item_dims = first_item.dims();
-            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
-                utils::dims_join(apply_dims, item_dims));
-            auto ret_iter = ret.template view_begin<Level>();
-            first_item.copy_to(ret_iter.begin());
-            x_iter += argc;
-            ++ret_iter;
-            for (size_t i = 1; i < utils::size_of_dims(apply_dims);
-                ++i, x_iter += argc, ++ret_iter)
-            {
-                auto item = _apply_fixed_impl(f, x_iter, index_seq);
-                if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
-            }
-            return ret;
-        }
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto apply(Function f, X&& x)
-{
-    WL_TRY_BEGIN()
-    return apply(f, std::forward<decltype(x)>(x), const_int<0>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename T, size_t R, typename Function>
-auto _select_impl(const ndarray<T, R>& a, Function f)
-{
-    static_assert(R >= 2u, WL_ERROR_INTERNAL);
-    ndarray<T, R> ret;
-    auto view_iter = a.template view_begin<1u>();
-    auto view_end = a.template view_end<1u>();
-    size_t item_size = view_iter.size();
-    for (; view_iter != view_end; ++view_iter)
-    {
-        auto out = f(*view_iter);
-        static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
-        if (out)
-            ret.append(*view_iter);
-    }
-    return ret;
-}
-template<typename X, typename Function>
-auto select(X&& x, Function f)
-{
-    WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    static_assert(array_rank_v<XT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    using XV = value_type_t<XT>;
-    if constexpr (array_rank_v<XT> == 1u)
-    {
-        std::vector<XV> ret;
-        using RT = remove_cvref_t<decltype(f(XV{}))>;
-        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
-        x.for_each([&](const auto& a) { if (f(a)) ret.push_back(a); });
-        return ndarray<value_type_t<XT>, 1u>(
-            std::array<size_t, 1u>{ret.size()}, std::move(ret));
-    }
-    else
-        return _select_impl(std::forward<decltype(x)>(x).to_array(), f);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Function, int64_t I>
-auto count(const X& x, varg_tag, Function f, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
-    constexpr auto XR = array_rank_v<X>;
-    static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
-    int64_t item_count = 0;
-    if constexpr (XR == Level)
-    {
-        using RT = remove_cvref_t<decltype(f(value_type_t<X>{}))>;
-        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
-        x.for_each([&](const auto& a) { if (f(a)) ++item_count; });
-    }
-    else
-    {
-        const auto& valx = allows<view_category::Array>(x);
-        auto view_iter = valx.template view_begin<Level>();
-        const auto view_end = valx.template view_end<Level>();
-        using RT = remove_cvref_t<decltype(f(*view_iter))>;
-        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
-        for (; view_iter != view_end; ++view_iter)
-        {
-            if (f(*view_iter))
-                ++item_count;
-        }
-    }
-    return item_count;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Function>
-auto count(const X& x, varg_tag, Function f)
-{
-    return count(x, varg_tag{}, f, const_int<1>{});
-}
-template<typename X, typename Y, int64_t I>
-auto count(const X& x, const Y& y, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
-    constexpr auto XR = array_rank_v<X>;
-    constexpr auto YR = array_rank_v<Y>;
-    static_assert(1u <= Level && Level + YR == XR, WL_ERROR_BAD_LEVEL);
-    int64_t item_count = 0;
-    const auto& valy = allows<view_category::Array>(y);
-    if constexpr (YR == 0u)
-    {
-        x.for_each([&](const auto& a) { if (equal(a, valy)) ++item_count; });
-    }
-    else
-    {
-        const auto& valx = allows<view_category::Array>(x);
-        auto view_iter = valx.template view_begin<Level>();
-        const auto view_end = valx.template view_end<Level>();
-        for (; view_iter != view_end; ++view_iter)
-        {
-            if (equal(*view_iter, valy))
-                ++item_count;
-        }
-    }
-    return item_count;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Y>
-auto count(const X& x, const Y& y)
-{
-    WL_TRY_BEGIN()
-    return count(x, y, const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<size_t Level, typename Function, typename T, size_t R>
-auto _map_impl(Function f, const ndarray<T, R>& a)
-{
-    static_assert(1 <= Level && Level <= R, WL_ERROR_BAD_LEVEL);
-    auto a_iter = a.template view_begin<Level>();
-    using RT = remove_cvref_t<decltype(f(*a_iter))>;
-    const auto map_dims = utils::dims_take<1, Level>(a.dims());
-    if constexpr (array_rank_v<RT> == 0u)
-    {
-        ndarray<RT, Level> ret(map_dims);
-        ret.for_each([&](auto& r) { r = f(*a_iter); ++a_iter; });
-        return ret;
-    }
-    else
-    {
-        auto first_item = f(*a_iter);
-        const auto item_dims = first_item.dims();
-        ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
-            utils::dims_join(map_dims, item_dims));
-        auto ret_iter = ret.template view_begin<Level>();
-        first_item.copy_to(ret_iter.begin());
-        ++a_iter;
-        ++ret_iter;
-        for (size_t i = 1; i < utils::size_of_dims(map_dims);
-            ++i, ++a_iter, ++ret_iter)
-        {
-            auto item = f(*a_iter);
-            if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            item.copy_to(ret_iter.begin());
-        }
-        return ret;
-    }
-}
-template<typename Function, typename X, int64_t I>
-auto map(Function f, X&& x, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
-    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(1 <= Level && Level <= int64_t(R), WL_ERROR_BAD_LEVEL);
-    if constexpr (R == size_t(Level))
-    {
-        using RT = remove_cvref_t<decltype(f(value_type_t<XT>{}))>;
-        if constexpr (array_rank_v<RT> == 0u)
-            return utils::listable_function(f, std::forward<decltype(x)>(x));
-        else
-            return _map_impl<Level>(f, x.to_array());
-    }
-    else
-        return _map_impl<Level>(f, x.to_array());
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto map(Function f, X&& x)
-{
-    WL_TRY_BEGIN()
-    return map(f, std::forward<decltype(x)>(x), const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, int64_t I>
-auto scan(Function f, X&& x, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
-    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(1 <= Level && Level <= int64_t(R), WL_ERROR_BAD_LEVEL);
-    const auto& valx = val(std::forward<decltype(x)>(x));
-    auto x_iter = valx.template view_begin<Level>();
-    const auto x_end = valx.template view_end<Level>();
-    for (; x_iter != x_end; ++x_iter)
-        f(*x_iter);
-    return const_null;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto scan(Function f, X&& x)
-{
-    WL_TRY_BEGIN()
-    return scan(f, std::forward<decltype(x)>(x), const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, size_t R, typename... Iters>
-auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
-    Iters... iters)
-{
-    using RT = remove_cvref_t<decltype(f(*iters...))>;
-    if constexpr (array_rank_v<RT> == 0u)
-    {
-        ndarray<RT, 1u> ret(map_dims);
-        const auto ret_size = ret.size();
-        auto ret_iter = ret.begin();
-        for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, (++iters, ...))
-            *ret_iter = f(*iters...);
-        return ret;
-    }
-    else
-    {
-        auto first_item = f(*iters...);
-        const auto item_dims = first_item.dims();
-        ndarray<value_type_t<RT>, R + array_rank_v<RT>> ret(
-            utils::dims_join(map_dims, item_dims));
-        const auto ret_size = utils::size_of_dims(map_dims);
-        auto ret_iter = ret.template view_begin<R>();
-        first_item.copy_to(ret_iter.begin());
-        [[maybe_unused]] const auto& _1 = (++iters, ...);
-        ++ret_iter;
-        for (size_t i = 1; i < ret_size; ++i, ++ret_iter, (++iters, ...))
-        {
-            auto item = f(*iters...);
-            if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            item.copy_to(ret_iter.begin());
-        }
-        return ret;
-    }
-}
-template<size_t I, typename Function, typename Arg1, typename... Args>
-auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
-{
-    const auto dims = utils::dims_take<1u, I>(arg1.dims());
-    if (!(utils::check_dims(dims, utils::dims_take<1, I>(args.dims())) && ...))
-        throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-    return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(),
-        args.template view_begin<size_t(I)>()...);
-}
-template<typename Function, int64_t I, typename... Args>
-auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
-{
-    WL_TRY_BEGIN()
-    static_assert(1 <= I, WL_ERROR_BAD_LEVEL);
-    static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
-        WL_ERROR_MAP_THREAD_LEVEL);
-    if constexpr (sizeof...(Args) == 0u)
-    {
-        using RT = remove_cvref_t<decltype(f())>;
-        constexpr auto RR = array_rank_v<RT>;
-        if constexpr (RR > 0u)
-            return ndarray<value_type_t<RT>, RR + size_t(I)>{};
-        else
-            return ndarray<RT, size_t(I)>{};
-    }
-    else
-    {
-        return _map_thread_impl1<size_t(I)>(f,
-            val(std::forward<decltype(args)>(args))...);
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename... Args>
-auto map_thread(Function f, varg_tag, Args&&... args)
-{
-    WL_TRY_BEGIN()
-    return map_thread(f, const_int<1>{}, varg_tag{},
-        std::forward<decltype(args)>(args)...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, int64_t I>
-auto map_thread(Function f, X&& x, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    constexpr auto R = array_rank_v<XT>;
-    static_assert(R >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
-    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
-    static_assert(1 <= Level && Level < int64_t(R), WL_ERROR_BAD_LEVEL);
-    const auto& valx = val(std::forward<decltype(x)>(x));
-    const auto map_dims = utils::dims_take<2u, Level + 1u>(valx.dims());
-    const auto pack_size = valx.dims()[0];
-    const auto pack_stride = utils::size_of_dims(map_dims);
-    auto x_iter = valx.template view_begin<Level + 1u>();
-    if constexpr (is_variadic_function_v<Function>)
-    {
-        using PackType = argument_pack<decltype(x_iter), true>;
-        using RT = remove_cvref_t<decltype(f(std::declval<PackType>()))>;
-        if constexpr (array_rank_v<RT> == 0u)
-        {
-            ndarray<RT, Level> ret(map_dims);
-            auto ret_iter = ret.begin();
-            const auto ret_size = ret.size();
-            for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
-                *ret_iter = f(PackType(x_iter, pack_size, pack_stride));
-            return ret;
-        }
-        else
-        {
-            auto first_item = f(PackType(x_iter, pack_size, pack_stride));
-            const auto item_dims = first_item.dims();
-            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
-                utils::dims_join(map_dims, item_dims));
-            auto ret_iter = ret.template view_begin<Level>();
-            first_item.copy_to(ret_iter.begin());
-            ++x_iter;
-            ++ret_iter;
-            for (size_t i = 1; i < pack_stride; ++i, ++x_iter, ++ret_iter)
-            {
-                auto item = f(PackType(x_iter, pack_size, pack_stride));
-                if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
-            }
-            return ret;
-        }
-    }
-    else
-    {
-        constexpr auto function_nargs =
-            _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
-        if (function_nargs > pack_size)
-            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
-        constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
-        using RT = remove_cvref_t<decltype(
-            _apply_fixed_impl(f, x_iter, pack_stride, index_seq))>;
-        if constexpr (array_rank_v<RT> == 0u)
-        {
-            ndarray<RT, Level> ret(map_dims);
-            auto ret_iter = ret.begin();
-            const auto ret_size = ret.size();
-            for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
-                *ret_iter = _apply_fixed_impl(
-                    f, x_iter, pack_stride, index_seq);
-            return ret;
-        }
-        else
-        {
-            auto first_item = _apply_fixed_impl(
-                f, x_iter, pack_stride, index_seq);
-            const auto item_dims = first_item.dims();
-            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
-                utils::dims_join(map_dims, item_dims));
-            auto ret_iter = ret.template view_begin<Level>();
-            first_item.copy_to(ret_iter.begin());
-            ++x_iter;
-            ++ret_iter;
-            for (size_t i = 1; i < pack_stride; ++i, ++x_iter, ++ret_iter)
-            {
-                auto item = _apply_fixed_impl(
-                    f, x_iter, pack_stride, index_seq);
-                if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(ret_iter.begin());
-            }
-            return ret;
-        }
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto map_thread(Function f, X&& x)
-{
-    WL_TRY_BEGIN()
-    return map_thread(f, std::forward<decltype(x)>(x), const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto nest(Function f, X&& x, const int64_t n)
-{
-    WL_TRY_BEGIN()
-    using XT0 = remove_cvref_t<decltype(val(x))>;
-    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
-    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
-    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        WL_ERROR_NEST_TYPE);
-    constexpr auto rank = array_rank_v<XT0>;
-    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
-    if (n == 0)
-        return cast<XT2>(std::forward<decltype(x)>(x));
-    else // n >= 1
-    {
-        auto ret = cast<XT2>(f(std::forward<decltype(x)>(x)));
-        for (size_t i = 1u; i < size_t(n); ++i)
-        {
-            if constexpr (rank == 0u)
-                ret = cast<XT2>(f(ret));
-            else
-            {
-                auto temp = val(f(std::move(ret)));
-                ret = std::move(temp);
-            }
-        }
-        return ret;
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto nest_list(Function f, X&& x, const int64_t n)
-{
-    WL_TRY_BEGIN()
-    using XT0 = remove_cvref_t<decltype(val(x))>;
-    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
-    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
-    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        WL_ERROR_NEST_TYPE);
-    constexpr auto rank = array_rank_v<XT0>;
-    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
-    if constexpr (rank == 0u)
-    {
-        ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
-        auto ret_iter = ret.begin();
-        *ret_iter = cast<XT2>(std::forward<decltype(x)>(x));
-        for (size_t i = 1; i <= size_t(n); ++i, ++ret_iter)
-            *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
-        return ret;
-    }
-    else
-    {
-        using XV2 = value_type_t<XT2>;
-        auto item_dims = x.dims();
-        auto ret_dims = utils::dims_join(
-            std::array<size_t, 1u>{size_t(n) + 1u}, item_dims);
-        if (n == 0)
-        {
-            auto item = cast<XT2>(std::forward<decltype(x)>(x));
-            return ndarray<XV2, rank + 1u>(
-                ret_dims, std::move(item).data_vector());
-        }
-        else // n >= 1
-        {
-            ndarray<XV2, rank + 1u> ret(ret_dims);
-            auto view_iter = ret.template view_begin<1u>();
-            x.copy_to(view_iter.begin());
-            ++view_iter;
-            auto item = val(f(std::forward<decltype(x)>(x)));
-            if (!utils::check_dims(item.dims(), item_dims))
-                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            item.copy_to(view_iter.begin());
-            ++view_iter;
-            for (size_t i = 2; i <= size_t(n); ++i, ++view_iter)
-            {
-                auto temp = val(f(std::move(item)));
-                item = std::move(temp);
-                if (!utils::check_dims(item.dims(), item_dims))
-                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                item.copy_to(view_iter.begin());
-            }
-            return ret;
-        }
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename T, size_t R>
-struct _nest_while_queue
-{
-    static constexpr auto _is_scalar = (R == 0u);
-    using _elem_t = std::conditional_t<_is_scalar, T, ndarray<T, R>>;
-    const size_t size_;
-    size_t elements_count_;
-    size_t current_;
-    std::vector<_elem_t> queue_;
-    _nest_while_queue(size_t size) :
-        size_{size}, elements_count_{0u}, current_{0u}, queue_(size)
-    {
-    }
-    template<typename X>
-    void push(X&& x)
-    {
-        using XT = remove_cvref_t<X>;
-        static_assert(array_rank_v<XT> == R, WL_ERROR_NEST_TYPE);
-        ++current_;
-        ++elements_count_;
-        if (current_ == size_)
-            current_ = 0u;
-        auto& dst = queue_[current_];
-        if constexpr (_is_scalar)
-        {
-            static_assert(is_convertible_v<XT, T>, WL_ERROR_NEST_TYPE);
-            dst = cast<_elem_t>(std::forward<decltype(x)>(x));
-        }
-        else
-        {
-            using XV = value_type_t<XT>;
-            static_assert(is_convertible_v<XV, T>, WL_ERROR_NEST_TYPE);
-            if constexpr (std::is_same_v<XV, T> && is_movable_v<X&&>)
-                dst = std::move(x);
-            else
-            {
-                dst.uninitialized_resize(x.dims(), x.size());
-                x.copy_to(dst.data());
-            }
-        }
-    }
-    auto last() const & -> const auto&
-    {
-        return queue_[current_];
-    }
-    auto last() && -> auto&&
-    {
-        return std::move(queue_[current_]);
-    }
-    auto get(size_t i) const & -> const auto&
-    {
-        return queue_.at(current_ - i + (i > current_ ? size_ : size_t(0)));
-    }
-    auto get(size_t i) && -> auto&&
-    {
-        if (i >= elements_count_)
-            throw std::logic_error(WL_ERROR_NEST_WHILE_OFFSET);
-        return std::move(
-            queue_.at(current_ - i + (i > current_ ? size_ : size_t(0))));
-    }
-    template<size_t N, typename Fn, size_t... Is>
-    auto _apply_test_impl(Fn&& fn, std::index_sequence<Is...>) const
-    {
-        auto res = std::forward<decltype(fn)>(fn)(
-            queue_[current_ - (N - Is - 1u) +
-                ((N - Is - 1u) > current_ ? size_ : size_t(0))]...);
-        static_assert(is_boolean_v<decltype(res)>, WL_ERROR_PRED_TYPE);
-        return res;
-    }
-    template<size_t N, typename Fn>
-    auto apply_test(Fn&& fn) const
-    {
-        return _apply_test_impl<N>(std::forward<decltype(fn)>(fn),
-            std::make_index_sequence<N>{});
-    }
-};
-template<typename Function, typename X, typename Test, int64_t N>
-auto nest_while(Function f, X&& x, Test test, const_int<N>,
-    const int64_t input_max = const_int_infinity,
-    const int64_t offset = 0u)
-{
-    WL_TRY_BEGIN()
-    static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
-    constexpr auto num_args = size_t(N);
-    constexpr auto effective_num_args = std::max(num_args, size_t(1));
-    const auto history_size = size_t(std::max(int64_t(num_args), -offset + 1));
-    const auto max_steps = std::max(input_max, int64_t(0));
-    using XT0 = remove_cvref_t<decltype(val(x))>;
-    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
-    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
-    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        WL_ERROR_NEST_TYPE);
-    constexpr auto XR = array_rank_v<XT0>;
-    if (max_steps < int64_t(effective_num_args))
-    {
-        if (int64_t(max_steps + offset) < 0)
-            throw std::logic_error(WL_ERROR_NEST_WHILE_OFFSET);
-        return nest(f, std::forward<decltype(x)>(x), max_steps + offset);
-    }
-    else if (effective_num_args == 1u && offset >= 0)
-    {
-        auto ret = cast<XT2>(std::forward<decltype(x)>(x));
-        bool continue_flag = false;
-        if constexpr (num_args == 0u)
-            continue_flag = test();
-        else if constexpr (num_args == 1u)
-            continue_flag = test(ret);
-        if (continue_flag)
-        {
-            WL_CHECK_ABORT_LOOP_BEGIN(max_steps)
-                for (auto i = _loop_zero; i < _loop_size; ++i)
-                {
-                    if constexpr (XR == 0u)
-                        ret = cast<XT2>(f(ret));
-                    else
-                    {
-                        auto temp = val(f(std::move(ret)));
-                        set(ret, std::move(temp));
-                    }
-                    if constexpr (num_args == 0u)
-                        continue_flag = test();
-                    else if constexpr (num_args == 1u)
-                        continue_flag = test(ret);
-                    if (!continue_flag)
-                        goto nest_while_exit_no_queue;
-                }
-            WL_CHECK_ABORT_LOOP_END()
-        }
-nest_while_exit_no_queue:
-        if (offset == 0u)
-            return ret;
-        else
-            return nest(f, ret, offset);
-    }
-    else
-    {
-        using XV = std::conditional_t<XR == 0u, XT2, value_type_t<XT2>>;
-        _nest_while_queue<XV, XR> queue(history_size);
-        queue.push(std::forward<decltype(x)>(x));
-        
-        for (int64_t i = 1; i < int64_t(num_args); ++i)
-        {
-            queue.push(f(queue.last()));
-        }
-        bool continue_flag = queue.template apply_test<num_args>(test);
-        if (continue_flag)
-        {
-            WL_CHECK_ABORT_LOOP_BEGIN(max_steps - effective_num_args + 1)
-                for (auto i = _loop_zero; i < _loop_size; ++i)
-                {
-                    queue.push(f(queue.last()));
-                    continue_flag = queue.template apply_test<num_args>(test);
-                    if (!continue_flag)
-                        goto nest_while_exit_queue;
-                }
-            WL_CHECK_ABORT_LOOP_END()
-        }
-nest_while_exit_queue:
-        const auto reverse_offset = int64_t(effective_num_args) - 1 - offset;
-        if (offset <= 0)
-            return std::move(queue).get(size_t(-offset));
-        else
-            return nest(f, std::move(queue).last(), offset);
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, typename Test>
-auto nest_while(Function f, X&& x, Test test)
-{
-    WL_TRY_BEGIN()
-    return nest_while(f, std::forward<decltype(x)>(x), test, const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Test, typename Iter, size_t... Is>
-auto _nest_while_list_apply_test(Test test, Iter iter,
-    std::index_sequence<Is...>)
-{
-    constexpr auto N = sizeof...(Is);
-    return test(*(iter + int64_t(Is - N + 1u))...);
-}
-template<typename Function, typename X, typename Test, int64_t N>
-auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
-    const int64_t input_max = const_int_infinity,
-    const int64_t offset = 0u)
-{
-    WL_TRY_BEGIN()
-    static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
-    const auto max_steps = std::max(input_max, int64_t(0));
-    constexpr auto num_args = size_t(N);
-    constexpr auto effective_num_args = std::max(num_args, size_t(1));
-    using XT0 = remove_cvref_t<decltype(val(x))>;
-    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
-    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
-    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
-        WL_ERROR_NEST_TYPE);
-    constexpr auto XR = array_rank_v<XT0>;
-    if (max_steps < int64_t(effective_num_args))
-    {
-        if (int64_t(max_steps + offset) < 0)
-            throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
-        return nest_list(f, std::forward<decltype(x)>(x), max_steps + offset);
-    }
-    else if constexpr (XR == 0u)
-    {
-        ndarray<XT2, 1u> ret;
-        auto last = cast<XT2>(std::forward<decltype(x)>(x));
-        ret.append(last);
-        int64_t i = 1;
-        for (; i < int64_t(num_args); ++i)
-        {
-            auto temp = f(std::move(last));
-            last = std::move(temp);
-            ret.append(last);
-        }
-        bool continue_flag = false;
-        do
-        {
-            WL_THROW_IF_ABORT()
-            if constexpr (num_args == 0u)
-                continue_flag = test();
-            else if constexpr (num_args == 1u)
-                continue_flag = test(last);
-            else
-                continue_flag = _nest_while_list_apply_test(test,
-                    ret.begin() + i - 1, std::make_index_sequence<num_args>{});
-            if (!continue_flag)
-                break;
-            if (i++ > max_steps)
-                break;
-            auto temp = f(std::move(last));
-            last = std::move(temp);
-            ret.append(last);
-        } while (true);
-        if (offset > 0)
-        {
-            for (int64_t i = 0; i < offset; ++i)
-            {
-                auto temp = f(std::move(last));
-                last = std::move(temp);
-                ret.append(last);
-            }
-        }
-        else if (offset < 0)
-        {
-            const auto new_dim0 = int64_t(offset + ret.dims()[0]);
-            if (new_dim0 <= 0)
-                throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
-            ret.uninitialized_resize(
-                std::array<size_t, 1u>{size_t(new_dim0)}, new_dim0);
-        }
-        return ret;
-    }
-    else
-    {
-        using XV = value_type_t<XT2>;
-        ndarray<XV, XR + 1u> ret;
-        auto last = cast<XT2>(std::forward<decltype(x)>(x));
-        const auto item_dims = last.dims();
-        ret.append(last);
-        int64_t i = 1;
-        for (; i < int64_t(num_args); ++i)
-        {
-            auto temp = val(f(std::move(last)));
-            last = std::move(temp);
-            if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            ret.append(last);
-        }
-        bool continue_flag = false;
-        do
-        {
-            WL_THROW_IF_ABORT()
-            if constexpr (num_args == 0u)
-                continue_flag = test();
-            else if constexpr (false && num_args == 1u)
-                continue_flag = test(last);
-            else
-                continue_flag = _nest_while_list_apply_test(test,
-                    ret.template view_begin<1u>() + i - 1,
-                    std::make_index_sequence<num_args>{});
-            if (!continue_flag)
-                break;
-            if (i++ > max_steps)
-                break;
-            auto temp = val(f(std::move(last)));
-            last = std::move(temp);
-            if (!utils::check_dims(item_dims, last.dims()))
-                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-            ret.append(last);
-        } while (true);
-        if (offset > 0)
-        {
-            for (int64_t i = 0; i < offset; ++i)
-            {
-                auto temp = val(f(std::move(last)));
-                last = std::move(temp);
-                if (!utils::check_dims(item_dims, last.dims()))
-                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
-                ret.append(last);
-            }
-        }
-        else if (offset < 0)
-        {
-            const auto new_dim0 = int64_t(offset + ret.dims()[0]);
-            if (new_dim0 <= 0)
-                throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
-            auto new_dims = ret.dims();
-            new_dims[0] = size_t(new_dim0);
-            ret.uninitialized_resize(new_dims, size_t(new_dim0) * last.size());
-        }
-        return ret;
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, typename Test>
-auto nest_while_list(Function f, X&& x, Test test)
-{
-    WL_TRY_BEGIN()
-    return nest_while_list(
-        f, std::forward<decltype(x)>(x), test, const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, typename YIter, typename YInc>
-auto _fold_single_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
-    const size_t n)
-{
-    auto nest_f = [&](auto&& arg)
-    {
-        auto item = f(arg, *y_iter);
-        y_inc(y_iter);
-        return item;
-    };
-    return nest(nest_f, std::forward<decltype(x)>(x), n);
-}
-template<typename Function, typename X, typename YIter, typename YInc>
-auto _fold_list_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
-    const size_t n)
-{
-    auto nest_f = [&](auto&& arg)
-    {
-        auto item = f(arg, *y_iter);
-        y_inc(y_iter);
-        return item;
-    };
-    return nest_list(nest_f, std::forward<decltype(x)>(x), n);
-}
-template<bool List, bool FoldL, typename Function, typename Y>
-auto _fold_impl1(Function f, Y&& y)
-{
-    static_assert(array_rank_v<remove_cvref_t<Y>> >= 1u,
-        WL_ERROR_REQUIRE_ARRAY);
-    const size_t n = y.dims()[0];
-    if (n < 1u) throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
-    const auto& valy = val(std::forward<decltype(y)>(y));
-    if constexpr (List)
-    {
-        if constexpr (FoldL)
-            return _fold_list_impl(f, *valy.template view_begin<1u>(),
-                valy.template view_begin<1u>() + 1,
-                [](auto& iter) { ++iter; }, n - 1u);
-        else
-            return _fold_list_impl(f, *(valy.template view_end<1u>() - 1),
-                valy.template view_end<1u>() - 2,
-                [](auto& iter) { --iter; }, n - 1u);
-    }
-    else
-    {
-        if constexpr (FoldL)
-            return _fold_single_impl(f, *valy.template view_begin<1u>(),
-                valy.template view_begin<1u>() + 1,
-                [](auto& iter) { ++iter; }, n - 1u);
-        else
-            return _fold_single_impl(f, *(valy.template view_end<1u>() - 1),
-                valy.template view_end<1u>() - 2,
-                [](auto& iter) { --iter; }, n - 1u);
-    }
-}
-template<bool List, bool FoldL, typename Function, typename X, typename Y>
-auto _fold_impl1(Function f, X&& x, Y&& y)
-{
-    using YT = remove_cvref_t<Y>;
-    static_assert(array_rank_v<YT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto& valy = val(std::forward<decltype(y)>(y));
-    const size_t n = valy.dims()[0];
-    if constexpr (List)
-    {
-        if constexpr (FoldL)
-            return _fold_list_impl(f, std::forward<decltype(x)>(x),
-                valy.template view_begin<1u>(),
-                [](auto& iter) { ++iter; }, n);
-        else
-            return _fold_list_impl(f, std::forward<decltype(x)>(x),
-                valy.template view_end<1u>() - 1,
-                [](auto& iter) { --iter; }, n);
-    }
-    else
-    {
-        if constexpr (FoldL)
-            return _fold_single_impl(f, std::forward<decltype(x)>(x),
-                valy.template view_begin<1u>(),
-                [](auto& iter) { ++iter; }, n);
-        else
-            return _fold_single_impl(f, std::forward<decltype(x)>(x),
-                valy.template view_end<1u>() - 1,
-                [](auto& iter) { --iter; }, n);
-    }
-}
-template<typename Function, typename... Any>
-auto fold(Function f, Any&&... any)
-{
-    WL_TRY_BEGIN()
-    return _fold_impl1<false, true>(f, std::forward<decltype(any)>(any)...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename... Any>
-auto foldr(Function f, Any&&... any)
-{
-    WL_TRY_BEGIN()
-    return _fold_impl1<false, false>(f, std::forward<decltype(any)>(any)...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename... Any>
-auto fold_list(Function f, Any&&... any)
-{
-    WL_TRY_BEGIN()
-    return _fold_impl1<true, true>(f, std::forward<decltype(any)>(any)...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename... Any>
-auto foldr_list(Function f, Any&&... any)
-{
-    WL_TRY_BEGIN()
-    return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, typename Pred>
-auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
-{
-    WL_TRY_BEGIN()
-    return nest_while(f, std::forward<decltype(x)>(x),
-        [=](const auto& a, const auto& b)
-        {
-            auto same = pred(a, b);
-            static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
-            return !same;
-        }, const_int<2>{}, max);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, typename Pred>
-auto fixed_point(Function f, X&& x, varg_tag, Pred pred)
-{
-    WL_TRY_BEGIN()
-    return fixed_point(f, std::forward<decltype(x)>(x),
-        const_int_infinity, varg_tag{}, pred);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto fixed_point(Function f, X&& x, const int64_t max)
-{
-    WL_TRY_BEGIN()
-    return nest_while(f, std::forward<decltype(x)>(x),
-        [=](const auto& a, const auto& b) { return unequal(a, b); },
-        const_int<2>{}, max);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto fixed_point(Function f, X&& x)
-{
-    WL_TRY_BEGIN()
-    return fixed_point(f, std::forward<decltype(x)>(x), const_int_infinity);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, typename Pred>
-auto fixed_point_list(Function f, X&& x, const int64_t max,
-    varg_tag, Pred pred)
-{
-    WL_TRY_BEGIN()
-    return nest_while_list(f, std::forward<decltype(x)>(x),
-        [=](const auto& a, const auto& b)
-        {
-            auto same = pred(a, b);
-            static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
-            return !same;
-        }, const_int<2>{}, max);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X, typename Pred>
-auto fixed_point_list(Function f, X&& x, varg_tag, Pred pred)
-{
-    WL_TRY_BEGIN()
-    return fixed_point_list(f, std::forward<decltype(x)>(x),
-        const_int_infinity, varg_tag{}, pred);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto fixed_point_list(Function f, X&& x, const int64_t max)
-{
-    WL_TRY_BEGIN()
-    return nest_while_list(f, std::forward<decltype(x)>(x),
-        [=](const auto& a, const auto& b) { return unequal(a, b); },
-        const_int<2>{}, max);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Function, typename X>
-auto fixed_point_list(Function f, X&& x)
-{
-    WL_TRY_BEGIN()
-    return fixed_point_list(f, std::forward<decltype(x)>(x),
-        const_int_infinity);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Arg>
-auto identity(Arg&& arg) -> decltype(auto)
-{
-    WL_TRY_BEGIN()
-    return val(arg);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<bool Reverse, typename... Fs>
-struct composite_function
-{
-    static constexpr auto N = sizeof...(Fs);
-    std::tuple<Fs...> fs_;
-    composite_function(Fs... fs) :
-        fs_{std::make_tuple(std::move(fs)...)}
-    {
-    }
-    template<typename... Args>
-    auto operator()(Args&&... args) const -> decltype(auto)
-    {
-        return _apply<0u>(std::forward<decltype(args)>(args)...);
-    }
-    template<size_t I, typename... Args>
-    auto _apply(Args&&... args) const -> decltype(auto)
-    {
-        if constexpr (I + 1u < N)
-            return std::get<(Reverse ? (N - 1u - I) : I)>(fs_)(
-                _apply<I + 1u>(std::forward<decltype(args)>(args)...));
-        else
-            return std::get<(Reverse ? (N - 1u - I) : I)>(fs_)(
-                std::forward<decltype(args)>(args)...);
-    }
-};
-template<bool Reverse, typename... Fn>
-auto _composition_impl(Fn&&... fn)
-{
-    static constexpr auto N = sizeof...(Fn);
-    constexpr auto is_variadic = is_variadic_function_v<
-        std::tuple_element_t<N - 1u, std::tuple<remove_cvref_t<Fn>...>>>;
-    auto ret = composite_function<Reverse, remove_cvref_t<Fn>...>(
-        std::forward<decltype(fn)>(fn)...);
-    if constexpr (is_variadic)
-        return variadic<decltype(ret), decltype(ret)>(ret, ret);
-    else
-        return ret;
-}
-template<bool Reverse>
-auto _composition_impl()
-{
-    return [](auto&& arg) -> decltype(auto)
-    {
-        return std::forward<decltype(arg)>(arg);
-    };
-}
-template<typename... Fn>
-auto composition(Fn&&... fn) -> decltype(auto)
-{
-    WL_TRY_BEGIN()
-    return _composition_impl<false>(std::forward<decltype(fn)>(fn)...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename... Fn>
-auto right_composition(Fn&&... fn) -> decltype(auto)
-{
-    WL_TRY_BEGIN()
-    return _composition_impl<true>(std::forward<decltype(fn)>(fn)...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test, int64_t I>
-auto all_true(X&& x, Test test, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    constexpr auto XR = array_rank_v<XT>;
-    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
-    const auto& valx = val(std::forward<decltype(x)>(x));
-    auto x_iter = valx.template view_begin<I>();
-    static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
-        WL_ERROR_PRED_TYPE);
-    auto ret = true;
-    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
-    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
-        for (auto i = _loop_zero; i < _loop_size && ret; ++i, ++x_iter)
-            ret = ret && test(*x_iter);
-    WL_CHECK_ABORT_LOOP_END()
-    return boolean(ret);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test>
-auto all_true(X&& x, Test test)
-{
-    WL_TRY_BEGIN()
-    return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test, int64_t I>
-auto any_true(X&& x, Test test, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    constexpr auto XR = array_rank_v<XT>;
-    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
-    const auto& valx = val(std::forward<decltype(x)>(x));
-    auto x_iter = valx.template view_begin<I>();
-    static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
-        WL_ERROR_PRED_TYPE);
-    auto ret = false;
-    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
-    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
-        for (auto i = _loop_zero; i < _loop_size && !ret; ++i, ++x_iter)
-            ret = ret || test(*x_iter);
-    WL_CHECK_ABORT_LOOP_END()
-    return boolean(ret);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test>
-auto any_true(X&& x, Test test)
-{
-    WL_TRY_BEGIN()
-    return any_true(std::forward<decltype(x)>(x), test, const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test, int64_t I>
-auto none_true(X&& x, Test test, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    return !any_true(std::forward<decltype(x)>(x), test, const_int<I>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test>
-auto none_true(X&& x, Test test)
-{
-    WL_TRY_BEGIN()
-    return none_true(std::forward<decltype(x)>(x), test, const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test>
-auto vector_q(X&& x, Test test)
-{
-    WL_TRY_BEGIN()
-    if constexpr (array_rank_v<remove_cvref_t<X>> == 0u)
-        return const_false;
-    else
-        return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X>
-auto vector_q(X&& x)
-{
-    WL_TRY_BEGIN()
-    return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Test>
-auto matrix_q(X&& x, Test test)
-{
-    WL_TRY_BEGIN()
-    if constexpr (array_rank_v<remove_cvref_t<X>> <= 1u)
-        return const_false;
-    else
-        return all_true(std::forward<decltype(x)>(x), test, const_int<2>{});
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X>
-auto matrix_q(X&& x)
-{
-    WL_TRY_BEGIN()
-    return boolean(array_rank_v<remove_cvref_t<X>> == 2u);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-}
-namespace wl
-{
-template<int64_t Id, typename Pattern>
-struct _named_pattern
-{
-    Pattern pattern;
-};
-template<int64_t Id>
-struct _named_replacement
-{
-};
-template<typename... Head>
-struct _pattern_blank
-{
-    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
-};
-template<typename... Head>
-struct _pattern_blank_sequence
-{
-    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
-};
-template<typename... Head>
-struct _pattern_blank_null_sequence
-{
-    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
-};
-template<typename... Patterns>
-struct _pattern_alternatives
-{
-    static constexpr size_t size = sizeof...(Patterns);
-    std::tuple<Patterns...> patterns;
-    template<size_t I>
-    auto get() const & -> const auto&
-    {
-        return std::get<I>(patterns);
-    }
-    template<size_t I>
-    auto get() &&
-    {
-        return std::get<I>(patterns);
-    }
-};
-template<typename Pattern>
-struct _pattern_repeated
-{
-    Pattern pattern;
-    size_t min;
-    size_t max;
-    bool max_is_infinity() const
-    {
-        return max == size_t(const_int_infinity);
-    }
-};
-template<typename Pattern>
-struct _pattern_except
-{
-    Pattern pattern;
-};
-template<typename Pattern>
-struct _pattern_longest
-{
-    Pattern pattern;
-};
-template<typename Pattern>
-struct _pattern_shortest
-{
-    Pattern pattern;
-};
-template<typename Left, typename Right>
-struct _pattern_rule
-{
-    Left left;
-    Right right;
-};
-template<typename... Patterns>
-struct _string_expression
-{
-    std::tuple<Patterns...> patterns;
-    template<size_t I>
-    auto get() const &
-    {
-        return std::get<I>(patterns);
-    }
-    template<size_t I>
-    auto get() &&
-    {
-        return std::get<I>(std::move(patterns));
-    }
-};
-template<typename Pattern, typename Condition>
-struct _condition
-{
-    Pattern pattern;
-    Condition condition;
-};
-template<int64_t Id, typename Pattern>
-auto pattern(const_int<Id>, Pattern&& pattern)
-{
-    return _named_pattern<Id, remove_cvref_t<Pattern>>{
-        std::forward<decltype(pattern)>(pattern)};
-}
-template<typename Left, typename Right>
-auto rule(Left&& left, Right&& right)
-{
-    return _pattern_rule<remove_cvref_t<Left>, remove_cvref_t<Right>>{
-        std::forward<decltype(left)>(left),
-        std::forward<decltype(right)>(right)};
-}
-template<typename Left, typename Right>
-auto rule_delayed(Left&& left, Right&& right)
-{
-    return rule(std::forward<decltype(left)>(left),
-            std::forward<decltype(right)>(right));
-}
-template<typename... Head>
-auto blank(const Head&...)
-{
-    return _pattern_blank<Head...>{};
-}
-template<typename... Head>
-auto blank_sequence(const Head&...)
-{
-    return _pattern_blank_sequence<Head...>{};
-}
-template<typename... Head>
-auto blank_null_sequence(const Head&...)
-{
-    return _pattern_blank_null_sequence<Head...>{};
-}
-template<typename... Patterns>
-auto alternatives(Patterns&&... patterns)
-{
-    return _pattern_alternatives<remove_cvref_t<Patterns>...>{
-        std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
-}
-template<typename Pattern, typename Spec>
-auto _repeated_impl(Pattern&& pattern, const Spec min, const Spec max)
-{
-    if (max < min || min < Spec(0))
-        throw std::logic_error(WL_ERROR_REPEATED_INVALID_SPEC);
-    return _pattern_repeated<remove_cvref_t<Pattern>>{
-        std::forward<decltype(pattern)>(pattern), size_t(min), size_t(max)};
-}
-template<typename Pattern, typename Spec>
-auto repeated(Pattern&& pattern, const Spec& spec)
-{
-    if constexpr (array_rank_v<Spec> == 0u)
-    {
-        static_assert(is_integral_v<Spec>, WL_ERROR_REPEATED_SPEC);
-        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
-            Spec(1), spec);
-    }
-    else
-    {
-        using XV = value_type_t<Spec>;
-        static_assert(array_rank_v<Spec> == 1u && is_integral_v<XV>,
-            WL_ERROR_REPEATED_SPEC);
-        if (spec.size() != 2u)
-            throw std::logic_error(WL_ERROR_REPEATED_SPEC);
-        std::array<XV, 2u> valspec;
-        spec.copy_to(valspec.data());
-        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
-            valspec[0], valspec[1]);
-    }
-}
-template<typename Pattern>
-auto repeated(Pattern&& pattern)
-{
-    return _repeated_impl(std::forward<decltype(pattern)>(pattern),
-        size_t(1), size_t(const_int_infinity));
-}
-template<typename Pattern, typename Spec>
-auto repeated_null(Pattern&& pattern, const Spec& spec)
-{
-    if constexpr (array_rank_v<Spec> == 0u)
-    {
-        static_assert(is_integral_v<Spec>, WL_ERROR_REPEATED_SPEC);
-        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
-            Spec(0), spec);
-    }
-    else
-    {
-        return repeated(std::forward<decltype(pattern)>(pattern), spec);
-    }
-}
-template<typename Pattern>
-auto repeated_null(Pattern&& pattern)
-{
-    return _repeated_impl(std::forward<decltype(pattern)>(pattern),
-        size_t(0), size_t(const_int_infinity));
-}
-template<typename Pattern>
-auto except(Pattern&& pattern)
-{
-    return _pattern_except<remove_cvref_t<Pattern>>{
-        std::forward<decltype(pattern)>(pattern)};
-}
-template<typename Pattern>
-auto longest(Pattern&& pattern)
-{
-    return _pattern_longest<remove_cvref_t<Pattern>>{
-        std::forward<decltype(pattern)>(pattern)};
-}
-template<typename Pattern>
-auto shortest(Pattern&& pattern)
-{
-    return _pattern_shortest<remove_cvref_t<Pattern>>{
-        std::forward<decltype(pattern)>(pattern)};
-}
-template<typename Pattern, typename Condition>
-auto condition(Pattern&& pattern, Condition&& condition)
-{
-    return _condition<remove_cvref_t<Pattern>, remove_cvref_t<Condition>>{
-        std::forward<decltype(pattern)>(pattern),
-        std::forward<decltype(condition)>(condition)};
-}
-template<int64_t Id>
-auto _replacement(const_int<Id>)
-{
-    return _named_replacement<Id>{};
-}
-template<typename... Patterns>
-auto string_expression(Patterns&&... patterns)
-{
-    return _string_expression<remove_cvref_t<Patterns>...>{
-        std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
-}
-}
-#define PCRE2_STATIC 1
-#define PCRE2_CODE_UNIT_WIDTH 8
-namespace pcre2
-{
-using regex_t = std::shared_ptr<const pcre2_code_8>;
-using match_data_dtor_t = std::integral_constant<
-    decltype(&pcre2_match_data_free_8), &pcre2_match_data_free_8>;
-using match_data_t = std::unique_ptr<
-    pcre2_match_data_8, match_data_dtor_t>;
-using match_context_dtor_t = std::integral_constant<
-    decltype(&pcre2_match_context_free_8), &pcre2_match_context_free_8>;
-using match_context_t = std::unique_ptr<
-    pcre2_match_context_8, match_context_dtor_t>;
-template<typename String>
-regex_t new_regex(const String& pattern)
-{
-    static_assert(wl::is_string_view_v<String>, "");
-    int error = 0;
-    PCRE2_SIZE pos = 0;
-    pcre2_code_8* regex_ptr = pcre2_compile_8((PCRE2_SPTR8)pattern.c_str(),
-        pattern.byte_size(), 0, &error, &pos, nullptr);
-    if (!regex_ptr)
-    {
-        constexpr PCRE2_SIZE buffer_size = 256;
-        PCRE2_UCHAR buffer[buffer_size];
-        pcre2_get_error_message_8(error, buffer, buffer_size);
-        throw std::logic_error((const char*)buffer);
-    }
-    return {regex_ptr, &pcre2_code_free_8};
-}
-template<typename C, typename P>
-struct _regex_search_state
-{
-    const wl::strexp::compiled_pattern<C, P>& pattern_;
-    uint32_t capture_count_ = 0;
-    const PCRE2_SPTR8 text_data_;
-    const size_t text_size_;
-    size_t start_pos_ = 0;
-    match_data_t match_{};
-    PCRE2_SIZE* match_ptr_ = nullptr;
-    _regex_search_state(const wl::strexp::compiled_pattern<C, P>& pattern,
-        PCRE2_SPTR8 text_data, size_t text_size) :
-        pattern_{pattern}, text_data_{text_data}, text_size_{text_size}
-    {
-        *pattern_.conditions_ptr = &pattern_.conditions;
-        pcre2_pattern_info_8(pattern_.regex_ptr.get(),
-            PCRE2_INFO_CAPTURECOUNT, &capture_count_);
-        match_.reset(pcre2_match_data_create_8(capture_count_ + 1u, nullptr));
-        match_ptr_ = pcre2_get_ovector_pointer_8(match_.get());
-        match_ptr_[0] = PCRE2_SIZE(-1);
-        match_ptr_[1] = PCRE2_SIZE(0);
-    }
-    wl::string_view prefix() const
-    {
-        return {text_data_ + start_pos_, text_data_ + match_ptr_[0u]};
-    }
-    auto capture_count() const
-    {
-        return size_t(capture_count_);
-    }
-    size_t match_begin_idx() const
-    {
-        return size_t(match_ptr_[0u]);
-    }
-    size_t match_end_idx() const
-    {
-        return size_t(match_ptr_[1u]);
-    }
-    wl::string_view match() const
-    {
-        return {text_data_ + match_ptr_[0u], text_data_ + match_ptr_[1u]};
-    }
-    wl::string_view match(size_t i) const
-    {
-        assert(i <= capture_count_);
-        return {text_data_ + match_ptr_[2u * i],
-            text_data_ + match_ptr_[2u * i + 1u]};
-    }
-    bool find_next(bool overlap = false, uint32_t options = 0u)
-    {
-        WL_THROW_IF_ABORT()
-        start_pos_ = overlap ? match_ptr_[0] + PCRE2_SIZE(1) : match_ptr_[1];
-        auto result = pcre2_match_8(pattern_.regex_ptr.get(),
-            text_data_, text_size_, start_pos_, options, match_.get(),
-            pattern_.match_context_ptr.get());
-        return result >= 0;
-    }
-};
-template<typename C, typename P, typename CharT>
-auto regex_search(const wl::strexp::compiled_pattern<C, P>& pattern,
-    const CharT* text_data, size_t text_size)
-{
-    return _regex_search_state<C, P>(pattern, (PCRE2_SPTR8)text_data,
-        text_size);
-}
-template<typename PatternIdList>
-struct callout_matches_t
-{
-    PCRE2_SPTR text_data;
-    const PCRE2_SIZE* offset_vector;
-    const size_t capture_top;
-    template<int64_t I>
-    wl::string_view operator[](wl::const_int<I> id) const
-    {
-        if constexpr (I > 0)
-        { // Condition
-            constexpr auto group_idx = PatternIdList::find(id);
-            assert(group_idx < capture_top);
-            return {text_data + offset_vector[2u * group_idx],
-                text_data + offset_vector[2u * group_idx + 1u]};
-        }
-        else
-        { // PatternTest
-            return {text_data + offset_vector[2u * capture_top - 2u],
-                text_data + offset_vector[2u * capture_top - 1u]};
-        }
-    }
-};
-template<typename PL, typename CL, size_t... Is>
-auto callout_evaluate(size_t number, const callout_matches_t<PL>& matches,
-    const CL& conditions, std::index_sequence<Is...>)
-{
-    assert(number < CL::size);
-    return ((number != Is || conditions.template get<Is>()(matches)) && ...);
-}
-template<typename PatternIdList, typename ConditionList>
-int callout_function(pcre2_callout_block_8* block_ptr,
-    void* condition_list_ptr)
-{
-    WL_THROW_IF_ABORT()
-    auto matches = callout_matches_t<PatternIdList>{block_ptr->subject,
-        block_ptr->offset_vector, block_ptr->capture_top};
-    const ConditionList& condition_list =
-        **(const ConditionList**)condition_list_ptr;
-    bool pass = callout_evaluate(
-        block_ptr->callout_number, matches, condition_list,
-        std::make_index_sequence<ConditionList::size>{});
-    return pass ? 0 : 1;
-}
-}
-namespace wl
-{
-struct _returns_function_tag {};
-struct _returns_value_tag {};
-template<typename... Ts>
-struct _branch_type_check_impl;
-template<typename T1, typename... Ts>
-struct _branch_type_check_impl<T1, Ts...>
-{
-    static constexpr auto value = is_value_type_v<T1> ?
-        std::conjunction_v<std::is_same<T1, Ts>...> :
-        std::conjunction_v<std::bool_constant<!is_value_type_v<Ts>>...>;
-};
-template<typename... Ts>
-struct _branch_type_check : _branch_type_check_impl<remove_cvref_t<Ts>...> {};
-template<typename T1, typename...>
-struct _branch_returns_value :
-    std::bool_constant<is_value_type_v<remove_cvref_t<T1>>> {};
-template<typename T, typename...>
-struct _get_first_type
-{
-    using type = T;
-};
-template<typename... Ts>
-using _get_first_type_t = typename _get_first_type<Ts...>::type;
-template<typename A, typename B>
-WL_INLINE auto branch_if(const boolean cond, A&& a, B&& b)
-{
-    WL_TRY_BEGIN()
-    using AT = decltype(val(std::declval<A&&>()()));
-    using BT = decltype(val(std::declval<B&&>()()));
-    static_assert(_branch_type_check<AT, BT>::value, WL_ERROR_BRANCH_RETURN);
-    if constexpr (_branch_returns_value<AT>::value)
-    {
-        return cond ? val(std::forward<decltype(a)>(a)()) :
-            val(std::forward<decltype(b)>(b)());
-    }
-    else
-    {
-        return
-            [cond,
-            a = std::forward<decltype(a)>(a)(),
-            b = std::forward<decltype(b)>(b)()
-            ](auto&&... args)
-        {
-            auto ra = [&, a] {
-                return a(std::forward<decltype(args)>(args)...); };
-            auto rb = [&, b] {
-                return b(std::forward<decltype(args)>(args)...); };
-            return branch_if(cond, std::move(ra), std::move(rb));
-        };
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename... Conds>
-auto _which_conditions(Conds&&... conds)
-{
-    static_assert(std::conjunction_v<std::is_same<
-        remove_cvref_t<decltype(conds())>, boolean>...>,
-        WL_ERROR_BRANCH_RETURN);
-    size_t n = 0u;
-    [[maybe_unused]] auto _1 = ((conds() ? true : (++n, false)) || ...);
-    return n;
-}
-template<typename Ret, size_t... Is, typename... Cases>
-auto _which_impl(const size_t n, _returns_value_tag,
-    std::index_sequence<Is...>, Cases&&... cases)
-{
-    if constexpr (std::is_same_v<Ret, void_type>)
-    {
-        [[maybe_unused]] auto _1 = ((n == Is ?
-            (std::forward<decltype(cases)>(cases)(), true) : false
-            ) || ...);
-        return const_null;
-    }
-    else
-    {
-        Ret ret;
-        if (n >= sizeof...(Cases))
-            throw std::logic_error(WL_ERROR_INTERNAL);
-        [[maybe_unused]] auto _1 = ((n == Is ?
-            (ret = val(std::forward<decltype(cases)>(cases)()), true) : false
-            ) || ...);
-        return ret;
-    }
-}
-template<size_t... Is, typename... Cases>
-auto _which_impl(const size_t n, _returns_function_tag,
-    std::index_sequence<Is...>, Cases&&... cases)
-{
-    return
-        [n,
-        cases = std::make_tuple(std::forward<decltype(cases)>(cases)()...)
-        ](auto&&... args)
-    {
-        return _which_impl(n, std::get<Is>(cases)...);
-    };
-}
-template<typename... Cases>
-auto which(const size_t n, Cases&&... cases)
-{
-    WL_TRY_BEGIN()
-    static_assert(_branch_type_check<
-        decltype(val(std::declval<Cases&&>()()))...>::value,
-        WL_ERROR_BRANCH_RETURN);
-    using FirstType =
-        decltype(val(std::declval<_get_first_type_t<Cases&&...>>()()));
-    if constexpr (_branch_returns_value<FirstType>::value)
-    {
-        return _which_impl<remove_cvref_t<FirstType>>(
-            n, _returns_value_tag{},
-            std::make_index_sequence<sizeof...(Cases)>{},
-            std::forward<decltype(cases)>(cases)...);
-    }
-    else
-    {
-        return _which_impl(
-            n, _returns_function_tag{},
-            std::make_index_sequence<sizeof...(Cases)>{},
-            std::forward<decltype(cases)>(cases)...);
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Test, typename Incr, typename Body>
-auto loop_for(Test test, Incr incr, Body body)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
-        WL_ERROR_LOOP_TEST);
-    try
-    {
-        for (;;)
-        {
-            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
-            {
-                if (!test())
-                    return const_null;
-                body();
-                incr();
-            }
-            WL_THROW_IF_ABORT()
-        }
-    }
-    catch (const loop_break&)
-    {
-    }
-    return const_null;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Test, typename Body>
-auto loop_while(Test test, Body body)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_boolean_v<remove_cvref_t<decltype(test())>>,
-        WL_ERROR_LOOP_TEST);
-    try
-    {
-        for (;;)
-        {
-            for (int64_t i = 0; i < WL_CHECK_ABORT_LENGTH; ++i)
-            {
-                if (!test())
-                    return const_null;
-                body();
-            }
-            WL_THROW_IF_ABORT()
-        }
-    }
-    catch (const loop_break&)
-    {
-    }
-    return const_null;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
@@ -9511,6 +5828,41 @@ auto bit_shift_right(X&& x, Y&& y)
     return _bit_shift_impl<false>(
         std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+}
+namespace wl
+{
+namespace io
+{
+#if defined(WL_USE_MATHLINK)
+template<typename X>
+auto print(const X& x);
+template<typename X>
+auto echo(X&& x);
+#else
+template<typename X>
+auto print(const X& x)
+{
+    std::cout << x << std::endl;
+    return const_null;
+}
+template<typename X>
+auto echo(X&& x)
+{
+    std::cout << x << std::endl;
+    return std::forward<decltype(x)>(x);
+}
+#endif
+template<typename Function>
+auto echo_function(Function f)
+{
+    return [=](auto&& x)
+    {
+        const auto& xref = x;
+        echo(f(x));
+        return std::forward<decltype(x)>(x);
+    };
+}
 }
 }
 namespace wl
@@ -11616,7 +7968,7 @@ int64_t order(const X& x, const Y& y)
     if constexpr (is_array_view_v<X>)
     {
         static_assert(is_array_view_v<Y>, WL_ERROR_OPERAND_TYPE);
-        return Ret(_order_string(x, y));
+        return Ret(_order_array(x, y));
     }
     else if constexpr (XR == 0)
     {
@@ -13152,6 +9504,1376 @@ auto partition(const X& x, const N& n)
 }
 namespace wl
 {
+template<typename F>
+struct function;
+template<typename Ret, typename... Args>
+struct function<Ret(Args...)>
+{
+    std::function<Ret(const Args&...)> f_;
+    function()
+    {
+        f_ = [](const Args&...) { return Ret{}; };
+    }
+    template<typename F>
+    explicit function(F f)
+    {
+        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
+            f(std::declval<const Args&>()...))>>);
+        f_ = f;
+    }
+    template<typename F>
+    auto& operator=(F f)
+    {
+        static_assert(std::is_same_v<Ret, remove_cvref_t<decltype(
+            f(std::declval<const Args&>()...))>>);
+        f_ = f;
+        return *this;
+    }
+    template<typename... Any>
+    auto operator()(Any&&... any) -> decltype(auto)
+    {
+        static_assert(sizeof...(Any) == sizeof...(Args));
+        static_assert((std::is_same_v<remove_cvref_t<Any>, Args> && ...));
+        return f_(std::forward<decltype(any)>(any)...);
+    }
+};
+template<typename ArgIter, bool HasStride>
+struct argument_pack
+{
+    using value_type = remove_cvref_t<decltype(*std::declval<ArgIter>())>;
+    const ArgIter iter_;
+    const size_t size_;
+    const size_t stride_;
+    argument_pack(ArgIter iter, size_t size, size_t stride = 1u) :
+        iter_{iter}, size_{size}, stride_{stride}
+    {
+    }
+    size_t size() const
+    {
+        return this->size_;
+    }
+    auto get(size_t i) const
+    {
+        if (i >= size_)
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
+        if constexpr (HasStride)
+            return *(this->iter_ + i * stride_);
+        else
+            return *(this->iter_ + i);
+    }
+    auto get(size_t i, dim_checked) const
+    {
+        if constexpr (HasStride)
+            return *(this->iter_ + i * stride_);
+        else
+            return *(this->iter_ + i);
+    }
+    auto get_pack(size_t i) const
+    {
+        if (i > size_)
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
+        if constexpr (HasStride)
+            return argument_pack(iter_ + i * stride_, size_ - i, stride_);
+        else
+            return argument_pack(iter_ + i, size_ - i);
+    }
+};
+template<typename Normal, typename Variadic>
+struct variadic
+{
+    Normal nf_;
+    Variadic vf_;
+    variadic(Normal nf, Variadic vf) :
+        nf_{std::move(nf)}, vf_{std::move(vf)}
+    {
+    }
+    template<typename... Args>
+    auto operator()(Args&&... args) const -> decltype(auto)
+    {
+        return nf_(std::forward<decltype(args)>(args)...);
+    }
+    template<typename Arg, typename = std::enable_if_t<
+        std::is_invocable_v<Variadic, Arg&&> ||
+        !is_argument_pack_v<remove_cvref_t<Arg>>>>
+    auto operator()(Arg&& arg) const -> decltype(auto)
+    {
+        if constexpr (is_argument_pack_v<remove_cvref_t<Arg>>)
+            return vf_(std::forward<decltype(arg)>(arg));
+        else
+            return nf_(std::forward<decltype(arg)>(arg));
+    }
+};
+template<typename T, typename Args>
+struct _tuple_append;
+template<typename T, typename... Args>
+struct _tuple_append<T, std::tuple<Args...>>
+{
+    using type = std::tuple<Args..., T>;
+};
+template<typename T, typename Args>
+using _tuple_append_t = typename _tuple_append<T, Args>::type;
+template<typename Fn, typename T, typename Args, typename = void>
+struct _apply_nargs : _apply_nargs<Fn, T, _tuple_append_t<T, Args>>
+{
+    static_assert(std::tuple_size_v<Args> <= MaximumArgCount, 
+        WL_ERROR_INTERNAL);
+};
+template<typename Fn, typename T, typename... Args>
+struct _apply_nargs<Fn, T, std::tuple<Args...>,
+    std::void_t<std::invoke_result_t<Fn, Args...>>> :
+    std::integral_constant<size_t, sizeof...(Args)> {};
+template<typename Fn, typename T>
+constexpr auto _apply_nargs_v = _apply_nargs<Fn, T, std::tuple<>>::value;
+template<typename Function, typename Iter, size_t... Is>
+auto _apply_fixed_impl(Function f, Iter iter, ptrdiff_t step,
+    std::index_sequence<Is...>)
+{
+    return f(*(iter + step * Is)...);
+}
+template<typename Function, typename Iter, size_t... Is>
+auto _apply_fixed_impl(Function f, Iter iter, std::index_sequence<Is...>)
+{
+    return f(*(iter + Is)...);
+}
+template<typename Function, typename X, int64_t I>
+auto apply(Function f, const X& x, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(0 <= Level && Level < int64_t(R), WL_ERROR_BAD_LEVEL);
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<Level + 1u>();
+    const auto argc = valx.dims()[Level];
+    const auto apply_dims = utils::dims_take<1u, Level>(valx.dims());
+    if constexpr (is_variadic_function_v<Function>)
+    {
+        using PackType = argument_pack<decltype(x_iter)>;
+        using RT = remove_cvref_t<decltype(f(std::declval<PackType>()))>;
+        if constexpr (Level == 0u)
+        {
+            return f(PackType(x_iter, argc));
+        }
+        else if constexpr (array_rank_v<RT> == 0u)
+        {
+            ndarray<RT, Level> ret(apply_dims);
+            auto ret_iter = ret.begin();
+            auto ret_size = ret.size();
+            for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
+                *ret_iter = f(PackType(x_iter, argc));
+            return ret;
+        }
+        else
+        {
+            auto first_item = f(PackType(x_iter, argc));
+            const auto item_dims = first_item.dims();
+            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+                utils::dims_join(apply_dims, item_dims));
+            auto ret_iter = ret.template view_begin<Level>();
+            first_item.copy_to(ret_iter.begin());
+            x_iter += argc;
+            ++ret_iter;
+            for (size_t i = 1; i < utils::size_of_dims(apply_dims);
+                ++i, x_iter += argc, ++ret_iter)
+            {
+                auto item = f(PackType(x_iter, argc));
+                if (!utils::check_dims(item.dims(), item_dims))
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+                item.copy_to(ret_iter.begin());
+            }
+            return ret;
+        }
+    }
+    else
+    {
+        constexpr auto function_nargs =
+            _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
+        if (function_nargs > argc)
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
+        constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
+        using RT = remove_cvref_t<decltype(
+            _apply_fixed_impl(f, x_iter, index_seq))>;
+        if constexpr (Level == 0u)
+        {
+            return _apply_fixed_impl(f, x_iter, index_seq);
+        }
+        else if constexpr (array_rank_v<RT> == 0u)
+        {
+            ndarray<RT, Level> ret(apply_dims);
+            auto ret_iter = ret.begin();
+            auto ret_size = ret.size();
+            for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, x_iter += argc)
+                *ret_iter = _apply_fixed_impl(f, x_iter, index_seq);
+            return ret;
+        }
+        else
+        {
+            auto first_item = _apply_fixed_impl(f, x_iter, index_seq);
+            const auto item_dims = first_item.dims();
+            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+                utils::dims_join(apply_dims, item_dims));
+            auto ret_iter = ret.template view_begin<Level>();
+            first_item.copy_to(ret_iter.begin());
+            x_iter += argc;
+            ++ret_iter;
+            for (size_t i = 1; i < utils::size_of_dims(apply_dims);
+                ++i, x_iter += argc, ++ret_iter)
+            {
+                auto item = _apply_fixed_impl(f, x_iter, index_seq);
+                if (!utils::check_dims(item.dims(), item_dims))
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+                item.copy_to(ret_iter.begin());
+            }
+            return ret;
+        }
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto apply(Function f, X&& x)
+{
+    WL_TRY_BEGIN()
+    return apply(f, std::forward<decltype(x)>(x), const_int<0>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename T, size_t R, typename Function>
+auto _select_impl(const ndarray<T, R>& a, Function f)
+{
+    static_assert(R >= 2u, WL_ERROR_INTERNAL);
+    ndarray<T, R> ret;
+    auto view_iter = a.template view_begin<1u>();
+    auto view_end = a.template view_end<1u>();
+    size_t item_size = view_iter.size();
+    for (; view_iter != view_end; ++view_iter)
+    {
+        auto out = f(*view_iter);
+        static_assert(is_boolean_v<decltype(out)>, WL_ERROR_PRED_TYPE);
+        if (out)
+            ret.append(*view_iter);
+    }
+    return ret;
+}
+template<typename X, typename Function>
+auto select(X&& x, Function f)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<XT>;
+    if constexpr (array_rank_v<XT> == 1u)
+    {
+        std::vector<XV> ret;
+        using RT = remove_cvref_t<decltype(f(XV{}))>;
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        x.for_each([&](const auto& a) { if (f(a)) ret.push_back(a); });
+        return ndarray<value_type_t<XT>, 1u>(
+            std::array<size_t, 1u>{ret.size()}, std::move(ret));
+    }
+    else
+        return _select_impl(std::forward<decltype(x)>(x).to_array(), f);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Function, int64_t I>
+auto count(const X& x, varg_tag, Function f, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(1u <= Level && Level <= XR, WL_ERROR_BAD_LEVEL);
+    int64_t item_count = 0;
+    if constexpr (XR == Level)
+    {
+        using RT = remove_cvref_t<decltype(f(value_type_t<X>{}))>;
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        x.for_each([&](const auto& a) { if (f(a)) ++item_count; });
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        using RT = remove_cvref_t<decltype(f(*view_iter))>;
+        static_assert(is_boolean_v<RT>, WL_ERROR_PRED_TYPE);
+        for (; view_iter != view_end; ++view_iter)
+        {
+            if (f(*view_iter))
+                ++item_count;
+        }
+    }
+    return item_count;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Function>
+auto count(const X& x, varg_tag, Function f)
+{
+    return count(x, varg_tag{}, f, const_int<1>{});
+}
+template<typename X, typename Y, int64_t I>
+auto count(const X& x, const Y& y, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    constexpr auto Level = I > 0 ? size_t(I) : size_t(0);
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(1u <= Level && Level + YR == XR, WL_ERROR_BAD_LEVEL);
+    int64_t item_count = 0;
+    const auto& valy = allows<view_category::Array>(y);
+    if constexpr (YR == 0u)
+    {
+        x.for_each([&](const auto& a) { if (equal(a, valy)) ++item_count; });
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Array>(x);
+        auto view_iter = valx.template view_begin<Level>();
+        const auto view_end = valx.template view_end<Level>();
+        for (; view_iter != view_end; ++view_iter)
+        {
+            if (equal(*view_iter, valy))
+                ++item_count;
+        }
+    }
+    return item_count;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Y>
+auto count(const X& x, const Y& y)
+{
+    WL_TRY_BEGIN()
+    return count(x, y, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<size_t Level, typename Function, typename T, size_t R>
+auto _map_impl(Function f, const ndarray<T, R>& a)
+{
+    static_assert(1 <= Level && Level <= R, WL_ERROR_BAD_LEVEL);
+    auto a_iter = a.template view_begin<Level>();
+    using RT = remove_cvref_t<decltype(f(*a_iter))>;
+    const auto map_dims = utils::dims_take<1, Level>(a.dims());
+    if constexpr (array_rank_v<RT> == 0u)
+    {
+        ndarray<RT, Level> ret(map_dims);
+        ret.for_each([&](auto& r) { r = f(*a_iter); ++a_iter; });
+        return ret;
+    }
+    else
+    {
+        auto first_item = f(*a_iter);
+        const auto item_dims = first_item.dims();
+        ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+            utils::dims_join(map_dims, item_dims));
+        auto ret_iter = ret.template view_begin<Level>();
+        first_item.copy_to(ret_iter.begin());
+        ++a_iter;
+        ++ret_iter;
+        for (size_t i = 1; i < utils::size_of_dims(map_dims);
+            ++i, ++a_iter, ++ret_iter)
+        {
+            auto item = f(*a_iter);
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            item.copy_to(ret_iter.begin());
+        }
+        return ret;
+    }
+}
+template<typename Function, typename X, int64_t I>
+auto map(Function f, X&& x, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(1 <= Level && Level <= int64_t(R), WL_ERROR_BAD_LEVEL);
+    if constexpr (R == size_t(Level))
+    {
+        using RT = remove_cvref_t<decltype(f(value_type_t<XT>{}))>;
+        if constexpr (array_rank_v<RT> == 0u)
+            return utils::listable_function(f, std::forward<decltype(x)>(x));
+        else
+            return _map_impl<Level>(f, x.to_array());
+    }
+    else
+        return _map_impl<Level>(f, x.to_array());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto map(Function f, X&& x)
+{
+    WL_TRY_BEGIN()
+    return map(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, int64_t I>
+auto scan(Function f, X&& x, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 1, WL_ERROR_REQUIRE_ARRAY);
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(1 <= Level && Level <= int64_t(R), WL_ERROR_BAD_LEVEL);
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<Level>();
+    const auto x_end = valx.template view_end<Level>();
+    for (; x_iter != x_end; ++x_iter)
+        f(*x_iter);
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto scan(Function f, X&& x)
+{
+    WL_TRY_BEGIN()
+    return scan(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, size_t R, typename... Iters>
+auto _map_thread_impl2(Function f, const std::array<size_t, R>& map_dims,
+    Iters... iters)
+{
+    using RT = remove_cvref_t<decltype(f(*iters...))>;
+    if constexpr (array_rank_v<RT> == 0u)
+    {
+        ndarray<RT, 1u> ret(map_dims);
+        const auto ret_size = ret.size();
+        auto ret_iter = ret.begin();
+        for (size_t i = 0u; i < ret_size; ++i, ++ret_iter, (++iters, ...))
+            *ret_iter = f(*iters...);
+        return ret;
+    }
+    else
+    {
+        auto first_item = f(*iters...);
+        const auto item_dims = first_item.dims();
+        ndarray<value_type_t<RT>, R + array_rank_v<RT>> ret(
+            utils::dims_join(map_dims, item_dims));
+        const auto ret_size = utils::size_of_dims(map_dims);
+        auto ret_iter = ret.template view_begin<R>();
+        first_item.copy_to(ret_iter.begin());
+        [[maybe_unused]] const auto& _1 = (++iters, ...);
+        ++ret_iter;
+        for (size_t i = 1; i < ret_size; ++i, ++ret_iter, (++iters, ...))
+        {
+            auto item = f(*iters...);
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            item.copy_to(ret_iter.begin());
+        }
+        return ret;
+    }
+}
+template<size_t I, typename Function, typename Arg1, typename... Args>
+auto _map_thread_impl1(Function f, const Arg1& arg1, const Args&... args)
+{
+    const auto dims = utils::dims_take<1u, I>(arg1.dims());
+    if (!(utils::check_dims(dims, utils::dims_take<1, I>(args.dims())) && ...))
+        throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+    return _map_thread_impl2(f, dims, arg1.template view_begin<size_t(I)>(),
+        args.template view_begin<size_t(I)>()...);
+}
+template<typename Function, int64_t I, typename... Args>
+auto map_thread(Function f, const_int<I>, varg_tag, Args&&... args)
+{
+    WL_TRY_BEGIN()
+    static_assert(1 <= I, WL_ERROR_BAD_LEVEL);
+    static_assert(((array_rank_v<remove_cvref_t<Args>> >= size_t(I)) && ...),
+        WL_ERROR_MAP_THREAD_LEVEL);
+    if constexpr (sizeof...(Args) == 0u)
+    {
+        using RT = remove_cvref_t<decltype(f())>;
+        constexpr auto RR = array_rank_v<RT>;
+        if constexpr (RR > 0u)
+            return ndarray<value_type_t<RT>, RR + size_t(I)>{};
+        else
+            return ndarray<RT, size_t(I)>{};
+    }
+    else
+    {
+        return _map_thread_impl1<size_t(I)>(f,
+            val(std::forward<decltype(args)>(args))...);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename... Args>
+auto map_thread(Function f, varg_tag, Args&&... args)
+{
+    WL_TRY_BEGIN()
+    return map_thread(f, const_int<1>{}, varg_tag{},
+        std::forward<decltype(args)>(args)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, int64_t I>
+auto map_thread(Function f, X&& x, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto R = array_rank_v<XT>;
+    static_assert(R >= 2u, WL_ERROR_REQUIRE_ARRAY_RANK"two or higher.");
+    constexpr int64_t Level = I >= 0 ? I : I + int64_t(R) + 1;
+    static_assert(1 <= Level && Level < int64_t(R), WL_ERROR_BAD_LEVEL);
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    const auto map_dims = utils::dims_take<2u, Level + 1u>(valx.dims());
+    const auto pack_size = valx.dims()[0];
+    const auto pack_stride = utils::size_of_dims(map_dims);
+    auto x_iter = valx.template view_begin<Level + 1u>();
+    if constexpr (is_variadic_function_v<Function>)
+    {
+        using PackType = argument_pack<decltype(x_iter), true>;
+        using RT = remove_cvref_t<decltype(f(std::declval<PackType>()))>;
+        if constexpr (array_rank_v<RT> == 0u)
+        {
+            ndarray<RT, Level> ret(map_dims);
+            auto ret_iter = ret.begin();
+            const auto ret_size = ret.size();
+            for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
+                *ret_iter = f(PackType(x_iter, pack_size, pack_stride));
+            return ret;
+        }
+        else
+        {
+            auto first_item = f(PackType(x_iter, pack_size, pack_stride));
+            const auto item_dims = first_item.dims();
+            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+                utils::dims_join(map_dims, item_dims));
+            auto ret_iter = ret.template view_begin<Level>();
+            first_item.copy_to(ret_iter.begin());
+            ++x_iter;
+            ++ret_iter;
+            for (size_t i = 1; i < pack_stride; ++i, ++x_iter, ++ret_iter)
+            {
+                auto item = f(PackType(x_iter, pack_size, pack_stride));
+                if (!utils::check_dims(item.dims(), item_dims))
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+                item.copy_to(ret_iter.begin());
+            }
+            return ret;
+        }
+    }
+    else
+    {
+        constexpr auto function_nargs =
+            _apply_nargs_v<Function, remove_cvref_t<decltype(*x_iter)>>;
+        if (function_nargs > pack_size)
+            throw std::logic_error(WL_ERROR_ARGPACK_OUT_OF_RANGE);
+        constexpr auto index_seq = std::make_index_sequence<function_nargs>{};
+        using RT = remove_cvref_t<decltype(
+            _apply_fixed_impl(f, x_iter, pack_stride, index_seq))>;
+        if constexpr (array_rank_v<RT> == 0u)
+        {
+            ndarray<RT, Level> ret(map_dims);
+            auto ret_iter = ret.begin();
+            const auto ret_size = ret.size();
+            for (size_t i = 0; i < ret_size; ++i, ++ret_iter, ++x_iter)
+                *ret_iter = _apply_fixed_impl(
+                    f, x_iter, pack_stride, index_seq);
+            return ret;
+        }
+        else
+        {
+            auto first_item = _apply_fixed_impl(
+                f, x_iter, pack_stride, index_seq);
+            const auto item_dims = first_item.dims();
+            ndarray<value_type_t<RT>, Level + array_rank_v<RT>> ret(
+                utils::dims_join(map_dims, item_dims));
+            auto ret_iter = ret.template view_begin<Level>();
+            first_item.copy_to(ret_iter.begin());
+            ++x_iter;
+            ++ret_iter;
+            for (size_t i = 1; i < pack_stride; ++i, ++x_iter, ++ret_iter)
+            {
+                auto item = _apply_fixed_impl(
+                    f, x_iter, pack_stride, index_seq);
+                if (!utils::check_dims(item.dims(), item_dims))
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+                item.copy_to(ret_iter.begin());
+            }
+            return ret;
+        }
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto map_thread(Function f, X&& x)
+{
+    WL_TRY_BEGIN()
+    return map_thread(f, std::forward<decltype(x)>(x), const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto nest(Function f, X&& x, const int64_t n)
+{
+    WL_TRY_BEGIN()
+    using XT0 = remove_cvref_t<decltype(val(x))>;
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
+        WL_ERROR_NEST_TYPE);
+    constexpr auto rank = array_rank_v<XT0>;
+    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
+    if (n == 0)
+        return cast<XT2>(std::forward<decltype(x)>(x));
+    else // n >= 1
+    {
+        auto ret = cast<XT2>(f(std::forward<decltype(x)>(x)));
+        for (size_t i = 1u; i < size_t(n); ++i)
+        {
+            if constexpr (rank == 0u)
+                ret = cast<XT2>(f(ret));
+            else
+            {
+                auto temp = val(f(std::move(ret)));
+                ret = std::move(temp);
+            }
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto nest_list(Function f, X&& x, const int64_t n)
+{
+    WL_TRY_BEGIN()
+    using XT0 = remove_cvref_t<decltype(val(x))>;
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
+        WL_ERROR_NEST_TYPE);
+    constexpr auto rank = array_rank_v<XT0>;
+    if (n < 0) throw std::logic_error(WL_ERROR_ITERATION_NEGATIVE);
+    if constexpr (rank == 0u)
+    {
+        ndarray<XT2, 1u> ret(std::array<size_t, 1u>{size_t(n) + 1u});
+        auto ret_iter = ret.begin();
+        *ret_iter = cast<XT2>(std::forward<decltype(x)>(x));
+        for (size_t i = 1; i <= size_t(n); ++i, ++ret_iter)
+            *(ret_iter + 1) = cast<XT2>(f(*ret_iter));
+        return ret;
+    }
+    else
+    {
+        using XV2 = value_type_t<XT2>;
+        auto item_dims = x.dims();
+        auto ret_dims = utils::dims_join(
+            std::array<size_t, 1u>{size_t(n) + 1u}, item_dims);
+        if (n == 0)
+        {
+            auto item = cast<XT2>(std::forward<decltype(x)>(x));
+            return ndarray<XV2, rank + 1u>(
+                ret_dims, std::move(item).data_vector());
+        }
+        else // n >= 1
+        {
+            ndarray<XV2, rank + 1u> ret(ret_dims);
+            auto view_iter = ret.template view_begin<1u>();
+            x.copy_to(view_iter.begin());
+            ++view_iter;
+            auto item = val(f(std::forward<decltype(x)>(x)));
+            if (!utils::check_dims(item.dims(), item_dims))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            item.copy_to(view_iter.begin());
+            ++view_iter;
+            for (size_t i = 2; i <= size_t(n); ++i, ++view_iter)
+            {
+                auto temp = val(f(std::move(item)));
+                item = std::move(temp);
+                if (!utils::check_dims(item.dims(), item_dims))
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+                item.copy_to(view_iter.begin());
+            }
+            return ret;
+        }
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename T, size_t R>
+struct _nest_while_queue
+{
+    static constexpr auto _is_scalar = (R == 0u);
+    using _elem_t = std::conditional_t<_is_scalar, T, ndarray<T, R>>;
+    const size_t size_;
+    size_t elements_count_;
+    size_t current_;
+    std::vector<_elem_t> queue_;
+    _nest_while_queue(size_t size) :
+        size_{size}, elements_count_{0u}, current_{0u}, queue_(size)
+    {
+    }
+    template<typename X>
+    void push(X&& x)
+    {
+        using XT = remove_cvref_t<X>;
+        static_assert(array_rank_v<XT> == R, WL_ERROR_NEST_TYPE);
+        ++current_;
+        ++elements_count_;
+        if (current_ == size_)
+            current_ = 0u;
+        auto& dst = queue_[current_];
+        if constexpr (_is_scalar)
+        {
+            static_assert(is_convertible_v<XT, T>, WL_ERROR_NEST_TYPE);
+            dst = cast<_elem_t>(std::forward<decltype(x)>(x));
+        }
+        else
+        {
+            using XV = value_type_t<XT>;
+            static_assert(is_convertible_v<XV, T>, WL_ERROR_NEST_TYPE);
+            if constexpr (std::is_same_v<XV, T> && is_movable_v<X&&>)
+                dst = std::move(x);
+            else
+            {
+                dst.uninitialized_resize(x.dims(), x.size());
+                x.copy_to(dst.data());
+            }
+        }
+    }
+    auto last() const & -> const auto&
+    {
+        return queue_[current_];
+    }
+    auto last() && -> auto&&
+    {
+        return std::move(queue_[current_]);
+    }
+    auto get(size_t i) const & -> const auto&
+    {
+        return queue_.at(current_ - i + (i > current_ ? size_ : size_t(0)));
+    }
+    auto get(size_t i) && -> auto&&
+    {
+        if (i >= elements_count_)
+            throw std::logic_error(WL_ERROR_NEST_WHILE_OFFSET);
+        return std::move(
+            queue_.at(current_ - i + (i > current_ ? size_ : size_t(0))));
+    }
+    template<size_t N, typename Fn, size_t... Is>
+    auto _apply_test_impl(Fn&& fn, std::index_sequence<Is...>) const
+    {
+        auto res = std::forward<decltype(fn)>(fn)(
+            queue_[current_ - (N - Is - 1u) +
+                ((N - Is - 1u) > current_ ? size_ : size_t(0))]...);
+        static_assert(is_boolean_v<decltype(res)>, WL_ERROR_PRED_TYPE);
+        return res;
+    }
+    template<size_t N, typename Fn>
+    auto apply_test(Fn&& fn) const
+    {
+        return _apply_test_impl<N>(std::forward<decltype(fn)>(fn),
+            std::make_index_sequence<N>{});
+    }
+};
+template<typename Function, typename X, typename Test, int64_t N>
+auto nest_while(Function f, X&& x, Test test, const_int<N>,
+    const int64_t input_max = const_int_infinity,
+    const int64_t offset = 0u)
+{
+    WL_TRY_BEGIN()
+    static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
+    constexpr auto num_args = size_t(N);
+    constexpr auto effective_num_args = std::max(num_args, size_t(1));
+    const auto history_size = size_t(std::max(int64_t(num_args), -offset + 1));
+    const auto max_steps = std::max(input_max, int64_t(0));
+    using XT0 = remove_cvref_t<decltype(val(x))>;
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
+        WL_ERROR_NEST_TYPE);
+    constexpr auto XR = array_rank_v<XT0>;
+    if (max_steps < int64_t(effective_num_args))
+    {
+        if (int64_t(max_steps + offset) < 0)
+            throw std::logic_error(WL_ERROR_NEST_WHILE_OFFSET);
+        return nest(f, std::forward<decltype(x)>(x), max_steps + offset);
+    }
+    else if (effective_num_args == 1u && offset >= 0)
+    {
+        auto ret = cast<XT2>(std::forward<decltype(x)>(x));
+        bool continue_flag = false;
+        if constexpr (num_args == 0u)
+            continue_flag = test();
+        else if constexpr (num_args == 1u)
+            continue_flag = test(ret);
+        if (continue_flag)
+        {
+            WL_CHECK_ABORT_LOOP_BEGIN(max_steps)
+                for (auto i = _loop_zero; i < _loop_size; ++i)
+                {
+                    if constexpr (XR == 0u)
+                        ret = cast<XT2>(f(ret));
+                    else
+                    {
+                        auto temp = val(f(std::move(ret)));
+                        set(ret, std::move(temp));
+                    }
+                    if constexpr (num_args == 0u)
+                        continue_flag = test();
+                    else if constexpr (num_args == 1u)
+                        continue_flag = test(ret);
+                    if (!continue_flag)
+                        goto nest_while_exit_no_queue;
+                }
+            WL_CHECK_ABORT_LOOP_END()
+        }
+nest_while_exit_no_queue:
+        if (offset == 0u)
+            return ret;
+        else
+            return nest(f, ret, offset);
+    }
+    else
+    {
+        using XV = std::conditional_t<XR == 0u, XT2, value_type_t<XT2>>;
+        _nest_while_queue<XV, XR> queue(history_size);
+        queue.push(std::forward<decltype(x)>(x));
+        
+        for (int64_t i = 1; i < int64_t(num_args); ++i)
+        {
+            queue.push(f(queue.last()));
+        }
+        bool continue_flag = queue.template apply_test<num_args>(test);
+        if (continue_flag)
+        {
+            WL_CHECK_ABORT_LOOP_BEGIN(max_steps - effective_num_args + 1)
+                for (auto i = _loop_zero; i < _loop_size; ++i)
+                {
+                    queue.push(f(queue.last()));
+                    continue_flag = queue.template apply_test<num_args>(test);
+                    if (!continue_flag)
+                        goto nest_while_exit_queue;
+                }
+            WL_CHECK_ABORT_LOOP_END()
+        }
+nest_while_exit_queue:
+        const auto reverse_offset = int64_t(effective_num_args) - 1 - offset;
+        if (offset <= 0)
+            return std::move(queue).get(size_t(-offset));
+        else
+            return nest(f, std::move(queue).last(), offset);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, typename Test>
+auto nest_while(Function f, X&& x, Test test)
+{
+    WL_TRY_BEGIN()
+    return nest_while(f, std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Test, typename Iter, size_t... Is>
+auto _nest_while_list_apply_test(Test test, Iter iter,
+    std::index_sequence<Is...>)
+{
+    constexpr auto N = sizeof...(Is);
+    return test(*(iter + int64_t(Is - N + 1u))...);
+}
+template<typename Function, typename X, typename Test, int64_t N>
+auto nest_while_list(Function f, X&& x, Test test, const_int<N>,
+    const int64_t input_max = const_int_infinity,
+    const int64_t offset = 0u)
+{
+    WL_TRY_BEGIN()
+    static_assert(0 <= N && N <= MaximumArgCount, WL_ERROR_LARGE_ARGC);
+    const auto max_steps = std::max(input_max, int64_t(0));
+    constexpr auto num_args = size_t(N);
+    constexpr auto effective_num_args = std::max(num_args, size_t(1));
+    using XT0 = remove_cvref_t<decltype(val(x))>;
+    using XT1 = remove_cvref_t<decltype(val(f(std::declval<X&&>())))>;
+    using XT2 = remove_cvref_t<decltype(val(f(std::declval<XT1&&>())))>;
+    static_assert(is_convertible_v<XT0, XT2> && std::is_same_v<XT1, XT2>,
+        WL_ERROR_NEST_TYPE);
+    constexpr auto XR = array_rank_v<XT0>;
+    if (max_steps < int64_t(effective_num_args))
+    {
+        if (int64_t(max_steps + offset) < 0)
+            throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
+        return nest_list(f, std::forward<decltype(x)>(x), max_steps + offset);
+    }
+    else if constexpr (XR == 0u)
+    {
+        ndarray<XT2, 1u> ret;
+        auto last = cast<XT2>(std::forward<decltype(x)>(x));
+        ret.append(last);
+        int64_t i = 1;
+        for (; i < int64_t(num_args); ++i)
+        {
+            auto temp = f(std::move(last));
+            last = std::move(temp);
+            ret.append(last);
+        }
+        bool continue_flag = false;
+        do
+        {
+            WL_THROW_IF_ABORT()
+            if constexpr (num_args == 0u)
+                continue_flag = test();
+            else if constexpr (num_args == 1u)
+                continue_flag = test(last);
+            else
+                continue_flag = _nest_while_list_apply_test(test,
+                    ret.begin() + i - 1, std::make_index_sequence<num_args>{});
+            if (!continue_flag)
+                break;
+            if (i++ > max_steps)
+                break;
+            auto temp = f(std::move(last));
+            last = std::move(temp);
+            ret.append(last);
+        } while (true);
+        if (offset > 0)
+        {
+            for (int64_t i = 0; i < offset; ++i)
+            {
+                auto temp = f(std::move(last));
+                last = std::move(temp);
+                ret.append(last);
+            }
+        }
+        else if (offset < 0)
+        {
+            const auto new_dim0 = int64_t(offset + ret.dims()[0]);
+            if (new_dim0 <= 0)
+                throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
+            ret.uninitialized_resize(
+                std::array<size_t, 1u>{size_t(new_dim0)}, new_dim0);
+        }
+        return ret;
+    }
+    else
+    {
+        using XV = value_type_t<XT2>;
+        ndarray<XV, XR + 1u> ret;
+        auto last = cast<XT2>(std::forward<decltype(x)>(x));
+        const auto item_dims = last.dims();
+        ret.append(last);
+        int64_t i = 1;
+        for (; i < int64_t(num_args); ++i)
+        {
+            auto temp = val(f(std::move(last)));
+            last = std::move(temp);
+            if (!utils::check_dims(item_dims, last.dims()))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            ret.append(last);
+        }
+        bool continue_flag = false;
+        do
+        {
+            WL_THROW_IF_ABORT()
+            if constexpr (num_args == 0u)
+                continue_flag = test();
+            else if constexpr (false && num_args == 1u)
+                continue_flag = test(last);
+            else
+                continue_flag = _nest_while_list_apply_test(test,
+                    ret.template view_begin<1u>() + i - 1,
+                    std::make_index_sequence<num_args>{});
+            if (!continue_flag)
+                break;
+            if (i++ > max_steps)
+                break;
+            auto temp = val(f(std::move(last)));
+            last = std::move(temp);
+            if (!utils::check_dims(item_dims, last.dims()))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            ret.append(last);
+        } while (true);
+        if (offset > 0)
+        {
+            for (int64_t i = 0; i < offset; ++i)
+            {
+                auto temp = val(f(std::move(last)));
+                last = std::move(temp);
+                if (!utils::check_dims(item_dims, last.dims()))
+                    throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+                ret.append(last);
+            }
+        }
+        else if (offset < 0)
+        {
+            const auto new_dim0 = int64_t(offset + ret.dims()[0]);
+            if (new_dim0 <= 0)
+                throw std::logic_error(WL_ERROR_NEST_WHILE_LIST_OFFSET);
+            auto new_dims = ret.dims();
+            new_dims[0] = size_t(new_dim0);
+            ret.uninitialized_resize(new_dims, size_t(new_dim0) * last.size());
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, typename Test>
+auto nest_while_list(Function f, X&& x, Test test)
+{
+    WL_TRY_BEGIN()
+    return nest_while_list(
+        f, std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, typename YIter, typename YInc>
+auto _fold_single_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
+    const size_t n)
+{
+    auto nest_f = [&](auto&& arg)
+    {
+        auto item = f(arg, *y_iter);
+        y_inc(y_iter);
+        return item;
+    };
+    return nest(nest_f, std::forward<decltype(x)>(x), n);
+}
+template<typename Function, typename X, typename YIter, typename YInc>
+auto _fold_list_impl(Function f, X&& x, YIter y_iter, YInc y_inc,
+    const size_t n)
+{
+    auto nest_f = [&](auto&& arg)
+    {
+        auto item = f(arg, *y_iter);
+        y_inc(y_iter);
+        return item;
+    };
+    return nest_list(nest_f, std::forward<decltype(x)>(x), n);
+}
+template<bool List, bool FoldL, typename Function, typename Y>
+auto _fold_impl1(Function f, Y&& y)
+{
+    static_assert(array_rank_v<remove_cvref_t<Y>> >= 1u,
+        WL_ERROR_REQUIRE_ARRAY);
+    const size_t n = y.dims()[0];
+    if (n < 1u) throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
+    const auto& valy = val(std::forward<decltype(y)>(y));
+    if constexpr (List)
+    {
+        if constexpr (FoldL)
+            return _fold_list_impl(f, *valy.template view_begin<1u>(),
+                valy.template view_begin<1u>() + 1,
+                [](auto& iter) { ++iter; }, n - 1u);
+        else
+            return _fold_list_impl(f, *(valy.template view_end<1u>() - 1),
+                valy.template view_end<1u>() - 2,
+                [](auto& iter) { --iter; }, n - 1u);
+    }
+    else
+    {
+        if constexpr (FoldL)
+            return _fold_single_impl(f, *valy.template view_begin<1u>(),
+                valy.template view_begin<1u>() + 1,
+                [](auto& iter) { ++iter; }, n - 1u);
+        else
+            return _fold_single_impl(f, *(valy.template view_end<1u>() - 1),
+                valy.template view_end<1u>() - 2,
+                [](auto& iter) { --iter; }, n - 1u);
+    }
+}
+template<bool List, bool FoldL, typename Function, typename X, typename Y>
+auto _fold_impl1(Function f, X&& x, Y&& y)
+{
+    using YT = remove_cvref_t<Y>;
+    static_assert(array_rank_v<YT> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto& valy = val(std::forward<decltype(y)>(y));
+    const size_t n = valy.dims()[0];
+    if constexpr (List)
+    {
+        if constexpr (FoldL)
+            return _fold_list_impl(f, std::forward<decltype(x)>(x),
+                valy.template view_begin<1u>(),
+                [](auto& iter) { ++iter; }, n);
+        else
+            return _fold_list_impl(f, std::forward<decltype(x)>(x),
+                valy.template view_end<1u>() - 1,
+                [](auto& iter) { --iter; }, n);
+    }
+    else
+    {
+        if constexpr (FoldL)
+            return _fold_single_impl(f, std::forward<decltype(x)>(x),
+                valy.template view_begin<1u>(),
+                [](auto& iter) { ++iter; }, n);
+        else
+            return _fold_single_impl(f, std::forward<decltype(x)>(x),
+                valy.template view_end<1u>() - 1,
+                [](auto& iter) { --iter; }, n);
+    }
+}
+template<typename Function, typename... Any>
+auto fold(Function f, Any&&... any)
+{
+    WL_TRY_BEGIN()
+    return _fold_impl1<false, true>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename... Any>
+auto foldr(Function f, Any&&... any)
+{
+    WL_TRY_BEGIN()
+    return _fold_impl1<false, false>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename... Any>
+auto fold_list(Function f, Any&&... any)
+{
+    WL_TRY_BEGIN()
+    return _fold_impl1<true, true>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename... Any>
+auto foldr_list(Function f, Any&&... any)
+{
+    WL_TRY_BEGIN()
+    return _fold_impl1<true, false>(f, std::forward<decltype(any)>(any)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point(Function f, X&& x, const int64_t max, varg_tag, Pred pred)
+{
+    WL_TRY_BEGIN()
+    return nest_while(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b)
+        {
+            auto same = pred(a, b);
+            static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
+            return !same;
+        }, const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point(Function f, X&& x, varg_tag, Pred pred)
+{
+    WL_TRY_BEGIN()
+    return fixed_point(f, std::forward<decltype(x)>(x),
+        const_int_infinity, varg_tag{}, pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto fixed_point(Function f, X&& x, const int64_t max)
+{
+    WL_TRY_BEGIN()
+    return nest_while(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b) { return unequal(a, b); },
+        const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto fixed_point(Function f, X&& x)
+{
+    WL_TRY_BEGIN()
+    return fixed_point(f, std::forward<decltype(x)>(x), const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point_list(Function f, X&& x, const int64_t max,
+    varg_tag, Pred pred)
+{
+    WL_TRY_BEGIN()
+    return nest_while_list(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b)
+        {
+            auto same = pred(a, b);
+            static_assert(is_boolean_v<decltype(same)>, WL_ERROR_PRED_TYPE);
+            return !same;
+        }, const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X, typename Pred>
+auto fixed_point_list(Function f, X&& x, varg_tag, Pred pred)
+{
+    WL_TRY_BEGIN()
+    return fixed_point_list(f, std::forward<decltype(x)>(x),
+        const_int_infinity, varg_tag{}, pred);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto fixed_point_list(Function f, X&& x, const int64_t max)
+{
+    WL_TRY_BEGIN()
+    return nest_while_list(f, std::forward<decltype(x)>(x),
+        [=](const auto& a, const auto& b) { return unequal(a, b); },
+        const_int<2>{}, max);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Function, typename X>
+auto fixed_point_list(Function f, X&& x)
+{
+    WL_TRY_BEGIN()
+    return fixed_point_list(f, std::forward<decltype(x)>(x),
+        const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Arg>
+auto identity(Arg&& arg) -> decltype(auto)
+{
+    WL_TRY_BEGIN()
+    return val(arg);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<bool Reverse, typename... Fs>
+struct composite_function
+{
+    static constexpr auto N = sizeof...(Fs);
+    std::tuple<Fs...> fs_;
+    composite_function(Fs... fs) :
+        fs_{std::make_tuple(std::move(fs)...)}
+    {
+    }
+    template<typename... Args>
+    auto operator()(Args&&... args) const -> decltype(auto)
+    {
+        return _apply<0u>(std::forward<decltype(args)>(args)...);
+    }
+    template<size_t I, typename... Args>
+    auto _apply(Args&&... args) const -> decltype(auto)
+    {
+        if constexpr (I + 1u < N)
+            return std::get<(Reverse ? (N - 1u - I) : I)>(fs_)(
+                _apply<I + 1u>(std::forward<decltype(args)>(args)...));
+        else
+            return std::get<(Reverse ? (N - 1u - I) : I)>(fs_)(
+                std::forward<decltype(args)>(args)...);
+    }
+};
+template<bool Reverse, typename... Fn>
+auto _composition_impl(Fn&&... fn)
+{
+    static constexpr auto N = sizeof...(Fn);
+    constexpr auto is_variadic = is_variadic_function_v<
+        std::tuple_element_t<N - 1u, std::tuple<remove_cvref_t<Fn>...>>>;
+    auto ret = composite_function<Reverse, remove_cvref_t<Fn>...>(
+        std::forward<decltype(fn)>(fn)...);
+    if constexpr (is_variadic)
+        return variadic<decltype(ret), decltype(ret)>(ret, ret);
+    else
+        return ret;
+}
+template<bool Reverse>
+auto _composition_impl()
+{
+    return [](auto&& arg) -> decltype(auto)
+    {
+        return std::forward<decltype(arg)>(arg);
+    };
+}
+template<typename... Fn>
+auto composition(Fn&&... fn) -> decltype(auto)
+{
+    WL_TRY_BEGIN()
+    return _composition_impl<false>(std::forward<decltype(fn)>(fn)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename... Fn>
+auto right_composition(Fn&&... fn) -> decltype(auto)
+{
+    WL_TRY_BEGIN()
+    return _composition_impl<true>(std::forward<decltype(fn)>(fn)...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test, int64_t I>
+auto all_true(X&& x, Test test, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<I>();
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
+        WL_ERROR_PRED_TYPE);
+    auto ret = true;
+    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
+    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+        for (auto i = _loop_zero; i < _loop_size && ret; ++i, ++x_iter)
+            ret = ret && test(*x_iter);
+    WL_CHECK_ABORT_LOOP_END()
+    return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test>
+auto all_true(X&& x, Test test)
+{
+    WL_TRY_BEGIN()
+    return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test, int64_t I>
+auto any_true(X&& x, Test test, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(1 <= I && I <= XR, WL_ERROR_BAD_LEVEL);
+    const auto& valx = val(std::forward<decltype(x)>(x));
+    auto x_iter = valx.template view_begin<I>();
+    static_assert(is_boolean_v<remove_cvref_t<decltype(test(*x_iter))>>,
+        WL_ERROR_PRED_TYPE);
+    auto ret = false;
+    const auto outer_size = utils::size_of_dims<I>(valx.dims().data());
+    WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+        for (auto i = _loop_zero; i < _loop_size && !ret; ++i, ++x_iter)
+            ret = ret || test(*x_iter);
+    WL_CHECK_ABORT_LOOP_END()
+    return boolean(ret);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test>
+auto any_true(X&& x, Test test)
+{
+    WL_TRY_BEGIN()
+    return any_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test, int64_t I>
+auto none_true(X&& x, Test test, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    return !any_true(std::forward<decltype(x)>(x), test, const_int<I>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test>
+auto none_true(X&& x, Test test)
+{
+    WL_TRY_BEGIN()
+    return none_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test>
+auto vector_q(X&& x, Test test)
+{
+    WL_TRY_BEGIN()
+    if constexpr (array_rank_v<remove_cvref_t<X>> == 0u)
+        return const_false;
+    else
+        return all_true(std::forward<decltype(x)>(x), test, const_int<1>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto vector_q(X&& x)
+{
+    WL_TRY_BEGIN()
+    return boolean(array_rank_v<remove_cvref_t<X>> == 1u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Test>
+auto matrix_q(X&& x, Test test)
+{
+    WL_TRY_BEGIN()
+    if constexpr (array_rank_v<remove_cvref_t<X>> <= 1u)
+        return const_false;
+    else
+        return all_true(std::forward<decltype(x)>(x), test, const_int<2>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto matrix_q(X&& x)
+{
+    WL_TRY_BEGIN()
+    return boolean(array_rank_v<remove_cvref_t<X>> == 2u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+}
+namespace wl
+{
 template<typename Z, typename X, typename Y>
 void _dot_vv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t K)
@@ -13467,6 +11189,2284 @@ auto tr(const X& x)
     WL_TRY_BEGIN()
     return tr(x, WL_FUNCTION(plus), const_int<array_rank_v<X>>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+}
+namespace wl
+{
+namespace utf8
+{
+using char_t   = uint8_t;
+using char21_t = uint32_t;
+constexpr char_t null_character = '\0';
+constexpr char21_t max_ascii_code_point = 0x7fu;
+constexpr char21_t max_code_point = 0x0010'ffffu;
+inline constexpr char_t operator""_c(const char ch)
+{
+    return char_t(ch);
+}
+template<typename Char>
+constexpr bool is_ascii(Char ch)
+{
+    static_assert(std::is_unsigned_v<Char>, WL_ERROR_INTERNAL);
+    return ch <= Char(max_ascii_code_point);
+}
+template<typename Char>
+std::pair<size_t, std::array<char_t, 4>> from_code_point(Char ch)
+{
+    if (ch < Char(0x80u))
+        return {1u, {char_t(ch), 0, 0, 0}};
+    else if (ch < 0x0800u)
+        return {2u, {char_t((ch >> 6) | 0xc0u),
+            char_t((ch & 0x3fu) | 0x80u), 0, 0}};
+    else if (ch < Char(0x0001'0000u))
+        return {3u, {char_t((ch >> 12) | 0xe0u),
+            char_t(((ch >> 6) & 0x3fu) | 0x80u),
+            char_t((ch & 0x3fu) | 0x80u), 0}};
+    else if (ch < Char(0x0011'0000u))
+        return {4u, {char_t((ch >> 18) | 0xf0u),
+            char_t(((ch >> 12) & 0x3fu) | 0x80u),
+            char_t(((ch >> 6) & 0x3fu) | 0x80u),
+            char_t((ch & 0x3fu) | 0x80u)}};
+    else
+        throw std::logic_error(WL_ERROR_INVALID_CODEPOINT);
+}
+inline size_t _get_byte_size(const char_t* str, bool& ret_ascii_only)
+{
+    WL_THROW_IF_ABORT()
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#  endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    size_t i_byte = 0u;
+    bool ascii_only = true;
+    int zmask = 0;
+    M data;
+    for (; true; str += sizeof(M), i_byte += sizeof(M))
+    {
+        data = loadu<M>(str);
+        zmask = movemask_epi8(cmpeq_epi8(data, zero<M>()));
+        if (zmask)
+            break;
+        if (ascii_only && movemask_epi8(data))
+            ascii_only = false;
+    }
+    auto excess_byte = utils::tzcnt_u64(uint64_t(unsigned(zmask)));
+    if (ascii_only && excess_byte > 0)
+    {
+        auto nmask = uint64_t(unsigned(movemask_epi8(data)));
+        ascii_only = !bool(nmask << (64u - excess_byte));
+    }
+    ret_ascii_only = ascii_only;
+    return i_byte + excess_byte;
+#else
+    auto str0 = str;
+    bool ascii_only = true;
+    for (; ascii_only; ++str)
+    {
+        auto byte = *str;
+        if (!byte)
+        {
+            ret_ascii_only = true;
+            return size_t(str - str0);
+        }
+        else if (uint8_t(byte) >= 0b1000'0000u)
+        {
+            ret_ascii_only = false;
+            break;
+        }
+    }
+    while (*++str)
+    {
+    }
+    return size_t(str - str0);
+#endif
+}
+inline size_t _get_string_size_impl(const char_t* str, const size_t byte_size)
+{
+    WL_THROW_IF_ABORT()
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#  endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    auto trailing = zero<M>();
+    size_t trailing_size = 0u;
+    size_t i_byte = 0u;
+    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
+        ++i, str += sizeof(M), i_byte += sizeof(M))
+    {
+        trailing = sub_epi8(trailing, cmpgt_epi8(upper, loadu<M>(str)));
+        if (i >= 100u)
+        {
+            trailing_size += hsum_epi8(trailing);
+            trailing = zero<M>();
+            i = 0u;
+        }
+    }
+    auto tmask = unsigned(movemask_epi8(cmpgt_epi8(upper, loadu<M>(str))));
+    auto excess_trailing = utils::_popcnt(
+        uint64_t(tmask) << (64u - (byte_size - i_byte)));
+    trailing_size += hsum_epi8(trailing);
+    trailing_size += excess_trailing;
+    return byte_size - trailing_size;
+#else
+    size_t trailing_size = 0u;
+    for (size_t i = 0; i < byte_size; ++i)
+    {
+        if (int8_t(str[i]) < int8_t(0b1100'0000))
+            ++trailing_size;
+    }
+    return byte_size - trailing_size;
+#endif
+}
+inline size_t _get_string_size_check_valid_impl(
+    const char_t* in_str, const size_t ref_byte_size)
+{
+    WL_THROW_IF_ABORT()
+    size_t byte_size = 0;
+    size_t trailing_size = 0;
+    auto str_begin = reinterpret_cast<const int8_t*>(in_str);
+    auto str = str_begin;
+    for (;;)
+    {
+        size_t n_bytes = 0u;
+        char_t byte = *str++;
+        if (!byte)
+        {
+            if (byte_size != ref_byte_size)
+                throw std::logic_error(WL_ERROR_INTERNAL);
+            return byte_size - trailing_size;
+        }
+        if (byte_size >= ref_byte_size)
+            throw std::logic_error(WL_ERROR_BAD_UTF8_NULL_TERMINATED);
+        if (byte < 0b1000'0000u)
+            n_bytes = 1u;
+        else if ((byte & 0b1110'0000u) == 0b1100'0000u)
+            n_bytes = 2u;
+        else if ((byte & 0b1111'0000u) == 0b1110'0000u)
+            n_bytes = 3u;
+        else if ((byte & 0b1111'1000u) == 0b1111'0000u)
+            n_bytes = 4u;
+        else
+            throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
+        for (size_t i = 1u; i < n_bytes; ++i)
+        {
+            if ((*str++ & 0b1100'0000u) != 0b1000'0000u)
+                throw std::logic_error(WL_ERROR_BAD_UTF8_CODEPOINT);
+        }
+        trailing_size += n_bytes - 1u;
+        byte_size += n_bytes;
+    }
+}
+template<bool CheckValid = false>
+size_t get_string_size(const char_t* str, const size_t byte_size)
+{
+    if constexpr (CheckValid)
+        return _get_string_size_check_valid_impl(str, byte_size);
+    else
+        return _get_string_size_impl(str, byte_size);
+}
+bool is_ascii_only(const char_t* str, const size_t byte_size)
+{
+    WL_THROW_IF_ABORT()
+#if defined(__AVX2__) || defined(__SSE4_1__)
+    using namespace wl::simd;
+#  if defined(__AVX2__)
+    using M = __m256i;
+#  else
+    using M = __m128i;
+#endif
+    const auto upper = set1<M>(int8_t(0b1100'0000));
+    size_t i_byte = 0u;
+    for (size_t i = 0u; i_byte + sizeof(M) < byte_size;
+        ++i, str += sizeof(M), i_byte += sizeof(M))
+    {
+        auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
+        if (tmask)
+            return false;
+    }
+    auto tmask = unsigned(movemask_epi8(loadu<M>(str)));
+    return !bool(uint64_t(tmask) << (64u - (byte_size - i_byte)));
+#else
+    size_t trailing_size = 0u;
+    for (size_t i = 0; i < byte_size; ++i)
+    {
+        if (int8_t(str[i]) < int8_t(0b1100'0000))
+            return true;
+    }
+    return false;
+#endif
+}
+struct string_iterator
+{
+    using iterator_category = std::bidirectional_iterator_tag;
+    using value_type = char21_t;
+    using difference_type = ptrdiff_t;
+    using pointer = void;
+    using reference = char21_t;
+    const char_t* ptr_;
+    string_iterator() : ptr_{nullptr}
+    {
+    }
+    string_iterator(const char_t* ptr) : ptr_{ptr}
+    {
+    }
+    WL_INLINE static bool _is_valid_codepoint_leading(uint8_t byte)
+    {
+        return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
+    }
+    WL_INLINE static bool _is_valid_codepoint_tailing(uint8_t byte)
+    {
+        return (byte & 0b1100'0000u) == 0b1000'0000u;
+    }
+    const char_t* get_pointer() const
+    {
+        return ptr_;
+    }
+    operator const char*() const
+    {
+        return (const char*)ptr_;
+    }
+    string_iterator& operator=(const utf8::char_t* other)
+    {
+        ptr_ = other;
+        return *this;
+    }
+    string_iterator& operator=(const char* other)
+    {
+        *this = (const utf8::char_t*)other;
+        return *this;
+    }
+    string_iterator& operator++()
+    {
+        ptr_ += num_bytes();
+        return *this;
+    }
+    string_iterator& operator--()
+    {
+        ptr_ -= previous_num_bytes();
+        return *this;
+    }
+    string_iterator operator++(int)
+    {
+        const auto copy = *this;
+        ++(*this);
+        return copy;
+    }
+    string_iterator operator--(int)
+    {
+        const auto copy = *this;
+        --(*this);
+        return copy;
+    }
+    string_iterator& operator+=(ptrdiff_t n)
+    {
+        apply_offset(n);
+        return *this;
+    }
+    string_iterator& operator-=(ptrdiff_t n)
+    {
+        apply_offset(-n);
+        return *this;
+    }
+    bool operator==(const string_iterator& other) const
+    {
+        return this->ptr_ == other.ptr_;
+    }
+    bool operator!=(const string_iterator& other) const
+    {
+        return this->ptr_ != other.ptr_;
+    }
+    bool operator<(const string_iterator& other) const
+    {
+        return this->ptr_ < other.ptr_;
+    }
+    bool operator>(const string_iterator& other) const
+    {
+        return this->ptr_ > other.ptr_;
+    }
+    bool operator<=(const string_iterator& other) const
+    {
+        return this->ptr_ <= other.ptr_;
+    }
+    bool operator>=(const string_iterator& other) const
+    {
+        return this->ptr_ >= other.ptr_;
+    }
+    ptrdiff_t operator-(const string_iterator& other) const
+    {
+        bool this_is_behind = this->ptr_ > other.ptr_;
+        const auto* begin = this_is_behind ? other.ptr_ : this->ptr_;
+        const auto* end = this_is_behind ? this->ptr_ : other.ptr_;
+        assert(_is_valid_codepoint_leading(*begin));
+        assert(_is_valid_codepoint_leading(*end));
+        ptrdiff_t n = 0;
+        for (; begin != end; ++begin)
+            n += ptrdiff_t(_is_valid_codepoint_leading(*begin));
+        return this_is_behind ? n : -n;
+    }
+    char21_t operator*() const
+    {
+        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
+        switch (num_bytes())
+        {
+        case 1:
+            return char21_t(ptr_[0]);
+        case 2:
+            return char21_t(
+                ((ptr_[0] & 0b0001'1111) << 6) |
+                ((ptr_[1] & 0b0011'1111)));
+        case 3:
+            return char21_t(
+                ((ptr_[0] & 0b0000'1111) << 12) |
+                ((ptr_[1] & 0b0011'1111) << 6) |
+                ((ptr_[2] & 0b0011'1111)));
+        case 4:
+            return char21_t(
+                ((ptr_[0] & 0b0000'0111) << 18) |
+                ((ptr_[1] & 0b0011'1111) << 12) |
+                ((ptr_[2] & 0b0011'1111) << 6) |
+                ((ptr_[3] & 0b0011'1111)));
+        default:
+            return char21_t(0);
+        }
+    }
+    ptrdiff_t byte_difference(const string_iterator& other) const
+    {
+        return ptrdiff_t(this->ptr_ - other.ptr_);
+    }
+    void apply_pointer_offset(ptrdiff_t n)
+    {
+        ptr_ += n;
+    }
+    void apply_offset(ptrdiff_t n)
+    {
+        if (n >= 0)
+        {
+            for (ptrdiff_t i = 0u; i < n;)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
+        }
+        else
+        {
+            for (ptrdiff_t i = 0u; i < n;)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
+        }
+    }
+    void apply_offset(ptrdiff_t n, const string_iterator& end)
+    {
+        if (n >= 0)
+        {
+            for (ptrdiff_t i = 0u; (i < n) && (ptr_ <= end.ptr_);)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*++ptr_));
+        }
+        else
+        {
+            for (ptrdiff_t i = 0u; (i < -n) && (ptr_ >= end.ptr_);)
+                i += ptrdiff_t(_is_valid_codepoint_leading(*--ptr_));
+        }
+    }
+    size_t previous_num_bytes() const
+    {
+        if (ptr_[-1] < 0b1000'0000u)
+        {
+            return 1u;
+        }
+        else if (ptr_[-2] >= 0b1100'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[-1]));
+            return 2u;
+        }
+        else if (ptr_[-3] >= 0b1100'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[-1]));
+            assert(_is_valid_codepoint_tailing(ptr_[-2]));
+            return 3u;
+        }
+        else
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[-1]));
+            assert(_is_valid_codepoint_tailing(ptr_[-2]));
+            assert(_is_valid_codepoint_tailing(ptr_[-3]));
+            assert((*ptr_ > 0u) && _is_valid_codepoint_leading(ptr_[-4]));
+            return 4u;
+        }
+    }
+    size_t num_bytes() const
+    {
+        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
+        if (*ptr_ < 0b1000'0000u)
+        {
+            return 1u;
+        }
+        else if (*ptr_ < 0b1110'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[1]));
+            return 2u;
+        }
+        else if (*ptr_ < 0b1111'0000u)
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[1]));
+            assert(_is_valid_codepoint_tailing(ptr_[2]));
+            return 3u;
+        }
+        else
+        {
+            assert(_is_valid_codepoint_tailing(ptr_[1]));
+            assert(_is_valid_codepoint_tailing(ptr_[2]));
+            assert(_is_valid_codepoint_tailing(ptr_[3]));
+            return 4u;
+        }
+    }
+};
+}
+enum class trilean_t : uint8_t
+{
+    True,
+    False,
+    Unknown
+};
+struct u8string_view
+{
+    using iterator = utf8::string_iterator;
+    static constexpr ptrdiff_t string_size_unknown = -1;
+    iterator begin_{};
+    iterator end_{};
+    mutable trilean_t ascii_only_ = trilean_t::Unknown;
+    mutable ptrdiff_t string_size_ = string_size_unknown;
+    u8string_view() = default;
+    u8string_view(iterator begin, iterator end) :
+        begin_{begin}, end_{end}
+    {
+        assert(begin <= end);
+    }
+    u8string_view(iterator begin, iterator end, bool ascii_only) :
+        u8string_view{begin, end}
+    {
+        ascii_only_ = ascii_only ? trilean_t::True : trilean_t::False;
+        if (ascii_only)
+            string_size_ = byte_size();
+    }
+    u8string_view(iterator begin, iterator end, size_t string_size) :
+        u8string_view{begin, end}
+    {
+        string_size_ = string_size;
+        ascii_only_ = (size() == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+    }
+    template<typename CharT>
+    u8string_view(const CharT* begin, const CharT* end) :
+        begin_{(const utf8::char_t*)begin}, end_{(const utf8::char_t*)end}
+    {
+        static_assert(sizeof(CharT) == 1u, WL_ERROR_INTERNAL);
+    }
+    const utf8::char_t* byte_data() const
+    {
+        return begin_.get_pointer();
+    }
+    size_t byte_size() const
+    {
+        return size_t(end_.byte_difference(begin_));
+    }
+    const utf8::char_t* byte_begin() const
+    {
+        return byte_data();
+    }
+    const utf8::char_t* byte_end() const
+    {
+        return byte_data() + byte_size();
+    }
+    size_t size() const
+    {
+        if (string_size_ == string_size_unknown)
+            string_size_ = utf8::get_string_size(byte_data(), byte_size());
+        ascii_only_ = (string_size_ == byte_size()) ?
+            trilean_t::True : trilean_t::False;
+        return string_size_;
+    }
+    const char* c_str() const
+    {
+        return reinterpret_cast<const char*>(byte_data());
+    }
+    iterator begin() const
+    {
+        return begin_;
+    }
+    iterator end() const
+    {
+        return end_;
+    }
+    WL_INLINE trilean_t* _ascii_only_ptr() const
+    {
+        return &ascii_only_;
+    }
+    bool ascii_only() const
+    {
+        auto only = _ascii_only_ptr();
+        if (*only == trilean_t::Unknown)
+        {
+            if (utf8::is_ascii_only(byte_data(), byte_size()))
+                *only = trilean_t::True;
+            else
+                *only = trilean_t::False;
+        }
+        return *only == trilean_t::True ? true : false;
+    }
+};
+union u8string
+{
+    static constexpr size_t small_string_byte_size = 28u; // excluding \0
+    static_assert(sizeof(char) == 1u, WL_ERROR_SIZEOF_CHAR);
+    using iterator = utf8::string_iterator;
+    
+    struct static_t
+    {
+        static constexpr size_t capacity_ = small_string_byte_size;
+        bool is_static_ = true;
+        mutable trilean_t ascii_only_ = trilean_t::Unknown;
+        uint8_t byte_size_ = 0u;
+        utf8::char_t string_[small_string_byte_size + 1u];
+        static_t() = default;
+        static_t(size_t byte_size, trilean_t ascii_only) :
+            byte_size_{uint8_t(byte_size)}, ascii_only_{ascii_only}
+        {
+            assert(byte_size_ <= capacity_);
+        }
+        void place_null_character()
+        {
+            string_[byte_size_] = utf8::null_character;
+        }
+        template<bool PlaceNull = true, bool UpdateASCII = true>
+        void push(utf8::char_t ch)
+        {
+            assert(byte_size_ + 1u <= size_t(capacity_));
+            string_[byte_size_++] = ch;
+            if constexpr (UpdateASCII)
+                if (!utf8::is_ascii(ch))
+                    ascii_only_ = trilean_t::False;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+        template<bool PlaceNull = true>
+        void push(const utf8::char_t* ch, size_t size)
+        {
+            assert(byte_size_ + size <= size_t(capacity_));
+            utils::restrict_copy_n(ch, size, string_ + byte_size_);
+            byte_size_ += uint8_t(size);
+            ascii_only_ = trilean_t::Unknown;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+    };
+    struct dynamic_t
+    {
+        bool is_static_ = false;
+        mutable trilean_t ascii_only_ = trilean_t::Unknown;
+        uint64_t byte_size_ = 0u;
+        uint64_t capacity_ = 0u;
+        utf8::char_t* string_ = nullptr;
+        dynamic_t(size_t byte_size, trilean_t ascii_only) :
+            byte_size_{byte_size}, ascii_only_{ascii_only}
+        {
+            resize_buffer(byte_size_);
+        }
+        dynamic_t(size_t byte_size, size_t capacity, trilean_t ascii_only) :
+            byte_size_{byte_size}, ascii_only_{ascii_only}
+        {
+            capacity = std::max(byte_size, capacity);
+            resize_buffer(capacity);
+        }
+        ~dynamic_t()
+        {
+            free_buffer();
+        }
+        dynamic_t(const dynamic_t& other)
+        {
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            resize_buffer(byte_size_);
+            std::copy_n(other.string_, byte_size_ + 1u, string_);
+        }
+        dynamic_t(dynamic_t&& other)
+        {
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            std::swap(string_, other.string_);
+            std::swap(capacity_, other.capacity_);
+        }
+        dynamic_t& operator=(const dynamic_t& other)
+        {
+            free_buffer();
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            resize_buffer(byte_size_);
+            std::copy_n(other.string_, byte_size_ + 1u, string_);
+            return *this;
+        }
+        dynamic_t& operator=(dynamic_t&& other)
+        {
+            ascii_only_ = other.ascii_only_;
+            byte_size_  = other.byte_size_;
+            std::swap(string_, other.string_);
+            std::swap(capacity_, other.capacity_);
+            return *this;
+        }
+        void place_null_character()
+        {
+            string_[byte_size_] = utf8::null_character;
+        }
+        template<bool PlaceNull = true, bool UpdateASCII = true>
+        void push(utf8::char_t ch)
+        {
+            if (byte_size_ >= capacity_)
+                grow_buffer();
+            assert(byte_size_ + 1u <= capacity_);
+            string_[byte_size_++] = ch;
+            if constexpr (UpdateASCII)
+                if (!utf8::is_ascii(ch))
+                    ascii_only_ = trilean_t::False;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+        template<bool PlaceNull = true>
+        void push(const utf8::char_t* ch, size_t size)
+        {
+            if (byte_size_ + size > capacity_)
+                grow_buffer(size);
+            assert(byte_size_ + size <= capacity_);
+            utils::restrict_copy_n(ch, size, string_ + byte_size_);
+            byte_size_ += uint8_t(size);
+            ascii_only_ = trilean_t::Unknown;
+            if constexpr (PlaceNull)
+                place_null_character();
+        }
+        void resize_buffer(size_t new_capacity)
+        {
+            if (new_capacity <= capacity_)
+                return;
+            auto new_buffer_size = new_capacity + 1u;
+            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
+            if (!storage)
+                throw std::bad_alloc();
+            string_ = storage;
+            capacity_ = new_capacity;
+        }
+        void grow_buffer(size_t extra = 0u)
+        {
+            auto new_buffer_size = capacity_ + 1u;
+            new_buffer_size += std::max(size_t(capacity_ + 1u), extra);
+            auto storage = (uint8_t*)std::realloc(string_, new_buffer_size);
+            if (!storage)
+                throw std::bad_alloc();
+            string_ = storage;
+            capacity_ = new_buffer_size - 1u;
+        }
+        void free_buffer()
+        {
+            assert(string_);
+            std::free(string_);
+            string_ = nullptr;
+            capacity_ = 0u;
+        }
+    };
+    
+    static_assert(sizeof(bool) == 1u, WL_ERROR_INTERNAL);
+    static_assert(sizeof(static_t) == 32u, WL_ERROR_INTERNAL);
+    static_assert(sizeof(dynamic_t) == 32u, WL_ERROR_INTERNAL);
+    static_t  static_;
+    dynamic_t dynamic_;
+    u8string()
+    {
+        new(&static_) static_t(0u, trilean_t::True);
+        static_.place_null_character();
+        assert(check_validity());
+    }
+    explicit u8string(size_t byte_size)
+    {
+        if (byte_size <= small_string_byte_size)
+        {
+            new(&static_) static_t(byte_size, trilean_t::Unknown);
+            static_.place_null_character();
+        }
+        else
+        {
+            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
+            dynamic_.place_null_character();
+        }
+    }
+    explicit u8string(size_t byte_size, bool ascii_only) : u8string(byte_size)
+    {
+        set_ascii_only(ascii_only);
+    }
+    u8string(const iterator& begin, const iterator& end) :
+        u8string(begin.get_pointer(), end.byte_difference(begin))
+    {
+    }
+    u8string(const iterator& begin, const iterator& end, bool ascii_only) :
+        u8string(begin.get_pointer(), end.byte_difference(begin), ascii_only)
+    {
+    }
+    u8string(const utf8::char_t* str, const size_t byte_size)
+    {
+        assert(ptrdiff_t(byte_size) >= 0);
+        if (byte_size <= small_string_byte_size)
+        {
+            new(&static_) static_t(byte_size, trilean_t::Unknown);
+            if (byte_size > 0)
+                utils::restrict_copy_n(str, byte_size, static_.string_);
+            static_.place_null_character();
+        }
+        else
+        {
+            new(&dynamic_) dynamic_t(byte_size, trilean_t::Unknown);
+            utils::restrict_copy_n(str, byte_size, dynamic_.string_);
+            dynamic_.place_null_character();
+        }
+        assert(check_validity());
+    }
+    u8string(const utf8::char_t* str, const size_t byte_size,
+        bool ascii_only) : u8string(str, byte_size)
+    {
+        set_ascii_only(ascii_only);
+        assert(check_validity());
+    }
+    template<size_t N>
+    explicit u8string(const char(&str)[N]) :
+        u8string((const utf8::char_t*)str, N - 1u)
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        assert(check_validity());
+    }
+    template<size_t N>
+    explicit u8string(const char(&str)[N], bool ascii_only) : u8string(str)
+    {
+        set_ascii_only(ascii_only);
+        assert(check_validity());
+    }
+    explicit u8string(const u8string_view& other) :
+        u8string(other.byte_begin(), other.byte_size())
+    {
+    }
+    explicit u8string(const char* str) :
+        u8string((const utf8::char_t*)str, std::strlen(str))
+    {
+        assert(check_validity());
+    }
+    u8string(const u8string& other) : u8string()
+    {
+        copy_from(other);
+        assert(check_validity());
+    }
+    u8string(u8string&& other) : u8string()
+    {
+        swap_with(other);
+        assert(check_validity());
+    }
+    ~u8string()
+    {
+        destroy();
+    }
+    u8string& operator=(const u8string& other)
+    {
+        destroy();
+        copy_from(other);
+        return *this;
+    }
+    u8string& operator=(u8string&& other)
+    {
+        swap_with(other);
+        return *this;
+    }
+    void destroy()
+    {
+        if (!is_static())
+            dynamic_.~dynamic_t();
+    }
+    void swap_with(u8string& other)
+    {
+        char buffer[sizeof(u8string)];
+        std::memcpy(buffer, &other, sizeof(u8string));
+        std::memcpy(&other, this, sizeof(u8string));
+        std::memcpy(this, buffer, sizeof(u8string));
+    }
+    void copy_from(const u8string& other)
+    {
+        if (other.is_static())
+        {
+            new(&static_) static_t(other.static_);
+        }
+        else
+        {
+            const auto byte_size = other.byte_size();
+            if (byte_size <= small_string_byte_size)
+            { // convert to static
+                new(&static_) static_t(byte_size, other.static_.ascii_only_);
+                utils::restrict_copy_n(
+                    other.byte_data(), byte_size + 1u, byte_data());
+            }
+            else
+            { // remain dynamic
+                new(&dynamic_) dynamic_t(byte_size, other.static_.ascii_only_);
+                utils::restrict_copy_n(
+                    other.byte_data(), byte_size + 1u, byte_data());
+            }
+        }
+    }
+    void set_dynamic_capacity(size_t capacity)
+    {
+        if (is_static())
+        {
+            const auto copy = static_;
+            const auto byte_size = copy.byte_size_;
+            const auto ascii_only = copy.ascii_only_;
+            new(&dynamic_) dynamic_t(byte_size, capacity, ascii_only);
+            utils::restrict_copy_n(
+                copy.string_, size_t(byte_size) + 1u, dynamic_.string_);
+            dynamic_.ascii_only_ = copy.ascii_only_;
+        }
+        else
+        {
+            dynamic_.resize_buffer(capacity);
+        }
+    }
+    WL_INLINE bool is_static() const
+    {
+        bool value;
+        std::memcpy(&value, &static_.is_static_, sizeof(bool));
+        return value;
+    }
+    WL_INLINE size_t byte_size() const
+    {
+        return is_static() ? static_.byte_size_ : dynamic_.byte_size_;
+    }
+    WL_INLINE size_t capacity() const
+    {
+        return is_static() ? static_.capacity_ : dynamic_.capacity_;
+    }
+    WL_INLINE size_t size() const
+    {
+        size_t string_size = 0;
+        if (is_static())
+        {
+            if (static_.ascii_only_ == trilean_t::True)
+                return static_.byte_size_;
+            else
+                string_size = utf8::get_string_size(
+                    static_.string_, static_.byte_size_);
+        }
+        else
+        {
+            if (dynamic_.ascii_only_ == trilean_t::True)
+                return dynamic_.byte_size_;
+            else
+                string_size = utf8::get_string_size(
+                    dynamic_.string_, dynamic_.byte_size_);
+        }
+        set_ascii_only(string_size == byte_size());
+        return string_size;
+    }
+    WL_INLINE utf8::char_t* byte_data()
+    {
+        return is_static() ? static_.string_ : dynamic_.string_;
+    }
+    WL_INLINE const utf8::char_t* byte_data() const
+    {
+        return is_static() ? static_.string_ : dynamic_.string_;
+    }
+    WL_INLINE const char* c_str() const
+    {
+        return reinterpret_cast<const char*>(byte_data());
+    }
+    WL_INLINE trilean_t* _ascii_only_ptr() const
+    {
+        return is_static() ? &static_.ascii_only_ : &dynamic_.ascii_only_;
+    }
+    bool ascii_only() const
+    {
+        auto only = _ascii_only_ptr();
+        if (*only == trilean_t::Unknown)
+        {
+            if (utf8::is_ascii_only(byte_data(), byte_size()))
+                *only = trilean_t::True;
+            else
+                *only = trilean_t::False;
+        }
+        return *only == trilean_t::True ? true : false;
+    }
+    void set_ascii_only(bool ascii_only) const
+    {
+        *_ascii_only_ptr() = ascii_only ? trilean_t::True : trilean_t::False;
+    }
+    utf8::char_t* byte_begin()
+    {
+        return byte_data();
+    }
+    utf8::char_t* byte_end()
+    {
+        return byte_data() + byte_size();
+    }
+    const utf8::char_t* byte_begin() const
+    {
+        return byte_data();
+    }
+    const utf8::char_t* byte_end() const
+    {
+        return byte_data() + byte_size();
+    }
+    iterator begin() const
+    {
+        return iterator{byte_begin()};
+    }
+    iterator end() const
+    {
+        return iterator{byte_end()};
+    }
+    operator u8string_view() const
+    {
+        return u8string_view{begin(), end()};
+    }
+    void place_null_character()
+    {
+        if (is_static())
+            static_.place_null_character();
+        else
+            dynamic_.place_null_character();
+    }
+    template<bool PlaceNull = true>
+    void append(const utf8::char_t* str, const size_t append_size)
+    {
+        const size_t new_byte_size = byte_size() + append_size;
+        if (is_static())
+        {
+            if (new_byte_size > small_string_byte_size)
+            {
+                set_dynamic_capacity(new_byte_size);
+                assert(!is_static());
+                dynamic_.push<PlaceNull>(str, append_size);
+            }
+            else
+            {
+                static_.push<PlaceNull>(str, append_size);
+            }
+        }
+        else
+        {
+            dynamic_.push<PlaceNull>(str, append_size);
+        }
+    }
+    template<bool PlaceNull = true, bool UpdateASCII = true>
+    void append(const utf8::char_t ch)
+    {
+        const size_t new_byte_size = byte_size() + 1u;
+        if (is_static())
+        {
+            if (new_byte_size > small_string_byte_size)
+            {
+                set_dynamic_capacity(new_byte_size);
+                assert(!is_static());
+                dynamic_.push<PlaceNull, UpdateASCII>(ch);
+            }
+            else
+            {
+                static_.push<PlaceNull, UpdateASCII>(ch);
+            }
+        }
+        else
+        {
+            dynamic_.push<PlaceNull, UpdateASCII>(ch);
+        }
+    }
+    template<bool PlaceNull = true>
+    u8string& join(const u8string& other)
+    {
+        append<PlaceNull>(other.byte_data(), other.byte_size());
+        return *this;
+    }
+    template<bool PlaceNull = true, size_t N>
+    u8string& join(const char(&str)[N])
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        append<PlaceNull>((const utf8::char_t*)str, N - 1u);
+        return *this;
+    }
+    template<bool PlaceNull = true>
+    u8string& join(const u8string_view& other)
+    {
+        append<PlaceNull>(other.byte_data(), other.byte_size());
+        return *this;
+    }
+    bool check_validity() const
+    {
+        if (capacity() < byte_size())
+        {
+            return false;
+        }
+        try
+        {
+            utf8::get_string_size<true>(byte_data(), byte_size());
+            return true;
+        }
+        catch (std::logic_error&)
+        {
+            return false;
+        }
+    }
+    std::string _ascii_string() const
+    {
+        std::string str(size(), ' ');
+        const size_t size = this->size();
+        auto begin = this->begin();
+        auto end = this->end();
+        for (size_t i = 0; i < size; ++i, ++begin)
+        {
+            const auto cp = *begin;
+            str[i] = cp > 128u ? '?' : char(cp);
+        }
+        assert(begin == end);
+        return str;
+    }
+    std::string _string_info() const
+    {
+        std::string info = "{ ";
+        info += "is_static=" +
+            std::string(is_static() ? "true" : "false") + ", ";
+        info += "ascii_only=" +
+            std::string(ascii_only() ? "true" : "false") + ", ";
+        info += "size=" + std::to_string(size()) + ", ";
+        info += "byte_size=" + std::to_string(byte_size()) + ", ";
+        info += "capacity=" + std::to_string(capacity()) + ", ";
+        info += "content=";
+        info += _ascii_string();
+        info += " }";
+        return info;
+    }
+};
+}
+namespace wl
+{
+template<int64_t Id, typename Pattern>
+struct _named_pattern
+{
+    Pattern pattern;
+};
+template<int64_t Id>
+struct _named_replacement
+{
+};
+template<typename... Head>
+struct _pattern_blank
+{
+    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
+};
+template<typename... Head>
+struct _pattern_blank_sequence
+{
+    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
+};
+template<typename... Head>
+struct _pattern_blank_null_sequence
+{
+    static_assert(sizeof...(Head) <= 1u, WL_ERROR_INTERNAL);
+};
+template<typename... Patterns>
+struct _pattern_alternatives
+{
+    static constexpr size_t size = sizeof...(Patterns);
+    std::tuple<Patterns...> patterns;
+    template<size_t I>
+    auto get() const & -> const auto&
+    {
+        return std::get<I>(patterns);
+    }
+    template<size_t I>
+    auto get() &&
+    {
+        return std::get<I>(patterns);
+    }
+};
+template<typename Pattern>
+struct _pattern_repeated
+{
+    Pattern pattern;
+    size_t min;
+    size_t max;
+    bool max_is_infinity() const
+    {
+        return max == size_t(const_int_infinity);
+    }
+};
+template<typename Pattern>
+struct _pattern_except
+{
+    Pattern pattern;
+};
+template<typename Pattern>
+struct _pattern_longest
+{
+    Pattern pattern;
+};
+template<typename Pattern>
+struct _pattern_shortest
+{
+    Pattern pattern;
+};
+template<typename Left, typename Right>
+struct _pattern_rule
+{
+    Left left;
+    Right right;
+};
+template<typename... Patterns>
+struct _string_expression
+{
+    std::tuple<Patterns...> patterns;
+    template<size_t I>
+    auto get() const &
+    {
+        return std::get<I>(patterns);
+    }
+    template<size_t I>
+    auto get() &&
+    {
+        return std::get<I>(std::move(patterns));
+    }
+};
+template<typename Pattern, typename Condition>
+struct _condition
+{
+    Pattern pattern;
+    Condition condition;
+};
+template<int64_t Id, typename Pattern>
+auto pattern(const_int<Id>, Pattern&& pattern)
+{
+    return _named_pattern<Id, remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Left, typename Right>
+auto rule(Left&& left, Right&& right)
+{
+    return _pattern_rule<remove_cvref_t<Left>, remove_cvref_t<Right>>{
+        std::forward<decltype(left)>(left),
+        std::forward<decltype(right)>(right)};
+}
+template<typename Left, typename Right>
+auto rule_delayed(Left&& left, Right&& right)
+{
+    return rule(std::forward<decltype(left)>(left),
+            std::forward<decltype(right)>(right));
+}
+template<typename... Head>
+auto blank(const Head&...)
+{
+    return _pattern_blank<Head...>{};
+}
+template<typename... Head>
+auto blank_sequence(const Head&...)
+{
+    return _pattern_blank_sequence<Head...>{};
+}
+template<typename... Head>
+auto blank_null_sequence(const Head&...)
+{
+    return _pattern_blank_null_sequence<Head...>{};
+}
+template<typename... Patterns>
+auto alternatives(Patterns&&... patterns)
+{
+    return _pattern_alternatives<remove_cvref_t<Patterns>...>{
+        std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
+}
+template<typename Pattern, typename Spec>
+auto _repeated_impl(Pattern&& pattern, const Spec min, const Spec max)
+{
+    if (max < min || min < Spec(0))
+        throw std::logic_error(WL_ERROR_REPEATED_INVALID_SPEC);
+    return _pattern_repeated<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern), size_t(min), size_t(max)};
+}
+template<typename Pattern, typename Spec>
+auto repeated(Pattern&& pattern, const Spec& spec)
+{
+    if constexpr (array_rank_v<Spec> == 0u)
+    {
+        static_assert(is_integral_v<Spec>, WL_ERROR_REPEATED_SPEC);
+        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+            Spec(1), spec);
+    }
+    else
+    {
+        using XV = value_type_t<Spec>;
+        static_assert(array_rank_v<Spec> == 1u && is_integral_v<XV>,
+            WL_ERROR_REPEATED_SPEC);
+        if (spec.size() != 2u)
+            throw std::logic_error(WL_ERROR_REPEATED_SPEC);
+        std::array<XV, 2u> valspec;
+        spec.copy_to(valspec.data());
+        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+            valspec[0], valspec[1]);
+    }
+}
+template<typename Pattern>
+auto repeated(Pattern&& pattern)
+{
+    return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+        size_t(1), size_t(const_int_infinity));
+}
+template<typename Pattern, typename Spec>
+auto repeated_null(Pattern&& pattern, const Spec& spec)
+{
+    if constexpr (array_rank_v<Spec> == 0u)
+    {
+        static_assert(is_integral_v<Spec>, WL_ERROR_REPEATED_SPEC);
+        return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+            Spec(0), spec);
+    }
+    else
+    {
+        return repeated(std::forward<decltype(pattern)>(pattern), spec);
+    }
+}
+template<typename Pattern>
+auto repeated_null(Pattern&& pattern)
+{
+    return _repeated_impl(std::forward<decltype(pattern)>(pattern),
+        size_t(0), size_t(const_int_infinity));
+}
+template<typename Pattern>
+auto except(Pattern&& pattern)
+{
+    return _pattern_except<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern>
+auto longest(Pattern&& pattern)
+{
+    return _pattern_longest<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern>
+auto shortest(Pattern&& pattern)
+{
+    return _pattern_shortest<remove_cvref_t<Pattern>>{
+        std::forward<decltype(pattern)>(pattern)};
+}
+template<typename Pattern, typename Condition>
+auto condition(Pattern&& pattern, Condition&& condition)
+{
+    return _condition<remove_cvref_t<Pattern>, remove_cvref_t<Condition>>{
+        std::forward<decltype(pattern)>(pattern),
+        std::forward<decltype(condition)>(condition)};
+}
+template<int64_t Id>
+auto _replacement(const_int<Id>)
+{
+    return _named_replacement<Id>{};
+}
+template<typename... Patterns>
+auto string_expression(Patterns&&... patterns)
+{
+    return _string_expression<remove_cvref_t<Patterns>...>{
+        std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
+}
+}
+#define PCRE2_STATIC 1
+#define PCRE2_CODE_UNIT_WIDTH 8
+/*************************************************
+*       Perl-Compatible Regular Expressions      *
+*************************************************/
+/* This is the public header file for the PCRE library, second API, to be
+#included by applications that call PCRE2 functions.
+           Copyright (c) 2016-2019 University of Cambridge
+-----------------------------------------------------------------------------
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the University of Cambridge nor the names of its
+      contributors may be used to endorse or promote products derived from
+      this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+-----------------------------------------------------------------------------
+*/
+#ifndef PCRE2_H_IDEMPOTENT_GUARD
+#define PCRE2_H_IDEMPOTENT_GUARD
+/* The current PCRE version information. */
+#define PCRE2_MAJOR           10
+#define PCRE2_MINOR           34
+#define PCRE2_PRERELEASE      
+#define PCRE2_DATE            2019-11-21
+/* When an application links to a PCRE DLL in Windows, the symbols that are
+imported have to be identified as such. When building PCRE2, the appropriate
+export setting is defined in pcre2_internal.h, which includes this file. So we
+don't change existing definitions of PCRE2_EXP_DECL. */
+#if defined(_WIN32) && !defined(PCRE2_STATIC)
+#  ifndef PCRE2_EXP_DECL
+#    define PCRE2_EXP_DECL  extern __declspec(dllimport)
+#  endif
+#endif
+/* By default, we use the standard "extern" declarations. */
+#ifndef PCRE2_EXP_DECL
+#  ifdef __cplusplus
+#    define PCRE2_EXP_DECL  extern "C"
+#  else
+#    define PCRE2_EXP_DECL  extern
+#  endif
+#endif
+/* When compiling with the MSVC compiler, it is sometimes necessary to include
+a "calling convention" before exported function names. (This is secondhand
+information; I know nothing about MSVC myself). For example, something like
+  void __cdecl function(....)
+might be needed. In order so make this easy, all the exported functions have
+PCRE2_CALL_CONVENTION just before their names. It is rarely needed; if not
+set, we ensure here that it has no effect. */
+#ifndef PCRE2_CALL_CONVENTION
+#define PCRE2_CALL_CONVENTION
+#endif
+/* Have to include limits.h, stdlib.h, and inttypes.h to ensure that size_t and
+uint8_t, UCHAR_MAX, etc are defined. Some systems that do have inttypes.h do
+not have stdint.h, which is why we use inttypes.h, which according to the C
+standard is a superset of stdint.h. If none of these headers are available,
+the relevant values must be provided by some other means. */
+/* Allow for C++ users compiling this directly. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+/* The following option bits can be passed to pcre2_compile(), pcre2_match(),
+or pcre2_dfa_match(). PCRE2_NO_UTF_CHECK affects only the function to which it
+is passed. Put these bits at the most significant end of the options word so
+others can be added next to them */
+#define PCRE2_ANCHORED            0x80000000u
+#define PCRE2_NO_UTF_CHECK        0x40000000u
+#define PCRE2_ENDANCHORED         0x20000000u
+/* The following option bits can be passed only to pcre2_compile(). However,
+they may affect compilation, JIT compilation, and/or interpretive execution.
+The following tags indicate which:
+C   alters what is compiled by pcre2_compile()
+J   alters what is compiled by pcre2_jit_compile()
+M   is inspected during pcre2_match() execution
+D   is inspected during pcre2_dfa_match() execution
+*/
+#define PCRE2_ALLOW_EMPTY_CLASS   0x00000001u  /* C       */
+#define PCRE2_ALT_BSUX            0x00000002u  /* C       */
+#define PCRE2_AUTO_CALLOUT        0x00000004u  /* C       */
+#define PCRE2_CASELESS            0x00000008u  /* C       */
+#define PCRE2_DOLLAR_ENDONLY      0x00000010u  /*   J M D */
+#define PCRE2_DOTALL              0x00000020u  /* C       */
+#define PCRE2_DUPNAMES            0x00000040u  /* C       */
+#define PCRE2_EXTENDED            0x00000080u  /* C       */
+#define PCRE2_FIRSTLINE           0x00000100u  /*   J M D */
+#define PCRE2_MATCH_UNSET_BACKREF 0x00000200u  /* C J M   */
+#define PCRE2_MULTILINE           0x00000400u  /* C       */
+#define PCRE2_NEVER_UCP           0x00000800u  /* C       */
+#define PCRE2_NEVER_UTF           0x00001000u  /* C       */
+#define PCRE2_NO_AUTO_CAPTURE     0x00002000u  /* C       */
+#define PCRE2_NO_AUTO_POSSESS     0x00004000u  /* C       */
+#define PCRE2_NO_DOTSTAR_ANCHOR   0x00008000u  /* C       */
+#define PCRE2_NO_START_OPTIMIZE   0x00010000u  /*   J M D */
+#define PCRE2_UCP                 0x00020000u  /* C J M D */
+#define PCRE2_UNGREEDY            0x00040000u  /* C       */
+#define PCRE2_UTF                 0x00080000u  /* C J M D */
+#define PCRE2_NEVER_BACKSLASH_C   0x00100000u  /* C       */
+#define PCRE2_ALT_CIRCUMFLEX      0x00200000u  /*   J M D */
+#define PCRE2_ALT_VERBNAMES       0x00400000u  /* C       */
+#define PCRE2_USE_OFFSET_LIMIT    0x00800000u  /*   J M D */
+#define PCRE2_EXTENDED_MORE       0x01000000u  /* C       */
+#define PCRE2_LITERAL             0x02000000u  /* C       */
+#define PCRE2_MATCH_INVALID_UTF   0x04000000u  /*   J M D */
+/* An additional compile options word is available in the compile context. */
+#define PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES  0x00000001u  /* C */
+#define PCRE2_EXTRA_BAD_ESCAPE_IS_LITERAL    0x00000002u  /* C */
+#define PCRE2_EXTRA_MATCH_WORD               0x00000004u  /* C */
+#define PCRE2_EXTRA_MATCH_LINE               0x00000008u  /* C */
+#define PCRE2_EXTRA_ESCAPED_CR_IS_LF         0x00000010u  /* C */
+#define PCRE2_EXTRA_ALT_BSUX                 0x00000020u  /* C */
+/* These are for pcre2_jit_compile(). */
+#define PCRE2_JIT_COMPLETE        0x00000001u  /* For full matching */
+#define PCRE2_JIT_PARTIAL_SOFT    0x00000002u
+#define PCRE2_JIT_PARTIAL_HARD    0x00000004u
+#define PCRE2_JIT_INVALID_UTF     0x00000100u
+/* These are for pcre2_match(), pcre2_dfa_match(), pcre2_jit_match(), and
+pcre2_substitute(). Some are allowed only for one of the functions, and in
+these cases it is noted below. Note that PCRE2_ANCHORED, PCRE2_ENDANCHORED and
+PCRE2_NO_UTF_CHECK can also be passed to these functions (though
+pcre2_jit_match() ignores the latter since it bypasses all sanity checks). */
+#define PCRE2_NOTBOL                      0x00000001u
+#define PCRE2_NOTEOL                      0x00000002u
+#define PCRE2_NOTEMPTY                    0x00000004u  /* ) These two must be kept */
+#define PCRE2_NOTEMPTY_ATSTART            0x00000008u  /* ) adjacent to each other. */
+#define PCRE2_PARTIAL_SOFT                0x00000010u
+#define PCRE2_PARTIAL_HARD                0x00000020u
+#define PCRE2_DFA_RESTART                 0x00000040u  /* pcre2_dfa_match() only */
+#define PCRE2_DFA_SHORTEST                0x00000080u  /* pcre2_dfa_match() only */
+#define PCRE2_SUBSTITUTE_GLOBAL           0x00000100u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_EXTENDED         0x00000200u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_UNSET_EMPTY      0x00000400u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_UNKNOWN_UNSET    0x00000800u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_OVERFLOW_LENGTH  0x00001000u  /* pcre2_substitute() only */
+#define PCRE2_NO_JIT                      0x00002000u  /* Not for pcre2_dfa_match() */
+#define PCRE2_COPY_MATCHED_SUBJECT        0x00004000u
+/* Options for pcre2_pattern_convert(). */
+#define PCRE2_CONVERT_UTF                    0x00000001u
+#define PCRE2_CONVERT_NO_UTF_CHECK           0x00000002u
+#define PCRE2_CONVERT_POSIX_BASIC            0x00000004u
+#define PCRE2_CONVERT_POSIX_EXTENDED         0x00000008u
+#define PCRE2_CONVERT_GLOB                   0x00000010u
+#define PCRE2_CONVERT_GLOB_NO_WILD_SEPARATOR 0x00000030u
+#define PCRE2_CONVERT_GLOB_NO_STARSTAR       0x00000050u
+/* Newline and \R settings, for use in compile contexts. The newline values
+must be kept in step with values set in config.h and both sets must all be
+greater than zero. */
+#define PCRE2_NEWLINE_CR          1
+#define PCRE2_NEWLINE_LF          2
+#define PCRE2_NEWLINE_CRLF        3
+#define PCRE2_NEWLINE_ANY         4
+#define PCRE2_NEWLINE_ANYCRLF     5
+#define PCRE2_NEWLINE_NUL         6
+#define PCRE2_BSR_UNICODE         1
+#define PCRE2_BSR_ANYCRLF         2
+/* Error codes for pcre2_compile(). Some of these are also used by
+pcre2_pattern_convert(). */
+#define PCRE2_ERROR_END_BACKSLASH                  101
+#define PCRE2_ERROR_END_BACKSLASH_C                102
+#define PCRE2_ERROR_UNKNOWN_ESCAPE                 103
+#define PCRE2_ERROR_QUANTIFIER_OUT_OF_ORDER        104
+#define PCRE2_ERROR_QUANTIFIER_TOO_BIG             105
+#define PCRE2_ERROR_MISSING_SQUARE_BRACKET         106
+#define PCRE2_ERROR_ESCAPE_INVALID_IN_CLASS        107
+#define PCRE2_ERROR_CLASS_RANGE_ORDER              108
+#define PCRE2_ERROR_QUANTIFIER_INVALID             109
+#define PCRE2_ERROR_INTERNAL_UNEXPECTED_REPEAT     110
+#define PCRE2_ERROR_INVALID_AFTER_PARENS_QUERY     111
+#define PCRE2_ERROR_POSIX_CLASS_NOT_IN_CLASS       112
+#define PCRE2_ERROR_POSIX_NO_SUPPORT_COLLATING     113
+#define PCRE2_ERROR_MISSING_CLOSING_PARENTHESIS    114
+#define PCRE2_ERROR_BAD_SUBPATTERN_REFERENCE       115
+#define PCRE2_ERROR_NULL_PATTERN                   116
+#define PCRE2_ERROR_BAD_OPTIONS                    117
+#define PCRE2_ERROR_MISSING_COMMENT_CLOSING        118
+#define PCRE2_ERROR_PARENTHESES_NEST_TOO_DEEP      119
+#define PCRE2_ERROR_PATTERN_TOO_LARGE              120
+#define PCRE2_ERROR_HEAP_FAILED                    121
+#define PCRE2_ERROR_UNMATCHED_CLOSING_PARENTHESIS  122
+#define PCRE2_ERROR_INTERNAL_CODE_OVERFLOW         123
+#define PCRE2_ERROR_MISSING_CONDITION_CLOSING      124
+#define PCRE2_ERROR_LOOKBEHIND_NOT_FIXED_LENGTH    125
+#define PCRE2_ERROR_ZERO_RELATIVE_REFERENCE        126
+#define PCRE2_ERROR_TOO_MANY_CONDITION_BRANCHES    127
+#define PCRE2_ERROR_CONDITION_ASSERTION_EXPECTED   128
+#define PCRE2_ERROR_BAD_RELATIVE_REFERENCE         129
+#define PCRE2_ERROR_UNKNOWN_POSIX_CLASS            130
+#define PCRE2_ERROR_INTERNAL_STUDY_ERROR           131
+#define PCRE2_ERROR_UNICODE_NOT_SUPPORTED          132
+#define PCRE2_ERROR_PARENTHESES_STACK_CHECK        133
+#define PCRE2_ERROR_CODE_POINT_TOO_BIG             134
+#define PCRE2_ERROR_LOOKBEHIND_TOO_COMPLICATED     135
+#define PCRE2_ERROR_LOOKBEHIND_INVALID_BACKSLASH_C 136
+#define PCRE2_ERROR_UNSUPPORTED_ESCAPE_SEQUENCE    137
+#define PCRE2_ERROR_CALLOUT_NUMBER_TOO_BIG         138
+#define PCRE2_ERROR_MISSING_CALLOUT_CLOSING        139
+#define PCRE2_ERROR_ESCAPE_INVALID_IN_VERB         140
+#define PCRE2_ERROR_UNRECOGNIZED_AFTER_QUERY_P     141
+#define PCRE2_ERROR_MISSING_NAME_TERMINATOR        142
+#define PCRE2_ERROR_DUPLICATE_SUBPATTERN_NAME      143
+#define PCRE2_ERROR_INVALID_SUBPATTERN_NAME        144
+#define PCRE2_ERROR_UNICODE_PROPERTIES_UNAVAILABLE 145
+#define PCRE2_ERROR_MALFORMED_UNICODE_PROPERTY     146
+#define PCRE2_ERROR_UNKNOWN_UNICODE_PROPERTY       147
+#define PCRE2_ERROR_SUBPATTERN_NAME_TOO_LONG       148
+#define PCRE2_ERROR_TOO_MANY_NAMED_SUBPATTERNS     149
+#define PCRE2_ERROR_CLASS_INVALID_RANGE            150
+#define PCRE2_ERROR_OCTAL_BYTE_TOO_BIG             151
+#define PCRE2_ERROR_INTERNAL_OVERRAN_WORKSPACE     152
+#define PCRE2_ERROR_INTERNAL_MISSING_SUBPATTERN    153
+#define PCRE2_ERROR_DEFINE_TOO_MANY_BRANCHES       154
+#define PCRE2_ERROR_BACKSLASH_O_MISSING_BRACE      155
+#define PCRE2_ERROR_INTERNAL_UNKNOWN_NEWLINE       156
+#define PCRE2_ERROR_BACKSLASH_G_SYNTAX             157
+#define PCRE2_ERROR_PARENS_QUERY_R_MISSING_CLOSING 158
+/* Error 159 is obsolete and should now never occur */
+#define PCRE2_ERROR_VERB_ARGUMENT_NOT_ALLOWED      159
+#define PCRE2_ERROR_VERB_UNKNOWN                   160
+#define PCRE2_ERROR_SUBPATTERN_NUMBER_TOO_BIG      161
+#define PCRE2_ERROR_SUBPATTERN_NAME_EXPECTED       162
+#define PCRE2_ERROR_INTERNAL_PARSED_OVERFLOW       163
+#define PCRE2_ERROR_INVALID_OCTAL                  164
+#define PCRE2_ERROR_SUBPATTERN_NAMES_MISMATCH      165
+#define PCRE2_ERROR_MARK_MISSING_ARGUMENT          166
+#define PCRE2_ERROR_INVALID_HEXADECIMAL            167
+#define PCRE2_ERROR_BACKSLASH_C_SYNTAX             168
+#define PCRE2_ERROR_BACKSLASH_K_SYNTAX             169
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_LOOKBEHINDS  170
+#define PCRE2_ERROR_BACKSLASH_N_IN_CLASS           171
+#define PCRE2_ERROR_CALLOUT_STRING_TOO_LONG        172
+#define PCRE2_ERROR_UNICODE_DISALLOWED_CODE_POINT  173
+#define PCRE2_ERROR_UTF_IS_DISABLED                174
+#define PCRE2_ERROR_UCP_IS_DISABLED                175
+#define PCRE2_ERROR_VERB_NAME_TOO_LONG             176
+#define PCRE2_ERROR_BACKSLASH_U_CODE_POINT_TOO_BIG 177
+#define PCRE2_ERROR_MISSING_OCTAL_OR_HEX_DIGITS    178
+#define PCRE2_ERROR_VERSION_CONDITION_SYNTAX       179
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_AUTO_POSSESS 180
+#define PCRE2_ERROR_CALLOUT_NO_STRING_DELIMITER    181
+#define PCRE2_ERROR_CALLOUT_BAD_STRING_DELIMITER   182
+#define PCRE2_ERROR_BACKSLASH_C_CALLER_DISABLED    183
+#define PCRE2_ERROR_QUERY_BARJX_NEST_TOO_DEEP      184
+#define PCRE2_ERROR_BACKSLASH_C_LIBRARY_DISABLED   185
+#define PCRE2_ERROR_PATTERN_TOO_COMPLICATED        186
+#define PCRE2_ERROR_LOOKBEHIND_TOO_LONG            187
+#define PCRE2_ERROR_PATTERN_STRING_TOO_LONG        188
+#define PCRE2_ERROR_INTERNAL_BAD_CODE              189
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_IN_SKIP      190
+#define PCRE2_ERROR_NO_SURROGATES_IN_UTF16         191
+#define PCRE2_ERROR_BAD_LITERAL_OPTIONS            192
+#define PCRE2_ERROR_SUPPORTED_ONLY_IN_UNICODE      193
+#define PCRE2_ERROR_INVALID_HYPHEN_IN_OPTIONS      194
+#define PCRE2_ERROR_ALPHA_ASSERTION_UNKNOWN        195
+#define PCRE2_ERROR_SCRIPT_RUN_NOT_AVAILABLE       196
+#define PCRE2_ERROR_TOO_MANY_CAPTURES              197
+#define PCRE2_ERROR_CONDITION_ATOMIC_ASSERTION_EXPECTED  198
+/* "Expected" matching error codes: no match and partial match. */
+#define PCRE2_ERROR_NOMATCH          (-1)
+#define PCRE2_ERROR_PARTIAL          (-2)
+/* Error codes for UTF-8 validity checks */
+#define PCRE2_ERROR_UTF8_ERR1        (-3)
+#define PCRE2_ERROR_UTF8_ERR2        (-4)
+#define PCRE2_ERROR_UTF8_ERR3        (-5)
+#define PCRE2_ERROR_UTF8_ERR4        (-6)
+#define PCRE2_ERROR_UTF8_ERR5        (-7)
+#define PCRE2_ERROR_UTF8_ERR6        (-8)
+#define PCRE2_ERROR_UTF8_ERR7        (-9)
+#define PCRE2_ERROR_UTF8_ERR8       (-10)
+#define PCRE2_ERROR_UTF8_ERR9       (-11)
+#define PCRE2_ERROR_UTF8_ERR10      (-12)
+#define PCRE2_ERROR_UTF8_ERR11      (-13)
+#define PCRE2_ERROR_UTF8_ERR12      (-14)
+#define PCRE2_ERROR_UTF8_ERR13      (-15)
+#define PCRE2_ERROR_UTF8_ERR14      (-16)
+#define PCRE2_ERROR_UTF8_ERR15      (-17)
+#define PCRE2_ERROR_UTF8_ERR16      (-18)
+#define PCRE2_ERROR_UTF8_ERR17      (-19)
+#define PCRE2_ERROR_UTF8_ERR18      (-20)
+#define PCRE2_ERROR_UTF8_ERR19      (-21)
+#define PCRE2_ERROR_UTF8_ERR20      (-22)
+#define PCRE2_ERROR_UTF8_ERR21      (-23)
+/* Error codes for UTF-16 validity checks */
+#define PCRE2_ERROR_UTF16_ERR1      (-24)
+#define PCRE2_ERROR_UTF16_ERR2      (-25)
+#define PCRE2_ERROR_UTF16_ERR3      (-26)
+/* Error codes for UTF-32 validity checks */
+#define PCRE2_ERROR_UTF32_ERR1      (-27)
+#define PCRE2_ERROR_UTF32_ERR2      (-28)
+/* Miscellaneous error codes for pcre2[_dfa]_match(), substring extraction
+functions, context functions, and serializing functions. They are in numerical
+order. Originally they were in alphabetical order too, but now that PCRE2 is
+released, the numbers must not be changed. */
+#define PCRE2_ERROR_BADDATA           (-29)
+#define PCRE2_ERROR_MIXEDTABLES       (-30)  /* Name was changed */
+#define PCRE2_ERROR_BADMAGIC          (-31)
+#define PCRE2_ERROR_BADMODE           (-32)
+#define PCRE2_ERROR_BADOFFSET         (-33)
+#define PCRE2_ERROR_BADOPTION         (-34)
+#define PCRE2_ERROR_BADREPLACEMENT    (-35)
+#define PCRE2_ERROR_BADUTFOFFSET      (-36)
+#define PCRE2_ERROR_CALLOUT           (-37)  /* Never used by PCRE2 itself */
+#define PCRE2_ERROR_DFA_BADRESTART    (-38)
+#define PCRE2_ERROR_DFA_RECURSE       (-39)
+#define PCRE2_ERROR_DFA_UCOND         (-40)
+#define PCRE2_ERROR_DFA_UFUNC         (-41)
+#define PCRE2_ERROR_DFA_UITEM         (-42)
+#define PCRE2_ERROR_DFA_WSSIZE        (-43)
+#define PCRE2_ERROR_INTERNAL          (-44)
+#define PCRE2_ERROR_JIT_BADOPTION     (-45)
+#define PCRE2_ERROR_JIT_STACKLIMIT    (-46)
+#define PCRE2_ERROR_MATCHLIMIT        (-47)
+#define PCRE2_ERROR_NOMEMORY          (-48)
+#define PCRE2_ERROR_NOSUBSTRING       (-49)
+#define PCRE2_ERROR_NOUNIQUESUBSTRING (-50)
+#define PCRE2_ERROR_NULL              (-51)
+#define PCRE2_ERROR_RECURSELOOP       (-52)
+#define PCRE2_ERROR_DEPTHLIMIT        (-53)
+#define PCRE2_ERROR_RECURSIONLIMIT    (-53)  /* Obsolete synonym */
+#define PCRE2_ERROR_UNAVAILABLE       (-54)
+#define PCRE2_ERROR_UNSET             (-55)
+#define PCRE2_ERROR_BADOFFSETLIMIT    (-56)
+#define PCRE2_ERROR_BADREPESCAPE      (-57)
+#define PCRE2_ERROR_REPMISSINGBRACE   (-58)
+#define PCRE2_ERROR_BADSUBSTITUTION   (-59)
+#define PCRE2_ERROR_BADSUBSPATTERN    (-60)
+#define PCRE2_ERROR_TOOMANYREPLACE    (-61)
+#define PCRE2_ERROR_BADSERIALIZEDDATA (-62)
+#define PCRE2_ERROR_HEAPLIMIT         (-63)
+#define PCRE2_ERROR_CONVERT_SYNTAX    (-64)
+#define PCRE2_ERROR_INTERNAL_DUPMATCH (-65)
+#define PCRE2_ERROR_DFA_UINVALID_UTF  (-66)
+/* Request types for pcre2_pattern_info() */
+#define PCRE2_INFO_ALLOPTIONS            0
+#define PCRE2_INFO_ARGOPTIONS            1
+#define PCRE2_INFO_BACKREFMAX            2
+#define PCRE2_INFO_BSR                   3
+#define PCRE2_INFO_CAPTURECOUNT          4
+#define PCRE2_INFO_FIRSTCODEUNIT         5
+#define PCRE2_INFO_FIRSTCODETYPE         6
+#define PCRE2_INFO_FIRSTBITMAP           7
+#define PCRE2_INFO_HASCRORLF             8
+#define PCRE2_INFO_JCHANGED              9
+#define PCRE2_INFO_JITSIZE              10
+#define PCRE2_INFO_LASTCODEUNIT         11
+#define PCRE2_INFO_LASTCODETYPE         12
+#define PCRE2_INFO_MATCHEMPTY           13
+#define PCRE2_INFO_MATCHLIMIT           14
+#define PCRE2_INFO_MAXLOOKBEHIND        15
+#define PCRE2_INFO_MINLENGTH            16
+#define PCRE2_INFO_NAMECOUNT            17
+#define PCRE2_INFO_NAMEENTRYSIZE        18
+#define PCRE2_INFO_NAMETABLE            19
+#define PCRE2_INFO_NEWLINE              20
+#define PCRE2_INFO_DEPTHLIMIT           21
+#define PCRE2_INFO_RECURSIONLIMIT       21  /* Obsolete synonym */
+#define PCRE2_INFO_SIZE                 22
+#define PCRE2_INFO_HASBACKSLASHC        23
+#define PCRE2_INFO_FRAMESIZE            24
+#define PCRE2_INFO_HEAPLIMIT            25
+#define PCRE2_INFO_EXTRAOPTIONS         26
+/* Request types for pcre2_config(). */
+#define PCRE2_CONFIG_BSR                     0
+#define PCRE2_CONFIG_JIT                     1
+#define PCRE2_CONFIG_JITTARGET               2
+#define PCRE2_CONFIG_LINKSIZE                3
+#define PCRE2_CONFIG_MATCHLIMIT              4
+#define PCRE2_CONFIG_NEWLINE                 5
+#define PCRE2_CONFIG_PARENSLIMIT             6
+#define PCRE2_CONFIG_DEPTHLIMIT              7
+#define PCRE2_CONFIG_RECURSIONLIMIT          7  /* Obsolete synonym */
+#define PCRE2_CONFIG_STACKRECURSE            8  /* Obsolete */
+#define PCRE2_CONFIG_UNICODE                 9
+#define PCRE2_CONFIG_UNICODE_VERSION        10
+#define PCRE2_CONFIG_VERSION                11
+#define PCRE2_CONFIG_HEAPLIMIT              12
+#define PCRE2_CONFIG_NEVER_BACKSLASH_C      13
+#define PCRE2_CONFIG_COMPILED_WIDTHS        14
+/* Types for code units in patterns and subject strings. */
+typedef uint8_t  PCRE2_UCHAR8;
+typedef uint16_t PCRE2_UCHAR16;
+typedef uint32_t PCRE2_UCHAR32;
+typedef const PCRE2_UCHAR8  *PCRE2_SPTR8;
+typedef const PCRE2_UCHAR16 *PCRE2_SPTR16;
+typedef const PCRE2_UCHAR32 *PCRE2_SPTR32;
+/* The PCRE2_SIZE type is used for all string lengths and offsets in PCRE2,
+including pattern offsets for errors and subject offsets after a match. We
+define special values to indicate zero-terminated strings and unset offsets in
+the offset vector (ovector). */
+#define PCRE2_SIZE            size_t
+#define PCRE2_SIZE_MAX        SIZE_MAX
+#define PCRE2_ZERO_TERMINATED (~(PCRE2_SIZE)0)
+#define PCRE2_UNSET           (~(PCRE2_SIZE)0)
+/* Generic types for opaque structures and JIT callback functions. These
+declarations are defined in a macro that is expanded for each width later. */
+#define PCRE2_TYPES_LIST \
+struct pcre2_real_general_context; \
+typedef struct pcre2_real_general_context pcre2_general_context; \
+\
+struct pcre2_real_compile_context; \
+typedef struct pcre2_real_compile_context pcre2_compile_context; \
+\
+struct pcre2_real_match_context; \
+typedef struct pcre2_real_match_context pcre2_match_context; \
+\
+struct pcre2_real_convert_context; \
+typedef struct pcre2_real_convert_context pcre2_convert_context; \
+\
+struct pcre2_real_code; \
+typedef struct pcre2_real_code pcre2_code; \
+\
+struct pcre2_real_match_data; \
+typedef struct pcre2_real_match_data pcre2_match_data; \
+\
+struct pcre2_real_jit_stack; \
+typedef struct pcre2_real_jit_stack pcre2_jit_stack; \
+\
+typedef pcre2_jit_stack *(*pcre2_jit_callback)(void *);
+/* The structures for passing out data via callout functions. We use structures
+so that new fields can be added on the end in future versions, without changing
+the API of the function, thereby allowing old clients to work without
+modification. Define the generic versions in a macro; the width-specific
+versions are generated from this macro below. */
+/* Flags for the callout_flags field. These are cleared after a callout. */
+#define PCRE2_CALLOUT_STARTMATCH    0x00000001u  /* Set for each bumpalong */
+#define PCRE2_CALLOUT_BACKTRACK     0x00000002u  /* Set after a backtrack */
+#define PCRE2_STRUCTURE_LIST \
+typedef struct pcre2_callout_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  uint32_t      callout_number;    /* Number compiled into pattern */ \
+  uint32_t      capture_top;       /* Max current capture */ \
+  uint32_t      capture_last;      /* Most recently closed capture */ \
+  PCRE2_SIZE   *offset_vector;     /* The offset vector */ \
+  PCRE2_SPTR    mark;              /* Pointer to current mark or NULL */ \
+  PCRE2_SPTR    subject;           /* The subject being matched */ \
+  PCRE2_SIZE    subject_length;    /* The length of the subject */ \
+  PCRE2_SIZE    start_match;       /* Offset to start of this match attempt */ \
+  PCRE2_SIZE    current_position;  /* Where we currently are in the subject */ \
+  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
+  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
+  /* ------------------- Added for Version 1 -------------------------- */ \
+  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
+  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
+  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
+  /* ------------------- Added for Version 2 -------------------------- */ \
+  uint32_t      callout_flags;     /* See above for list */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_callout_block; \
+\
+typedef struct pcre2_callout_enumerate_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
+  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
+  uint32_t      callout_number;    /* Number compiled into pattern */ \
+  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
+  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
+  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_callout_enumerate_block; \
+\
+typedef struct pcre2_substitute_callout_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  PCRE2_SPTR    input;             /* Pointer to input subject string */ \
+  PCRE2_SPTR    output;            /* Pointer to output buffer */ \
+  PCRE2_SIZE    output_offsets[2]; /* Changed portion of the output */ \
+  PCRE2_SIZE   *ovector;           /* Pointer to current ovector */ \
+  uint32_t      oveccount;         /* Count of pairs set in ovector */ \
+  uint32_t      subscount;         /* Substitution number */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_substitute_callout_block;
+/* List the generic forms of all other functions in macros, which will be
+expanded for each width below. Start with functions that give general
+information. */
+#define PCRE2_GENERAL_INFO_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION pcre2_config(uint32_t, void *);
+/* Functions for manipulating contexts. */
+#define PCRE2_GENERAL_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
+  *pcre2_general_context_copy(pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
+  *pcre2_general_context_create(void *(*)(PCRE2_SIZE, void *), \
+    void (*)(void *, void *), void *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_general_context_free(pcre2_general_context *);
+#define PCRE2_COMPILE_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
+  *pcre2_compile_context_copy(pcre2_compile_context *); \
+PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
+  *pcre2_compile_context_create(pcre2_general_context *);\
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_compile_context_free(pcre2_compile_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_bsr(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_character_tables(pcre2_compile_context *, const uint8_t *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_compile_extra_options(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_max_pattern_length(pcre2_compile_context *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_newline(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_parens_nest_limit(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_compile_recursion_guard(pcre2_compile_context *, \
+    int (*)(uint32_t, void *), void *);
+#define PCRE2_MATCH_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
+  *pcre2_match_context_copy(pcre2_match_context *); \
+PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
+  *pcre2_match_context_create(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_match_context_free(pcre2_match_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_callout(pcre2_match_context *, \
+    int (*)(pcre2_callout_block *, void *), void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_substitute_callout(pcre2_match_context *, \
+    int (*)(pcre2_substitute_callout_block *, void *), void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_depth_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_heap_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_match_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_offset_limit(pcre2_match_context *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_recursion_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_recursion_memory_management(pcre2_match_context *, \
+    void *(*)(PCRE2_SIZE, void *), void (*)(void *, void *), void *);
+#define PCRE2_CONVERT_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
+  *pcre2_convert_context_copy(pcre2_convert_context *); \
+PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
+  *pcre2_convert_context_create(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_convert_context_free(pcre2_convert_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_glob_escape(pcre2_convert_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_glob_separator(pcre2_convert_context *, uint32_t);
+/* Functions concerned with compiling a pattern to PCRE internal code. */
+#define PCRE2_COMPILE_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_compile(PCRE2_SPTR, PCRE2_SIZE, uint32_t, int *, PCRE2_SIZE *, \
+    pcre2_compile_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_code_free(pcre2_code *); \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_code_copy(const pcre2_code *); \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_code_copy_with_tables(const pcre2_code *);
+/* Functions that give information about a compiled pattern. */
+#define PCRE2_PATTERN_INFO_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_pattern_info(const pcre2_code *, uint32_t, void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_callout_enumerate(const pcre2_code *, \
+    int (*)(pcre2_callout_enumerate_block *, void *), void *);
+/* Functions for running a match and inspecting the result. */
+#define PCRE2_MATCH_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
+  *pcre2_match_data_create(uint32_t, pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
+  *pcre2_match_data_create_from_pattern(const pcre2_code *, \
+    pcre2_general_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_dfa_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *, int *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_match_data_free(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SPTR PCRE2_CALL_CONVENTION \
+  pcre2_get_mark(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  pcre2_get_match_data_size(pcre2_match_data *); \
+PCRE2_EXP_DECL uint32_t PCRE2_CALL_CONVENTION \
+  pcre2_get_ovector_count(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  *pcre2_get_ovector_pointer(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  pcre2_get_startchar(pcre2_match_data *);
+/* Convenience functions for handling matched substrings. */
+#define PCRE2_SUBSTRING_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_copy_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR *, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_copy_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR *, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_substring_free(PCRE2_UCHAR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_get_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR **, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_get_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR **, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_length_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_length_bynumber(pcre2_match_data *, uint32_t, PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_nametable_scan(const pcre2_code *, PCRE2_SPTR, PCRE2_SPTR *, \
+    PCRE2_SPTR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_number_from_name(const pcre2_code *, PCRE2_SPTR); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_substring_list_free(PCRE2_SPTR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_list_get(pcre2_match_data *, PCRE2_UCHAR ***, PCRE2_SIZE **);
+/* Functions for serializing / deserializing compiled patterns. */
+#define PCRE2_SERIALIZE_FUNCTIONS \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_encode(const pcre2_code **, int32_t, uint8_t **, \
+    PCRE2_SIZE *, pcre2_general_context *); \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_decode(pcre2_code **, int32_t, const uint8_t *, \
+    pcre2_general_context *); \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_get_number_of_codes(const uint8_t *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_serialize_free(uint8_t *);
+/* Convenience function for match + substitute. */
+#define PCRE2_SUBSTITUTE_FUNCTION \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substitute(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *, PCRE2_SPTR, \
+    PCRE2_SIZE, PCRE2_UCHAR *, PCRE2_SIZE *);
+/* Functions for converting pattern source strings. */
+#define PCRE2_CONVERT_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_pattern_convert(PCRE2_SPTR, PCRE2_SIZE, uint32_t, PCRE2_UCHAR **, \
+    PCRE2_SIZE *, pcre2_convert_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_converted_pattern_free(PCRE2_UCHAR *);
+/* Functions for JIT processing */
+#define PCRE2_JIT_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_jit_compile(pcre2_code *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_jit_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_free_unused_memory(pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_jit_stack PCRE2_CALL_CONVENTION \
+  *pcre2_jit_stack_create(PCRE2_SIZE, PCRE2_SIZE, pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_stack_assign(pcre2_match_context *, pcre2_jit_callback, void *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_stack_free(pcre2_jit_stack *);
+/* Other miscellaneous functions. */
+#define PCRE2_OTHER_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_get_error_message(int, PCRE2_UCHAR *, PCRE2_SIZE); \
+PCRE2_EXP_DECL const uint8_t PCRE2_CALL_CONVENTION \
+  *pcre2_maketables(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_maketables_free(pcre2_general_context *, const uint8_t *);
+/* Define macros that generate width-specific names from generic versions. The
+three-level macro scheme is necessary to get the macros expanded when we want
+them to be. First we get the width from PCRE2_LOCAL_WIDTH, which is used for
+generating three versions of everything below. After that, PCRE2_SUFFIX will be
+re-defined to use PCRE2_CODE_UNIT_WIDTH, for use when macros such as
+pcre2_compile are called by application code. */
+#define PCRE2_JOIN(a,b) a ## b
+#define PCRE2_GLUE(a,b) PCRE2_JOIN(a,b)
+#define PCRE2_SUFFIX(a) PCRE2_GLUE(a,PCRE2_LOCAL_WIDTH)
+/* Data types */
+#define PCRE2_UCHAR                 PCRE2_SUFFIX(PCRE2_UCHAR)
+#define PCRE2_SPTR                  PCRE2_SUFFIX(PCRE2_SPTR)
+#define pcre2_code                  PCRE2_SUFFIX(pcre2_code_)
+#define pcre2_jit_callback          PCRE2_SUFFIX(pcre2_jit_callback_)
+#define pcre2_jit_stack             PCRE2_SUFFIX(pcre2_jit_stack_)
+#define pcre2_real_code             PCRE2_SUFFIX(pcre2_real_code_)
+#define pcre2_real_general_context  PCRE2_SUFFIX(pcre2_real_general_context_)
+#define pcre2_real_compile_context  PCRE2_SUFFIX(pcre2_real_compile_context_)
+#define pcre2_real_convert_context  PCRE2_SUFFIX(pcre2_real_convert_context_)
+#define pcre2_real_match_context    PCRE2_SUFFIX(pcre2_real_match_context_)
+#define pcre2_real_jit_stack        PCRE2_SUFFIX(pcre2_real_jit_stack_)
+#define pcre2_real_match_data       PCRE2_SUFFIX(pcre2_real_match_data_)
+/* Data blocks */
+#define pcre2_callout_block            PCRE2_SUFFIX(pcre2_callout_block_)
+#define pcre2_callout_enumerate_block  PCRE2_SUFFIX(pcre2_callout_enumerate_block_)
+#define pcre2_substitute_callout_block PCRE2_SUFFIX(pcre2_substitute_callout_block_)
+#define pcre2_general_context          PCRE2_SUFFIX(pcre2_general_context_)
+#define pcre2_compile_context          PCRE2_SUFFIX(pcre2_compile_context_)
+#define pcre2_convert_context          PCRE2_SUFFIX(pcre2_convert_context_)
+#define pcre2_match_context            PCRE2_SUFFIX(pcre2_match_context_)
+#define pcre2_match_data               PCRE2_SUFFIX(pcre2_match_data_)
+/* Functions: the complete list in alphabetical order */
+#define pcre2_callout_enumerate               PCRE2_SUFFIX(pcre2_callout_enumerate_)
+#define pcre2_code_copy                       PCRE2_SUFFIX(pcre2_code_copy_)
+#define pcre2_code_copy_with_tables           PCRE2_SUFFIX(pcre2_code_copy_with_tables_)
+#define pcre2_code_free                       PCRE2_SUFFIX(pcre2_code_free_)
+#define pcre2_compile                         PCRE2_SUFFIX(pcre2_compile_)
+#define pcre2_compile_context_copy            PCRE2_SUFFIX(pcre2_compile_context_copy_)
+#define pcre2_compile_context_create          PCRE2_SUFFIX(pcre2_compile_context_create_)
+#define pcre2_compile_context_free            PCRE2_SUFFIX(pcre2_compile_context_free_)
+#define pcre2_config                          PCRE2_SUFFIX(pcre2_config_)
+#define pcre2_convert_context_copy            PCRE2_SUFFIX(pcre2_convert_context_copy_)
+#define pcre2_convert_context_create          PCRE2_SUFFIX(pcre2_convert_context_create_)
+#define pcre2_convert_context_free            PCRE2_SUFFIX(pcre2_convert_context_free_)
+#define pcre2_converted_pattern_free          PCRE2_SUFFIX(pcre2_converted_pattern_free_)
+#define pcre2_dfa_match                       PCRE2_SUFFIX(pcre2_dfa_match_)
+#define pcre2_general_context_copy            PCRE2_SUFFIX(pcre2_general_context_copy_)
+#define pcre2_general_context_create          PCRE2_SUFFIX(pcre2_general_context_create_)
+#define pcre2_general_context_free            PCRE2_SUFFIX(pcre2_general_context_free_)
+#define pcre2_get_error_message               PCRE2_SUFFIX(pcre2_get_error_message_)
+#define pcre2_get_mark                        PCRE2_SUFFIX(pcre2_get_mark_)
+#define pcre2_get_match_data_size             PCRE2_SUFFIX(pcre2_get_match_data_size_)
+#define pcre2_get_ovector_pointer             PCRE2_SUFFIX(pcre2_get_ovector_pointer_)
+#define pcre2_get_ovector_count               PCRE2_SUFFIX(pcre2_get_ovector_count_)
+#define pcre2_get_startchar                   PCRE2_SUFFIX(pcre2_get_startchar_)
+#define pcre2_jit_compile                     PCRE2_SUFFIX(pcre2_jit_compile_)
+#define pcre2_jit_match                       PCRE2_SUFFIX(pcre2_jit_match_)
+#define pcre2_jit_free_unused_memory          PCRE2_SUFFIX(pcre2_jit_free_unused_memory_)
+#define pcre2_jit_stack_assign                PCRE2_SUFFIX(pcre2_jit_stack_assign_)
+#define pcre2_jit_stack_create                PCRE2_SUFFIX(pcre2_jit_stack_create_)
+#define pcre2_jit_stack_free                  PCRE2_SUFFIX(pcre2_jit_stack_free_)
+#define pcre2_maketables                      PCRE2_SUFFIX(pcre2_maketables_)
+#define pcre2_maketables_free                 PCRE2_SUFFIX(pcre2_maketables_free_)
+#define pcre2_match                           PCRE2_SUFFIX(pcre2_match_)
+#define pcre2_match_context_copy              PCRE2_SUFFIX(pcre2_match_context_copy_)
+#define pcre2_match_context_create            PCRE2_SUFFIX(pcre2_match_context_create_)
+#define pcre2_match_context_free              PCRE2_SUFFIX(pcre2_match_context_free_)
+#define pcre2_match_data_create               PCRE2_SUFFIX(pcre2_match_data_create_)
+#define pcre2_match_data_create_from_pattern  PCRE2_SUFFIX(pcre2_match_data_create_from_pattern_)
+#define pcre2_match_data_free                 PCRE2_SUFFIX(pcre2_match_data_free_)
+#define pcre2_pattern_convert                 PCRE2_SUFFIX(pcre2_pattern_convert_)
+#define pcre2_pattern_info                    PCRE2_SUFFIX(pcre2_pattern_info_)
+#define pcre2_serialize_decode                PCRE2_SUFFIX(pcre2_serialize_decode_)
+#define pcre2_serialize_encode                PCRE2_SUFFIX(pcre2_serialize_encode_)
+#define pcre2_serialize_free                  PCRE2_SUFFIX(pcre2_serialize_free_)
+#define pcre2_serialize_get_number_of_codes   PCRE2_SUFFIX(pcre2_serialize_get_number_of_codes_)
+#define pcre2_set_bsr                         PCRE2_SUFFIX(pcre2_set_bsr_)
+#define pcre2_set_callout                     PCRE2_SUFFIX(pcre2_set_callout_)
+#define pcre2_set_character_tables            PCRE2_SUFFIX(pcre2_set_character_tables_)
+#define pcre2_set_compile_extra_options       PCRE2_SUFFIX(pcre2_set_compile_extra_options_)
+#define pcre2_set_compile_recursion_guard     PCRE2_SUFFIX(pcre2_set_compile_recursion_guard_)
+#define pcre2_set_depth_limit                 PCRE2_SUFFIX(pcre2_set_depth_limit_)
+#define pcre2_set_glob_escape                 PCRE2_SUFFIX(pcre2_set_glob_escape_)
+#define pcre2_set_glob_separator              PCRE2_SUFFIX(pcre2_set_glob_separator_)
+#define pcre2_set_heap_limit                  PCRE2_SUFFIX(pcre2_set_heap_limit_)
+#define pcre2_set_match_limit                 PCRE2_SUFFIX(pcre2_set_match_limit_)
+#define pcre2_set_max_pattern_length          PCRE2_SUFFIX(pcre2_set_max_pattern_length_)
+#define pcre2_set_newline                     PCRE2_SUFFIX(pcre2_set_newline_)
+#define pcre2_set_parens_nest_limit           PCRE2_SUFFIX(pcre2_set_parens_nest_limit_)
+#define pcre2_set_offset_limit                PCRE2_SUFFIX(pcre2_set_offset_limit_)
+#define pcre2_set_substitute_callout          PCRE2_SUFFIX(pcre2_set_substitute_callout_)
+#define pcre2_substitute                      PCRE2_SUFFIX(pcre2_substitute_)
+#define pcre2_substring_copy_byname           PCRE2_SUFFIX(pcre2_substring_copy_byname_)
+#define pcre2_substring_copy_bynumber         PCRE2_SUFFIX(pcre2_substring_copy_bynumber_)
+#define pcre2_substring_free                  PCRE2_SUFFIX(pcre2_substring_free_)
+#define pcre2_substring_get_byname            PCRE2_SUFFIX(pcre2_substring_get_byname_)
+#define pcre2_substring_get_bynumber          PCRE2_SUFFIX(pcre2_substring_get_bynumber_)
+#define pcre2_substring_length_byname         PCRE2_SUFFIX(pcre2_substring_length_byname_)
+#define pcre2_substring_length_bynumber       PCRE2_SUFFIX(pcre2_substring_length_bynumber_)
+#define pcre2_substring_list_get              PCRE2_SUFFIX(pcre2_substring_list_get_)
+#define pcre2_substring_list_free             PCRE2_SUFFIX(pcre2_substring_list_free_)
+#define pcre2_substring_nametable_scan        PCRE2_SUFFIX(pcre2_substring_nametable_scan_)
+#define pcre2_substring_number_from_name      PCRE2_SUFFIX(pcre2_substring_number_from_name_)
+/* Keep this old function name for backwards compatibility */
+#define pcre2_set_recursion_limit PCRE2_SUFFIX(pcre2_set_recursion_limit_)
+/* Keep this obsolete function for backwards compatibility: it is now a noop. */
+#define pcre2_set_recursion_memory_management PCRE2_SUFFIX(pcre2_set_recursion_memory_management_)
+/* Now generate all three sets of width-specific structures and function
+prototypes. */
+#define PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS \
+PCRE2_TYPES_LIST \
+PCRE2_STRUCTURE_LIST \
+PCRE2_GENERAL_INFO_FUNCTIONS \
+PCRE2_GENERAL_CONTEXT_FUNCTIONS \
+PCRE2_COMPILE_CONTEXT_FUNCTIONS \
+PCRE2_CONVERT_CONTEXT_FUNCTIONS \
+PCRE2_CONVERT_FUNCTIONS \
+PCRE2_MATCH_CONTEXT_FUNCTIONS \
+PCRE2_COMPILE_FUNCTIONS \
+PCRE2_PATTERN_INFO_FUNCTIONS \
+PCRE2_MATCH_FUNCTIONS \
+PCRE2_SUBSTRING_FUNCTIONS \
+PCRE2_SERIALIZE_FUNCTIONS \
+PCRE2_SUBSTITUTE_FUNCTION \
+PCRE2_JIT_FUNCTIONS \
+PCRE2_OTHER_FUNCTIONS
+#define PCRE2_LOCAL_WIDTH 8
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+#define PCRE2_LOCAL_WIDTH 16
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+#define PCRE2_LOCAL_WIDTH 32
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+/* Undefine the list macros; they are no longer needed. */
+#undef PCRE2_TYPES_LIST
+#undef PCRE2_STRUCTURE_LIST
+#undef PCRE2_GENERAL_INFO_FUNCTIONS
+#undef PCRE2_GENERAL_CONTEXT_FUNCTIONS
+#undef PCRE2_COMPILE_CONTEXT_FUNCTIONS
+#undef PCRE2_CONVERT_CONTEXT_FUNCTIONS
+#undef PCRE2_MATCH_CONTEXT_FUNCTIONS
+#undef PCRE2_COMPILE_FUNCTIONS
+#undef PCRE2_PATTERN_INFO_FUNCTIONS
+#undef PCRE2_MATCH_FUNCTIONS
+#undef PCRE2_SUBSTRING_FUNCTIONS
+#undef PCRE2_SERIALIZE_FUNCTIONS
+#undef PCRE2_SUBSTITUTE_FUNCTION
+#undef PCRE2_JIT_FUNCTIONS
+#undef PCRE2_OTHER_FUNCTIONS
+#undef PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+/* PCRE2_CODE_UNIT_WIDTH must be defined. If it is 8, 16, or 32, redefine
+PCRE2_SUFFIX to use it. If it is 0, undefine the other macros and make
+PCRE2_SUFFIX a no-op. Otherwise, generate an error. */
+#undef PCRE2_SUFFIX
+#ifndef PCRE2_CODE_UNIT_WIDTH
+#error PCRE2_CODE_UNIT_WIDTH must be defined before including pcre2.h.
+#error Use 8, 16, or 32; or 0 for a multi-width application.
+#else  /* PCRE2_CODE_UNIT_WIDTH is defined */
+#if PCRE2_CODE_UNIT_WIDTH == 8 || \
+    PCRE2_CODE_UNIT_WIDTH == 16 || \
+    PCRE2_CODE_UNIT_WIDTH == 32
+#define PCRE2_SUFFIX(a) PCRE2_GLUE(a, PCRE2_CODE_UNIT_WIDTH)
+#elif PCRE2_CODE_UNIT_WIDTH == 0
+#undef PCRE2_JOIN
+#undef PCRE2_GLUE
+#define PCRE2_SUFFIX(a) a
+#else
+#error PCRE2_CODE_UNIT_WIDTH must be 0, 8, 16, or 32.
+#endif
+#endif  /* PCRE2_CODE_UNIT_WIDTH is defined */
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif
+#endif  /* PCRE2_H_IDEMPOTENT_GUARD */
+/* End of pcre2.h */
+namespace pcre2
+{
+using regex_t = std::shared_ptr<const pcre2_code_8>;
+using match_data_dtor_t = std::integral_constant<
+    decltype(&pcre2_match_data_free_8), &pcre2_match_data_free_8>;
+using match_data_t = std::unique_ptr<
+    pcre2_match_data_8, match_data_dtor_t>;
+using match_context_dtor_t = std::integral_constant<
+    decltype(&pcre2_match_context_free_8), &pcre2_match_context_free_8>;
+using match_context_t = std::unique_ptr<
+    pcre2_match_context_8, match_context_dtor_t>;
+template<typename String>
+regex_t new_regex(const String& pattern)
+{
+    static_assert(wl::is_string_view_v<String>, "");
+    int error = 0;
+    PCRE2_SIZE pos = 0;
+    pcre2_code_8* regex_ptr = pcre2_compile_8((PCRE2_SPTR8)pattern.c_str(),
+        pattern.byte_size(), 0, &error, &pos, nullptr);
+    if (!regex_ptr)
+    {
+        constexpr PCRE2_SIZE buffer_size = 256;
+        PCRE2_UCHAR buffer[buffer_size];
+        pcre2_get_error_message_8(error, buffer, buffer_size);
+        throw std::logic_error((const char*)buffer);
+    }
+    return {regex_ptr, &pcre2_code_free_8};
+}
+template<typename C, typename P>
+struct _regex_search_state
+{
+    const wl::strexp::compiled_pattern<C, P>& pattern_;
+    uint32_t capture_count_ = 0;
+    const PCRE2_SPTR8 text_data_;
+    const size_t text_size_;
+    size_t start_pos_ = 0;
+    match_data_t match_{};
+    PCRE2_SIZE* match_ptr_ = nullptr;
+    _regex_search_state(const wl::strexp::compiled_pattern<C, P>& pattern,
+        PCRE2_SPTR8 text_data, size_t text_size) :
+        pattern_{pattern}, text_data_{text_data}, text_size_{text_size}
+    {
+        *pattern_.conditions_ptr = &pattern_.conditions;
+        pcre2_pattern_info_8(pattern_.regex_ptr.get(),
+            PCRE2_INFO_CAPTURECOUNT, &capture_count_);
+        match_.reset(pcre2_match_data_create_8(capture_count_ + 1u, nullptr));
+        match_ptr_ = pcre2_get_ovector_pointer_8(match_.get());
+        match_ptr_[0] = PCRE2_SIZE(-1);
+        match_ptr_[1] = PCRE2_SIZE(0);
+    }
+    wl::string_view prefix() const
+    {
+        return {text_data_ + start_pos_, text_data_ + match_ptr_[0u]};
+    }
+    auto capture_count() const
+    {
+        return size_t(capture_count_);
+    }
+    size_t match_begin_idx() const
+    {
+        return size_t(match_ptr_[0u]);
+    }
+    size_t match_end_idx() const
+    {
+        return size_t(match_ptr_[1u]);
+    }
+    wl::string_view match() const
+    {
+        return {text_data_ + match_ptr_[0u], text_data_ + match_ptr_[1u]};
+    }
+    wl::string_view match(size_t i) const
+    {
+        assert(i <= capture_count_);
+        return {text_data_ + match_ptr_[2u * i],
+            text_data_ + match_ptr_[2u * i + 1u]};
+    }
+    bool find_next(bool overlap = false, uint32_t options = 0u)
+    {
+        WL_THROW_IF_ABORT()
+        start_pos_ = overlap ? match_ptr_[0] + PCRE2_SIZE(1) : match_ptr_[1];
+        auto result = pcre2_match_8(pattern_.regex_ptr.get(),
+            text_data_, text_size_, start_pos_, options, match_.get(),
+            pattern_.match_context_ptr.get());
+        return result >= 0;
+    }
+};
+template<typename C, typename P, typename CharT>
+auto regex_search(const wl::strexp::compiled_pattern<C, P>& pattern,
+    const CharT* text_data, size_t text_size)
+{
+    return _regex_search_state<C, P>(pattern, (PCRE2_SPTR8)text_data,
+        text_size);
+}
+template<typename PatternIdList>
+struct callout_matches_t
+{
+    PCRE2_SPTR text_data;
+    const PCRE2_SIZE* offset_vector;
+    const size_t capture_top;
+    template<int64_t I>
+    wl::string_view operator[](wl::const_int<I> id) const
+    {
+        if constexpr (I > 0)
+        { // Condition
+            constexpr auto group_idx = PatternIdList::find(id);
+            assert(group_idx < capture_top);
+            return {text_data + offset_vector[2u * group_idx],
+                text_data + offset_vector[2u * group_idx + 1u]};
+        }
+        else
+        { // PatternTest
+            return {text_data + offset_vector[2u * capture_top - 2u],
+                text_data + offset_vector[2u * capture_top - 1u]};
+        }
+    }
+};
+template<typename PL, typename CL, size_t... Is>
+auto callout_evaluate(size_t number, const callout_matches_t<PL>& matches,
+    const CL& conditions, std::index_sequence<Is...>)
+{
+    assert(number < CL::size);
+    return ((number != Is || conditions.template get<Is>()(matches)) && ...);
+}
+template<typename PatternIdList, typename ConditionList>
+int callout_function(pcre2_callout_block_8* block_ptr,
+    void* condition_list_ptr)
+{
+    WL_THROW_IF_ABORT()
+    auto matches = callout_matches_t<PatternIdList>{block_ptr->subject,
+        block_ptr->offset_vector, block_ptr->capture_top};
+    const ConditionList& condition_list =
+        **(const ConditionList**)condition_list_ptr;
+    bool pass = callout_evaluate(
+        block_ptr->callout_number, matches, condition_list,
+        std::make_index_sequence<ConditionList::size>{});
+    return pass ? 0 : 1;
 }
 }
 namespace wl
@@ -14102,7 +14102,7 @@ auto compile_alternatives(_pattern_alternatives<Patterns...> p, string& str,
 template<typename String>
 auto is_single_character(const String& s)
 {
-    return (s.byte_size() == 1u) || (s.byte_size() <= 4u) && (s.size() == 1u);
+    return (s.byte_size() == 1u) || ((s.byte_size() <= 4u) && (s.size() == 1u));
 }
 template<size_t I = 0u, typename... Patterns>
 auto compile_use_bracket_impl(

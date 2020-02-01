@@ -718,7 +718,7 @@ auto compile_alternatives(_pattern_alternatives<Patterns...> p, string& str,
 template<typename String>
 auto is_single_character(const String& s)
 {
-    return (s.byte_size() == 1u) || (s.byte_size() <= 4u) && (s.size() == 1u);
+    return (s.byte_size() == 1u) || ((s.byte_size() <= 4u) && (s.size() == 1u));
 }
 
 template<size_t I = 0u, typename... Patterns>

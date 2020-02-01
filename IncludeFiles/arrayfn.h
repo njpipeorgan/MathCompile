@@ -1155,7 +1155,7 @@ int64_t order(const X& x, const Y& y)
     if constexpr (is_array_view_v<X>)
     {
         static_assert(is_array_view_v<Y>, WL_ERROR_OPERAND_TYPE);
-        return Ret(_order_string(x, y));
+        return Ret(_order_array(x, y));
     }
     else if constexpr (XR == 0)
     {

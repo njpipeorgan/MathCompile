@@ -47,7 +47,7 @@ auto string_length(const X& x)
 }
 
 template<typename Any>
-auto _to_string(const Any& any, const size_t min_length = 0)
+auto _integer_to_string(const Any& any, const size_t min_length = 0)
 {
     if constexpr (array_rank_v<Any> == 0u)
     {
@@ -658,7 +658,7 @@ auto compile(_named_pattern<Id, Pattern> p, string& str, State s, tag_t tag)
     }
     else
     { // group already exists; refer to that group
-        str.join("\\g{").join(_to_string(group_idx)).join("}");
+        str.join("\\g{").join(_integer_to_string(group_idx)).join("}");
         return std::move(s);
     }
 }
@@ -804,10 +804,10 @@ auto compile(_pattern_repeated<Pattern> p, string& str, State s, tag_t tag)
     else
     {
         if (p.min >= 2u)
-            str.join("{").join(_to_string(p.min - 1u)).join(",");
+            str.join("{").join(_integer_to_string(p.min - 1u)).join(",");
         else
             str.join("{0,");
-        str.join(_to_string(p.max - 1u)).join("}");
+        str.join(_integer_to_string(p.max - 1u)).join("}");
     }
     if (tag == MatchShortest)
         str.join("?");
@@ -834,7 +834,7 @@ auto compile(_condition<Pattern, Condition> p, string& str, State s, tag_t tag)
         str.join("(?:");
     auto s2 = compile(std::move(p.pattern), str, std::move(s1), Concatenation);
     str.join("(?C");
-    str.join(_to_string(decltype(s.conditions)::size));
+    str.join(_integer_to_string(decltype(s.conditions)::size));
     str.join(")");
     if (tag > Concatenation)
         str.join(")");
@@ -1095,7 +1095,7 @@ auto format_compile(_named_replacement<Id>, string& str, const State&,
     constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
     static_assert(0u < group_idx && group_idx <= 99u, WL_ERROR_INTERNAL);
     str.append('$');
-    str.join(_to_string(group_idx, 2u));
+    str.join(_integer_to_string(group_idx, 2u));
     return FormatIdList::append(const_int<group_idx>{});
 }
 
@@ -1953,5 +1953,7 @@ auto string_riffle(const X& x, const Dels&... dels)
     return ret;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+
+
 
 }

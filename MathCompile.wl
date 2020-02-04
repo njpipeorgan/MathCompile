@@ -629,10 +629,12 @@ $builtinfunctions=
   "CharacterRange"  ->"character_range",
   "ToCharacterCode" ->"to_character_code",
   "FromCharacterCode"->"from_character_code",
+  "ToString"        ->"to_string",
 (* io *)
-  "Print"           ->"io::print",
-  "Echo"            ->"io::echo",
-  "EchoFunction"    ->"io::echo_function"
+  "Directory"       ->"directory",
+  "Print"           ->"print",
+  "Echo"            ->"echo",
+  "EchoFunction"    ->"echo_function"
 |>;
 
 

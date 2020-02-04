@@ -17,16 +17,15 @@
 
 #pragma once
 
+#include <filesystem>
 #include <iostream>
 
 #include "types.h"
 #include "ndarray.h"
 #include "utils.h"
+#include "stringfn.h"
 
 namespace wl
-{
-
-namespace io
 {
 
 #if defined(WL_USE_MATHLINK)
@@ -42,14 +41,14 @@ auto echo(X&& x);
 template<typename X>
 auto print(const X& x)
 {
-    std::cout << x << std::endl;
+    std::cout << to_string(x)._ascii_string() << std::endl;
     return const_null;
 }
 
 template<typename X>
 auto echo(X&& x)
 {
-    std::cout << x << std::endl;
+    std::cout << to_string(x)._ascii_string() << std::endl;
     return std::forward<decltype(x)>(x);
 }
 
@@ -66,6 +65,14 @@ auto echo_function(Function f)
     };
 }
 
+inline auto directory()
+{
+    WL_TRY_BEGIN()
+    auto dir = std::filesystem::current_path().u8string();
+    return string(dir.c_str(), dir.size());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+
+
 
 }

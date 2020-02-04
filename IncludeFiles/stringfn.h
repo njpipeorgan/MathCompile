@@ -28,6 +28,7 @@
 #include "numerical.h"
 #include "pattern.h"
 
+#include "to_string.h"
 #include "pcre2_wrapper.h"
 
 namespace wl
@@ -1892,34 +1893,37 @@ void _string_riffle_impl(
     if constexpr (I + 1u == XR)
     {
         auto size = x_dims[XR - 1u];
-        if (size == 0u)
-            return;
-        ret.join<false>(*x_ptr++);
-        WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
-            for (auto i = _loop_begin; i < _loop_end; ++i, ++x_ptr)
-            {
-                if constexpr (ND != 0u)
-                    ret.template join<false>(del_array[XR - 1u].separator());
-                else
-                    ret.template join<false>(" ");
-                ret.join<false>(*x_ptr);
-            }
-        WL_CHECK_ABORT_LOOP_END()
+        if (size > 0u)
+        {
+            ret.join<false>(*x_ptr++);
+            WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
+                for (auto i = _loop_begin; i < _loop_end; ++i, ++x_ptr)
+                {
+                    if constexpr (ND != 0u)
+                        ret.template join<false>(
+                            del_array[XR - 1u].separator());
+                    else
+                        ret.template join<false>(" ");
+                    ret.join<false>(*x_ptr);
+                }
+            WL_CHECK_ABORT_LOOP_END()
+        }
     }
     else
     {
         const auto size = x_dims[I];
-        if (size == 0u)
-            return;
-        _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
-        for (size_t i = 1u; i < size; ++i)
+        if (size > 0u)
         {
-            if constexpr (ND != 0u)
-                ret.template join<false>(del_array[I].separator());
-            else
-                ret.template append<false>(
-                    (const utf8::char_t*)newline_delimiter, XR - I - 1u);
             _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
+            for (size_t i = 1u; i < size; ++i)
+            {
+                if constexpr (ND != 0u)
+                    ret.template join<false>(del_array[I].separator());
+                else
+                    ret.template append<false>(
+                    (const utf8::char_t*)newline_delimiter, XR - I - 1u);
+                _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
+            }
         }
     }
     if constexpr (ND != 0u)
@@ -1954,6 +1958,91 @@ auto string_riffle(const X& x, const Dels&... dels)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename X, size_t N>
+auto _to_string_scalar_impl(const X& x, char (&buffer)[N])
+{
+    WL_THROW_IF_ABORT()
+    static_assert(array_rank_v<X> == 0u, WL_ERROR_INTERNAL);
+    if constexpr (is_integral_v<X>)
+    {
+        static_assert(N >= _to_string_impl::integer_buffer_size,
+            WL_ERROR_INTERNAL);
+        return _to_string_impl::integer_to_string(buffer, buffer + N, x);
+    }
+    else if constexpr (is_real_v<X>)
+    {
+        static_assert(N >= _to_string_impl::double_buffer_size,
+            WL_ERROR_INTERNAL);
+        return _to_string_impl::double_to_string(buffer, buffer + N, x);
+    }
+    else if constexpr (is_complex_v<X>)
+    {
+        static_assert(N >= _to_string_impl::complex_buffer_size,
+            WL_ERROR_INTERNAL);
+        return _to_string_impl::complex_to_string(buffer, buffer + N, x);
+    }
+    else if constexpr (is_string_view_v<X>)
+    {
+        return string_view(x.byte_begin(), x.byte_end());
+    }
+    else
+    {
+        static_assert(always_false_v<X>, WL_ERROR_TO_STRING_UNKNOWN);
+    }
+}
 
+template<size_t I, typename XV, size_t XR, size_t N>
+auto _to_string_array_impl(const XV*& x_ptr,
+    const std::array<size_t, XR>& x_dims, string& ret, char(&buffer)[N])
+{
+    ret.template join<false>("{");
+    if constexpr (I + 1u == XR)
+    {
+        auto size = x_dims[XR - 1u];
+        if (size > 0u)
+        {
+            ret.join<false>(_to_string_scalar_impl(*x_ptr++, buffer));
+            for (size_t i = 1u; i < size; ++i, ++x_ptr)
+            {
+                ret.template join<false>(", ");
+                ret.join<false>(_to_string_scalar_impl(*x_ptr, buffer));
+            }
+        }
+    }
+    else
+    {
+        auto size = x_dims[I];
+        _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
+        for (size_t i = 1u; i < size; ++i)
+        {
+            ret.template join<false>(", ");
+            _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
+        }
+    }
+    ret.template join<false>("}");
+    if (I == 0u)
+        ret.place_null_character();
+}
+
+template<typename X>
+auto to_string(const X& x)
+{
+    WL_TRY_BEGIN()
+    char buffer[64];
+    if constexpr (array_rank_v<X> == 0u)
+    {
+        return string(_to_string_scalar_impl(x, buffer));
+    }
+    else
+    {
+        auto ret = string();
+        const auto& valx = allows<view_category::Simple>(x);
+        const auto x_dims = valx.dims();
+        auto x_data = valx.data();
+        _to_string_array_impl<0u>(x_data, x_dims, ret, buffer);
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
 
 }

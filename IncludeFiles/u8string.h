@@ -834,7 +834,8 @@ union u8string
     {
     }
 
-    u8string(const utf8::char_t* str, const size_t byte_size)
+    template<typename CharT>
+    u8string(const CharT* str, const size_t byte_size)
     {
         assert(ptrdiff_t(byte_size) >= 0);
         if (byte_size <= small_string_byte_size)
@@ -853,16 +854,23 @@ union u8string
         assert(check_validity());
     }
 
-    u8string(const utf8::char_t* str, const size_t byte_size,
+    template<typename CharT>
+    u8string(const CharT* str, const size_t byte_size,
         bool ascii_only) : u8string(str, byte_size)
     {
         set_ascii_only(ascii_only);
         assert(check_validity());
     }
 
+    template<typename CharT>
+    explicit u8string(const CharT* str) : u8string(str, std::strlen(str))
+    {
+        assert(check_validity());
+    }
+
     template<size_t N>
     explicit u8string(const char(&str)[N]) :
-        u8string((const utf8::char_t*)str, N - 1u)
+        u8string(&str[0], N - 1u)
     {
         static_assert(N >= 1u, WL_ERROR_INTERNAL);
         assert(check_validity());
@@ -878,12 +886,6 @@ union u8string
     explicit u8string(const u8string_view& other) :
         u8string(other.byte_begin(), other.byte_size())
     {
-    }
-
-    explicit u8string(const char* str) :
-        u8string((const utf8::char_t*)str, std::strlen(str))
-    {
-        assert(check_validity());
     }
 
     u8string(const u8string& other) : u8string()

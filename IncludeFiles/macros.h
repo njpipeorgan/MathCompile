@@ -313,6 +313,9 @@ namespace wl
 #define WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES \
 "A delimiter should be a string or a list of three strings."
 
+#define WL_ERROR_TO_STRING_UNKNOWN \
+"The value cannot be converted to a string."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \

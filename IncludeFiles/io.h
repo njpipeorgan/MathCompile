@@ -277,7 +277,7 @@ struct file_stream
 
     auto read_character()
     {
-        stream.clear();
+        stream_.clear();
         auto ch = stream_.get();
         if (!stream_.good())
             throw std::logic_error(WL_ERROR_STREAM_SEEK_FAILED);
@@ -379,8 +379,7 @@ auto stream_position(Stream& stream, const Pos& pos)
     WL_TRY_BEGIN()
     static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
     static_assert(is_integral_v<Pos>, WL_ERROR_STREAM_POSITION_INTEGRAL);
-    stream.seek(pos);
-    return stream_position();
+    return int64_t(stream.seek(pos));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -433,7 +432,7 @@ auto read(Any& any, ReadType)
     else if constexpr (std::is_same_v<ReadType, character_type>)
     {
         char ch = stream.read_character();
-        if (!utf8::is_ascii(ch))
+        if (!utf8::is_ascii(unsigned(ch)))
             throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
         return string(&ch, 1u);
     }

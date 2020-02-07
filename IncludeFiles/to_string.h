@@ -79,7 +79,7 @@ struct float_pair
     {
 #if defined (__BMI2__)
         uint64_t hi, lo;
-        lo = _mulx_u64(mantissa, other.mantissa, &hi);
+        lo = _mulx_u64(mantissa, other.mantissa, (unsigned long long*)(&hi));
         return {hi + (lo >> 63u), exponent + other.exponent + 64};
 #else
         static constexpr uint64_t mask_32 = 0xffff'ffffu;

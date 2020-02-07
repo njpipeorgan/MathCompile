@@ -1119,7 +1119,7 @@ $compileroptionsbase=<|
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -fp-model fast=2"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "Clang"-><|
-    "Base"->"-x c++ -std=c++1z -fPIC -march=native -lc++fs",
+    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "MSVC"-><|

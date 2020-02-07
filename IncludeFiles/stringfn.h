@@ -27,6 +27,8 @@
 #include "u8string.h"
 #include "numerical.h"
 #include "pattern.h"
+#include "arrayfn.h"
+#include "functional.h"
 
 #include "to_string.h"
 #include "pcre2_wrapper.h"

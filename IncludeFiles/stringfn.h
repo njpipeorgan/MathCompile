@@ -1727,8 +1727,7 @@ auto from_character_code(const X& x)
         auto x_begin = valx.begin();
         bool ascii_only = true;
         auto ret = string();
-        if (size > string::small_string_byte_size)
-            ret.set_dynamic_capacity(size);
+        ret.set_capacity(size);
         WL_CHECK_ABORT_LOOP_BEGIN(size)
             for (auto i = _loop_begin; i < _loop_end; ++i, ++x_begin)
             {
@@ -1951,8 +1950,7 @@ auto string_riffle(const X& x, const Dels&... dels)
     const auto ret_byte_size = _string_riffle_get_byte_size(
         valx, x_dims, del_array);
     auto ret = string();
-    if (ret_byte_size > string::small_string_byte_size)
-        ret.set_dynamic_capacity(ret_byte_size);
+    ret.set_capacity(ret_byte_size);
     _string_riffle_impl<0u>(x_data, x_dims, del_array, ret);
     return ret;
     WL_TRY_END(__func__, __FILE__, __LINE__)

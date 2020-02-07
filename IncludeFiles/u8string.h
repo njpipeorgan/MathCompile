@@ -549,6 +549,8 @@ struct u8string_view
         begin_{(const utf8::char_t*)begin}, end_{(const utf8::char_t*)end}
     {
         static_assert(sizeof(CharT) == 1u, WL_ERROR_INTERNAL);
+        if (end_ < begin_) // string match could trigger this
+            end_ = begin_;
     }
 
     const utf8::char_t* byte_data() const
@@ -868,18 +870,8 @@ union u8string
         assert(check_validity());
     }
 
-    template<size_t N>
-    explicit u8string(const char(&str)[N]) :
-        u8string(&str[0], N - 1u)
+    explicit u8string(const char* str) : u8string(str, std::strlen(str))
     {
-        static_assert(N >= 1u, WL_ERROR_INTERNAL);
-        assert(check_validity());
-    }
-
-    template<size_t N>
-    explicit u8string(const char(&str)[N], bool ascii_only) : u8string(str)
-    {
-        set_ascii_only(ascii_only);
         assert(check_validity());
     }
 
@@ -956,21 +948,24 @@ union u8string
         }
     }
 
-    void set_dynamic_capacity(size_t capacity)
+    void set_capacity(size_t new_capacity)
     {
-        if (is_static())
+        if (new_capacity > capacity())
         {
-            const auto copy = static_;
-            const auto byte_size = copy.byte_size_;
-            const auto ascii_only = copy.ascii_only_;
-            new(&dynamic_) dynamic_t(byte_size, capacity, ascii_only);
-            utils::restrict_copy_n(
-                copy.string_, size_t(byte_size) + 1u, dynamic_.string_);
-            dynamic_.ascii_only_ = copy.ascii_only_;
-        }
-        else
-        {
-            dynamic_.resize_buffer(capacity);
+            if (is_static())
+            {
+                const auto copy = static_;
+                const auto byte_size = copy.byte_size_;
+                const auto ascii_only = copy.ascii_only_;
+                new(&dynamic_) dynamic_t(byte_size, new_capacity, ascii_only);
+                utils::restrict_copy_n(
+                    copy.string_, size_t(byte_size) + 1u, dynamic_.string_);
+                dynamic_.ascii_only_ = copy.ascii_only_;
+            }
+            else
+            {
+                dynamic_.resize_buffer(new_capacity);
+            }
         }
     }
 
@@ -1096,7 +1091,7 @@ union u8string
         {
             if (new_byte_size > small_string_byte_size)
             {
-                set_dynamic_capacity(new_byte_size);
+                set_capacity(new_byte_size);
                 assert(!is_static());
                 dynamic_.push<PlaceNull>(str, append_size);
             }
@@ -1119,7 +1114,7 @@ union u8string
         {
             if (new_byte_size > small_string_byte_size)
             {
-                set_dynamic_capacity(new_byte_size);
+                set_capacity(new_byte_size);
                 assert(!is_static());
                 dynamic_.push<PlaceNull, UpdateASCII>(ch);
             }
@@ -1171,6 +1166,23 @@ union u8string
         {
             return false;
         }
+    }
+
+    void uninitialized_resize(size_t new_size)
+    {
+        if (new_size <= capacity())
+        {
+            if (is_static())
+                static_.byte_size_ = uint8_t(new_size);
+            else
+                dynamic_.byte_size_ = new_size;
+        }
+        else
+        {
+            set_capacity(new_size);
+            uninitialized_resize(new_size);
+        }
+        place_null_character();
     }
 
     std::string _ascii_string() const

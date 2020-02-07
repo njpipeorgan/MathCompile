@@ -465,9 +465,6 @@ void send_error(const String& what) noexcept
 
 }
 
-namespace io
-{
-
 template<typename X>
 auto print(const X& x)
 {
@@ -499,8 +496,6 @@ auto echo(X&& x)
         eof();
     return std::forward<decltype(x)>(x);
     WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
 }
 
 }

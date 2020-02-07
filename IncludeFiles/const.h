@@ -24,17 +24,20 @@
 namespace wl
 {
 
-constexpr auto const_null    = void_type{};
-constexpr auto const_all     = all_type{};
-constexpr auto const_none    = none_type{};
-constexpr auto const_real    = real_type{};
-constexpr auto const_integer = integer_type{};
-constexpr auto const_complex = complex_type{};
-constexpr auto const_string  = string_type{};
-constexpr auto const_list    = list_type{};
-constexpr auto const_i       = complex<double>(0.f, 1.f);
-constexpr auto const_true    = boolean(true);
-constexpr auto const_false   = boolean(false);
+constexpr auto const_null      = void_type{};
+constexpr auto const_all       = all_type{};
+constexpr auto const_none      = none_type{};
+constexpr auto const_real      = real_type{};
+constexpr auto const_integer   = integer_type{};
+constexpr auto const_complex   = complex_type{};
+constexpr auto const_string    = string_type{};
+constexpr auto const_list      = list_type{};
+constexpr auto const_byte      = byte_type{};
+constexpr auto const_character = character_type{};
+constexpr auto const_word      = word_type{};
+constexpr auto const_i         = complex<double>(0.f, 1.f);
+constexpr auto const_true      = boolean(true);
+constexpr auto const_false     = boolean(false);
 
 constexpr auto const_whitespace            = _whitespace_type{};
 constexpr auto const_number_string         = _number_string_type{};

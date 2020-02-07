@@ -134,6 +134,15 @@ struct compiled_pattern_rule;
 
 }
 
+enum class stream_direction { In, Out };
+
+template<stream_direction Direction>
+struct file_stream;
+
+using input_file_stream = file_stream<stream_direction::In>;
+using output_file_stream = file_stream<stream_direction::Out>;
+
+
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
 
@@ -222,6 +231,16 @@ WL_DEFINE_STRING_PATTERN_CONSTANT(_end_of_string_type)
 
 template<typename T>
 constexpr auto is_pattern_v = is_pattern<T>::value;
+
+template<typename T>
+struct is_file_stream : std::false_type {};
+
+template<stream_direction Dir>
+struct is_file_stream<file_stream<Dir>> : std::true_type {};
+
+template<typename T>
+constexpr auto is_file_stream_v = is_file_stream<T>::value;
+
 
 template<typename T>
 struct promote_integral

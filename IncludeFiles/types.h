@@ -69,6 +69,18 @@ struct list_type
     auto operator()(Args&&... args) const;
 };
 
+struct byte_type
+{
+};
+
+struct character_type
+{
+};
+
+struct word_type
+{
+};
+
 struct varg_tag
 {
 };

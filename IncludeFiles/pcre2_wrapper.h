@@ -170,8 +170,13 @@ struct _regex_search_state
     {
         WL_THROW_IF_ABORT()
         start_pos_ = overlap ? match_ptr_[0] + PCRE2_SIZE(1) : match_ptr_[1];
+        auto match_start_pos = start_pos_;
+        if (start_pos_ == match_ptr_[0]) // causes indefinite loop
+            ++match_start_pos;
+        if (match_start_pos > text_size_)
+            return false;
         auto result = pcre2_match_8(pattern_.regex_ptr.get(),
-            text_data_, text_size_, start_pos_, options, match_.get(),
+            text_data_, text_size_, match_start_pos, options, match_.get(),
             pattern_.match_context_ptr.get());
         return result >= 0;
     }

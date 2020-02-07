@@ -1107,19 +1107,19 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
 $joinoptions=StringRiffle[Flatten[#]," "]&;
 $compileroptionsbase=<|
   "GCC"-><|
-    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
+    "Base"->"-x c++ -std=c++1z -fPIC -march=native -lstdc++fs",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "MinGW"-><|
-    "Base"->"-static -x c++ -std=c++1z -fPIC -march=native",
+    "Base"->"-static -x c++ -std=c++1z -fPIC -march=native -lstdc++fs",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "ICC"-><|
-    "Base"->"-std=c++17 -Kc++ -restrict -march=native",
+    "Base"->"-std=c++17 -Kc++ -restrict -march=native -lstdc++fs",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -fp-model fast=2"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "Clang"-><|
-    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
+    "Base"->"-x c++ -std=c++1z -fPIC -march=native -lc++fs",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "MSVC"-><|

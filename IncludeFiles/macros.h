@@ -157,6 +157,12 @@ namespace wl
 #define WL_ERROR_STRING_TYPE_ONLY \
 "The function can only take a string or a list of strings."
 
+#define WL_ERROR_FILE_STREAM_ONLY \
+"The function can only take a file stream."
+
+#define WL_ERROR_FILE_STREAM_OR_PATH_ONLY \
+"The function can only take a file stream or the path to a file."
+
 #define WL_ERROR_PART_DEPTH \
 "The number of part specifications is larger than the array rank."
 
@@ -316,6 +322,15 @@ namespace wl
 #define WL_ERROR_TO_STRING_UNKNOWN \
 "The value cannot be converted to a string."
 
+#define WL_ERROR_STREAM_SEEK_ON_OUTPUT \
+"The stream position can only be changed for input streams."
+
+#define WL_ERROR_STREAM_POSITION_INTEGRAL \
+"The stream position should be an integer."
+
+#define WL_ERROR_UNKNOWN_READ_TYPE \
+"Read type should be one of Byte, Character, String, Word, Real, or Integer."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -446,5 +461,20 @@ namespace wl
 
 #define WL_ERROR_INVALID_CODEPOINT \
 "A valid codepoint should be an non-negative integer less than 1114112."
+
+#define WL_ERROR_CANNOT_OPEN_FILE \
+"An error has occurred while openning the file."
+
+#define WL_ERROR_STREAM_SEEK_FAILED \
+"The requested stream position is outside the range of the file."
+
+#define WL_ERROR_STREAM_ALREADY_CLOSED \
+"The stream cannot be closed because it does not associate to any resource."
+
+#define WL_ERROR_INVALID_UTF8_STRING \
+"The content is not a valid UTF-8 string."
+
+#define WL_ERROR_STREAM_CANNOT_READ_NUMBER \
+"Cannot read the number from the stream."
 
 }

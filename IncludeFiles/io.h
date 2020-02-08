@@ -119,7 +119,7 @@ inline std::string _working_directory()
 {
     char buffer[FILENAME_MAX];
     if (getcwd(buffer, FILENAME_MAX))
-        return std::wstring(buffer);
+        return std::string(buffer);
     else
         throw std::logic_error(WL_ERROR_GETCWD);
 }

@@ -328,8 +328,17 @@ namespace wl
 #define WL_ERROR_STREAM_POSITION_INTEGRAL \
 "The stream position should be an integer."
 
-#define WL_ERROR_UNKNOWN_READ_TYPE \
+#define WL_ERROR_READ_UNKNOWN_TYPE \
 "Read type should be one of Byte, Character, String, Word, Real, or Integer."
+
+#define WL_ERROR_WRITE_STRING_ONLY \
+"The function can only write strings."
+
+#define WL_ERROR_READ_LIST_COUNT_INTEGRAL \
+"The number of elements to read should be an integer."
+
+#define WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE \
+"This type is not supported for binary read/write."
 
 // runtime error messages
 
@@ -476,5 +485,20 @@ namespace wl
 
 #define WL_ERROR_STREAM_CANNOT_READ_NUMBER \
 "Cannot read the number from the stream."
+
+#define WL_ERROR_STREAM_CANNOT_READ_BINARY \
+"Cannot read the binary data from the stream."
+
+#define WL_ERROR_GETCWD \
+"An error has occurred while getting the current working directory."
+
+#define WL_ERROR_STREAM_READ \
+"An error has occurred while reading from the stream."
+
+#define WL_ERROR_STREAM_WRITE \
+"An error has occurred while writing to the stream."
+
+#define WL_ERROR_STREAM_BINARINESS \
+"The read/write operation does not match the binariness of the stream."
 
 }

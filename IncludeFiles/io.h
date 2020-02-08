@@ -17,14 +17,14 @@
 
 #pragma once
 
-#if __has_include(<filesystem>)
-#include <filesystem>
-#  define STD_FILESYSTEM std::filesystem
+#ifdef _WIN32
+#include <wchar.h>
 #else
-#include <experimental/filesystem>
-#  define STD_FILESYSTEM std::experimental::filesystem
+#include <unistd.h>
 #endif
 
+#include <cstdio>
+#include <locale>
 #include <fstream>
 #include <iostream>
 
@@ -73,12 +73,131 @@ auto echo_function(Function f)
     };
 }
 
+#ifdef _WIN32
+#  define WL_GETCWD _wgetcwd
+#  define WL_PATH_CHAR_TYPE wchar_t
+
+struct _codecvt_wchar_t:
+    std::codecvt<char16_t, char, std::mbstate_t>
+{
+    template<typename... Args>
+    _codecvt_wchar_t(Args&& ...args) :
+        std::codecvt<char16_t, char, std::mbstate_t>(
+            std::forward<Args>(args)...)
+    {
+    }
+    ~_codecvt_wchar_t()
+    {
+    }
+};
+
+inline std::wstring _from_u8path(const char* u8path)
+{
+    static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
+    const auto ospath = conv.from_bytes(u8path);
+    return std::wstring((const wchar_t*)ospath.c_str());
+}
+inline wl::string _to_u8path(const WL_PATH_CHAR_TYPE* ospath)
+{
+    static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
+    const auto u8path = conv.to_bytes((const char16_t*)ospath);
+    return wl::string(u8path.c_str());
+}
+#else
+#  define WL_GETCWD getcwd
+#  define WL_PATH_CHAR_TYPE char
+
+inline std::string _from_u8path(const char* u8path)
+{
+    return std::string(u8path);
+}
+inline wl::string _to_u8path(const WL_PATH_CHAR_TYPE* ospath)
+{
+    return wl::string(ospath);
+}
+inline std::string _working_directory()
+{
+    char buffer[FILENAME_MAX];
+    if (getcwd(buffer, FILENAME_MAX))
+        return std::wstring(buffer);
+    else
+        throw std::logic_error(WL_ERROR_GETCWD);
+}
+#endif
+
+#define WL_PATH_STRING_TYPE std::basic_string<WL_PATH_CHAR_TYPE>
+
+inline WL_PATH_STRING_TYPE _get_working_directory()
+{
+    size_t buffer_size = 256;
+    WL_PATH_CHAR_TYPE* buffer;
+    for (;;)
+    {
+        buffer = (WL_PATH_CHAR_TYPE*)std::malloc(
+            buffer_size * sizeof(WL_PATH_CHAR_TYPE));
+        if (!buffer)
+            throw std::bad_alloc();
+
+        if (WL_GETCWD(buffer, int(buffer_size)))
+        {
+            auto ret = WL_PATH_STRING_TYPE(buffer);
+            free(buffer);
+            return ret;
+        }
+        else
+        {
+            free(buffer);
+            if (errno == ERANGE) // buffer is too small
+                buffer_size *= 2;
+            else
+                throw std::logic_error(WL_ERROR_GETCWD);
+        }
+    }
+}
+
 inline auto directory()
 {
     WL_TRY_BEGIN()
-    auto dir = STD_FILESYSTEM::current_path().u8string();
-    return string(dir.c_str(), dir.size());
+    WL_THROW_IF_ABORT()
+    auto cwd = _get_working_directory();
+    return _to_u8path(cwd.c_str());
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+namespace stream_delimiter
+{
+
+enum : int
+{
+    Not = 0, Element, Word, Line, File
+};
+
+constexpr auto E = int8_t(Element);
+constexpr auto W = int8_t(Word);
+constexpr auto L = int8_t(Line);
+constexpr auto F = int8_t(File);
+
+constexpr int8_t table[] =
+{
+    /*      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f */
+    /* 0 */ F, 0, 0, 0, 0, 0, 0, 0, 0, W, L, 0, 0, L, 0, 0,
+    /* 1 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 2 */ W, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, E, 0, 0, 0,
+    /* 3 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 4 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 5 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 6 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 7 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 8 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 9 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* a */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* b */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* c */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* d */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* e */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* f */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
 }
 
 template<stream_direction Direction>
@@ -90,18 +209,18 @@ struct file_stream
         is_input, std::ifstream, std::ofstream>;
     static constexpr size_t chunk_size = 1048576u;
 
-    const STD_FILESYSTEM::path path_;
+    const string path_;
     mutable stream_t stream_;
 
     template<typename String>
     file_stream(const String& path, bool binary, bool append = false) :
-        path_{(const char*)path.byte_begin(), (const char*)path.byte_end()},
-        stream_{}
+        path_{path}, stream_{}
     {
         int mode = 0;
         if (binary) mode |= std::ios_base::binary;
         if (append) mode |= std::ios_base::app;
-        stream_.open(path_, mode);
+        auto ospath = _from_u8path(path.c_str());
+        stream_.open(ospath, mode);
         if (stream_.fail())
             throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
     }
@@ -122,6 +241,11 @@ struct file_stream
         if (!stream_.is_open())
             throw std::logic_error(WL_ERROR_STREAM_ALREADY_CLOSED);
         stream_.close();
+    }
+
+    bool binary() const
+    {
+        return stream_.openmode & std::ios_base::binary;
     }
 
     string path() const
@@ -155,15 +279,23 @@ struct file_stream
             return stream_.tellp() - std::streampos(0);
     }
 
+    size_t remaining_size() const
+    {
+        if (test_eof())
+            return 0u;
+        else
+        {
+            const auto cur_pos = stream_.tellg();
+            const auto end_pos = stream_.seekg(0, std::ios_base::end).tellg();
+            stream_.seekg(cur_pos);
+            return size_t(end_pos - cur_pos);
+        }
+    }
+
     auto read_string()
     {
         static_assert(is_input, WL_ERROR_INTERNAL);
-        if (eof())
-            return string();
-        const auto cur_pos = stream_.tellg();
-        const auto end_pos = stream_.seekg(0, std::ios_base::end).tellg();
-        stream_.seekg(cur_pos);
-        auto ret_size = end_pos - cur_pos;
+        auto ret_size = remaining_size();
         auto ret = string(ret_size);
         auto ret_data = (char*)ret.byte_begin();
         for (;;)
@@ -186,26 +318,10 @@ struct file_stream
         stream_.test_eof();
         return ret;
     }
-
-    template<size_t N, size_t... Is>
-    static bool _match_any_delimiter_impl(char ch, const char(&delim)[N],
-        std::index_sequence<Is...>)
-    {
-        return ((ch == delim[Is]) || ...);
-    }
-
-    template<size_t N>
-    static bool match_any_delimiter(char ch, const char(&delim)[N])
-    {
-        if constexpr (N <= 1u)
-            return false;
-        else
-            return _match_any_delimiter_impl(ch, delim,
-                std::make_index_sequence<N - 1u>{});
-    }
-
-    template<typename CharT, size_t N>
-    size_t get_until(CharT* str, size_t max_count, const char (&delim)[N])
+    
+    template<typename CharT>
+    size_t get_until(CharT* str, size_t max_count, int delim_level,
+        char& delim_found)
     {
         using traits = std::char_traits<char>;
         using sentry_t = typename decltype(stream_)::sentry;
@@ -223,8 +339,9 @@ struct file_stream
                 stream_.setstate(std::ios_base::eofbit);
                 break;
             }
-            else if (match_any_delimiter(meta_char, delim))
+            else if (stream_delimiter::table[meta_char] >= delim_level)
             {
+                delim_found = meta_char;
                 rdbuf->sbumpc();
                 break;
             }
@@ -242,18 +359,23 @@ struct file_stream
         return count;
     }
 
-    template<size_t N>
-    auto read_line(const char (&delim)[N])
+    // Get the next character as a string
+    // EOF: returns empty string, delim_found = \0
+    auto read_line(int delim_level, char& delim_found)
     {
         static_assert(is_input, WL_ERROR_INTERNAL);
-        if (eof())
+        if (test_eof())
+        {
+            delim_found = '\0';
             return string();
+        }
         auto ret = string(size_t(0));
         for (;;)
         {
             const auto ret_capacity = ret.capacity();
             const auto max_count = ret_capacity - ret.byte_size();
-            const auto count = get_until(ret.byte_end(), max_count, delim);
+            const auto count = get_until(ret.byte_end(), max_count,
+                delim_level, delim_found);
             if (count > max_count)
             { // buffer is too small
                 ret.uninitialized_resize(ret.byte_size() + max_count);
@@ -270,18 +392,143 @@ struct file_stream
         return ret;
     }
 
-    auto read_line()
+    // Get the next byte in the stream as a char
+    // EOF: returns \0
+    char read_byte()
     {
-        return read_line("\n");
+        using traits = std::char_traits<char>;
+        auto ch = stream_.get();
+        return traits::eq_int_type(traits::eof(), ch) ?
+            '\0' : traits::to_char_type(ch);
     }
 
+    // Get the next character as a string
+    // EOF: returns empty string
     auto read_character()
     {
-        stream_.clear();
-        auto ch = stream_.get();
+        using traits = std::char_traits<char>;
+        utf8::char_t buffer[4];
+        auto leading = stream_.get();
+        if (traits::eq_int_type(traits::eof(), leading))
+            return string();
+        buffer[0] = utf8::char_t(leading);
+        if (!utf8::string_iterator::_is_valid_codepoint_leading(buffer[0]))
+            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+        const auto num_bytes =
+            utf8::string_iterator::_num_bytes_by_leading(buffer[0]);
+        for (size_t i = 1; i < num_bytes; ++i)
+        {
+            auto trailing = stream_.get();
+            if (traits::eq_int_type(traits::eof(), trailing))
+                throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+            buffer[i] = utf8::char_t(trailing);
+        }
+        auto ret = string(&buffer[0], num_bytes);
+        if (!ret.check_validity())
+            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+        return ret;
+    }
+
+    // Read the next number from the stream
+    // EOF: returns false
+    template<typename Val>
+    bool read_number(int delim_level, char& delim_found, Val& val)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        for (;;)
+        {
+            delim_found = read_byte();
+            if (delim_found == '\0')
+                return false;
+            if (stream_delimiter::table[delim_found] < delim_level)
+            {
+                stream_.clear();
+                stream_.unget();
+                break;
+            }
+        }
+        for (;;)
+        {
+            auto str = read_line(delim_level, delim_found);
+            assert(str.byte_size() > 0);
+            if constexpr (std::is_same_v<Val, double>)
+            {
+                if (!_from_string_impl::string_to_double(str.c_str(), val))
+                    throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
+            }
+            else if constexpr (std::is_same_v<Val, int64_t>)
+            {
+                if (!_from_string_impl::string_to_integer(str.c_str(), val))
+                    throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
+            }
+            else
+            {
+                static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
+            }
+            return true;
+        }
+    }
+
+    template<typename Val>
+    bool binary_read(Val& val)
+    {
+        if constexpr (is_real_v<Val> || is_complex_v<Val>)
+        {
+            stream_.read((char*)(&val), sizeof(Val));
+            return (stream_.gcount() == sizeof(Val));
+        }
+        if constexpr (is_string_v<Val>)
+        {
+            char delim_found;
+            return read_line(stream_delimiter::File, delim_found);
+        }
+        else
+        {
+            static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
+        }
+    }
+
+    template<typename Val>
+    auto binary_read(Val, int64_t count)
+    {
+        static_assert(is_real_v<Val> || is_complex_v<Val>, WL_ERROR_INTERNAL);
+        ndarray<Val, 1u> ret;
+        size_t ret_size = (count == const_int_infinity) ?
+            (remaining_size() / sizeof(Val)) :
+            (count > 0) ? size_t(count) : 0u;
+        if (ret_size == 0u)
+            return ret;
+        ret.uninitialized_resize(std::array<size_t, 1u>{ret_size});
+        stream_.read((char*)(ret.data()), ret_size * sizeof(Val));
+        if (stream_.gcount() != ret_size * sizeof(Val))
+            throw std::logic_error(WL_ERROR_STREAM_READ);
+        return ret;
+    }
+
+    template<typename CharT, size_t N>
+    void write(const CharT* begin, size_t count, const char (&end_chars)[N])
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        stream_.write((const char*)begin, count);
+        if (N >= 2u)
+            stream_.write(end_chars, N - 1u);
         if (!stream_.good())
-            throw std::logic_error(WL_ERROR_STREAM_SEEK_FAILED);
-        return char(ch);
+            throw std::logic_error(WL_ERROR_STREAM_WRITE);
+    }
+
+    template<typename CharT>
+    void write(const CharT* begin, size_t count)
+    {
+        write(begin, count, "");
+    }
+
+    template<typename Val>
+    void binary_write(const Val* begin, size_t count)
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        stream_.write((const char*)begin, count * sizeof(Val));
+        if (!stream_.good())
+            throw std::logic_error(WL_ERROR_STREAM_WRITE);
     }
 
     bool eof() const
@@ -341,27 +588,43 @@ auto close(const Stream& stream)
 }
 
 template<bool Binary = false, typename Any>
-auto _as_input_file_stream(Any& any) -> std::conditional_t<
-    is_file_stream_v<remove_cvref_t<Any>>, Any&, input_file_stream>
+auto _as_input_file_stream(Any& any) -> decltype(auto)
 {
     if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
+    {
+        if (Binary != any.binary())
+            throw std::logic_error(WL_ERROR_STREAM_BINARINESS);
         return any;
+    }
     else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
-        return open_read(any);
+    {
+        return open_read<Binary>(any);
+    }
     else
+    {
         static_assert(always_false_v<Any>, WL_ERROR_FILE_STREAM_OR_PATH_ONLY);
+        return 0;
+    }
 }
 
 template<bool Binary = false, typename Any>
-auto _as_output_file_stream(Any& any) -> std::conditional_t<
-    is_file_stream_v<remove_cvref_t<Any>>, Any&, output_file_stream>
+auto _as_output_file_stream(Any& any) -> decltype(auto)
 {
     if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
+    {
+        if (Binary != any.binary())
+            throw std::logic_error(WL_ERROR_STREAM_BINARINESS);
         return any;
+    }
     else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
-        return open_write(any);
+    {
+        return open_write<Binary>(any);
+    }
     else
+    {
         static_assert(always_false_v<Any>, WL_ERROR_FILE_STREAM_OR_PATH_ONLY);
+        return 0;
+    }
 }
 
 template<typename Stream>
@@ -374,7 +637,7 @@ auto stream_position(const Stream& stream)
 }
 
 template<typename Stream, typename Pos>
-auto stream_position(Stream& stream, const Pos& pos)
+auto set_stream_position(Stream& stream, const Pos& pos)
 {
     WL_TRY_BEGIN()
     static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
@@ -392,88 +655,301 @@ auto read_string(Any& any)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename Any>
-auto read_line(Any& any)
-{
-    WL_TRY_BEGIN()
-    auto& stream = _as_input_file_stream(any);
-    return stream.read_line();
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<size_t N, typename Val>
-bool _read_impl(input_file_stream& stream, const char (&delim)[N], Val& val)
-{
-    while (!stream.eof())
-    {
-        auto str = stream.read_line(delim);
-        if (str.byte_size() > 0)
-        {
-            if constexpr (std::is_same_v<Val, double>)
-                return (std::sscanf(str.c_str(), "%lf", &val) > 0);
-            else if constexpr (std::is_same_v<Val, int64_t>)
-                return (std::sscanf(str.c_str(), "%dll", &val) > 0);
-            else
-                static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
-        }
-    }
-    return false;
-}
-
 template<typename Any, typename ReadType>
 auto read(Any& any, ReadType)
 {
     WL_TRY_BEGIN()
     auto& stream = _as_input_file_stream(any);
+    char delim_found = '\0';
     if constexpr (std::is_same_v<ReadType, byte_type>)
     {
-        return int64_t(stream.read_character());
+        return int64_t(stream.read_byte());
     }
     else if constexpr (std::is_same_v<ReadType, character_type>)
     {
-        char ch = stream.read_character();
-        if (!utf8::is_ascii(unsigned(ch)))
-            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
-        return string(&ch, 1u);
+        return stream.read_character();
     }
     else if constexpr (std::is_same_v<ReadType, word_type>)
     {
-        while (!stream.eof())
+        for (;;)
         {
-            auto str = stream.read_line(" \t");
-            if (str.byte_size() > 0)
+            auto str = stream.read_line(stream_delimiter::Word, delim_found);
+            if ((str.byte_size() > 0u) || (delim_found == '\0'))
                 return str;
         }
-        return string();
     }
     else if constexpr (std::is_same_v<ReadType, string_type>)
     {
-        while (!stream.eof())
+        for (;;)
         {
-            auto str = stream.read_line("\n\r");
-            if (str.byte_size() > 0)
+            auto str = stream.read_line(stream_delimiter::Line, delim_found);
+            if ((str.byte_size() > 0u) || (delim_found == '\0'))
                 return str;
         }
-        return string();
     }
     else if constexpr (std::is_same_v<ReadType, real_type>)
     {
         double ret;
-        if (!_read_impl(stream, " \t,", ret))
+        if (!stream.read_number(stream_delimiter::Element, delim_found, ret))
             throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
         return ret;
     }
     else if constexpr (std::is_same_v<ReadType, integer_type>)
     {
         int64_t ret;
-        if (!_read_impl(stream, " \t,", ret))
+        if (!stream.read_number(stream_delimiter::Element, delim_found, ret))
             throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
         return ret;
     }
     else
     {
-        static_assert(always_false_v<ReadType>, WL_ERROR_UNKNOWN_READ_TYPE);
+        static_assert(always_false_v<ReadType>, WL_ERROR_READ_UNKNOWN_TYPE);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any>
+auto read_line(Any& any)
+{
+    WL_TRY_BEGIN()
+    return read(any, const_string);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename ReadType, typename Count>
+auto read_list(Any& any, ReadType, const Count& in_count)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
+    const auto count = int64_t(std::max(Count(0), in_count));
+    auto& stream = _as_input_file_stream(any);
+    char ignored = '\0';
+    if constexpr (std::is_same_v<ReadType, byte_type>)
+    {
+        ndarray<uint8_t, 1u> ret;
+        for (int64_t i = 0; i < count; ++i)
+        {
+            auto ch = uint8_t(stream.read_byte());
+            if (ch == 0)
+                break;
+            ret.append(ch);
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, character_type>)
+    {
+        ndarray<string, 1u> ret;
+        for (int64_t i = 0; i < count; ++i)
+        {
+            auto ch = stream.read_character();
+            if (ch.byte_size() == 0u)
+                break;
+            ret.append(std::move(ch));
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, word_type>)
+    {
+        ndarray<string, 1u> ret;
+        char delim_found = '\0';
+        for (int64_t i = 0; i < count; ++i)
+        {
+            auto str = stream.read_line(stream_delimiter::Word, delim_found);
+            if (delim_found == '\0')
+                break;
+            ret.append(std::move(str));
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, string_type>)
+    {
+        ndarray<string, 1u> ret;
+        char delim_found = '\0';
+        for (int64_t i = 0; i < count; ++i)
+        {
+            auto str = stream.read_line(stream_delimiter::Line, delim_found);
+            if (delim_found == '\0')
+                break;
+            ret.append(std::move(str));
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, real_type>)
+    {
+        ndarray<double, 1u> ret;
+        char delim_found = '\0';
+        for (int64_t i = 0; i < count; ++i)
+        {
+            double elem;
+            if (!stream.read_number(
+                stream_delimiter::Element, delim_found, elem))
+            { // EOF
+                break;
+            }
+            ret.append(elem);
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, integer_type>)
+    {
+        ndarray<int64_t, 1u> ret;
+        char delim_found = '\0';
+        for (int64_t i = 0; i < count; ++i)
+        {
+            int64_t elem;
+            if (!stream.read_number(
+                stream_delimiter::Element, delim_found, elem))
+            { // EOF
+                break;
+            }
+            ret.append(elem);
+        }
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<ReadType>, WL_ERROR_READ_UNKNOWN_TYPE);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename ReadType>
+auto read_list(Any& any, ReadType)
+{
+    return read_list(any, ReadType{}, const_int_infinity);
+}
+
+template<typename Val>
+auto _write_impl(output_file_stream& stream, const Val& val)
+{
+    if constexpr (is_string_view_v<Val>)
+        stream.write(val.byte_begin(), val.byte_size(), "\n");
+    else
+        write(stream, to_string(val));
+    return 0;
+}
+
+template<typename Val>
+auto _write_string_impl(output_file_stream& stream, const Val& val)
+{
+    static_assert(is_string_view_v<Val>, WL_ERROR_WRITE_STRING_ONLY);
+    stream.write(val.byte_begin(), val.byte_size());
+    return 0;
+}
+
+template<typename Val>
+auto _write_line_impl(output_file_stream& stream, const Val& val)
+{
+    static_assert(is_string_view_v<Val>, WL_ERROR_WRITE_STRING_ONLY);
+    stream.write(val.byte_begin(), val.byte_size(), "\n");
+    return 0;
+}
+
+template<typename Any, typename... Vals>
+auto write(Any& any, const Vals&... vals)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream(any);
+    [[maybe_unused]] const auto& _1 = (_write_impl(stream, vals), ...);
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename... Vals>
+auto write_string(Any& any, const Vals&... vals)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream(any);
+    [[maybe_unused]] const auto& _1 = (_write_string_impl(stream, vals), ...);
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename... Vals>
+auto write_line(Any& any, const Vals&... vals)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream(any);
+    [[maybe_unused]] const auto& _1 = (_write_line_impl(stream, vals), ...);
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename ReadType>
+auto binary_read(Any& any, ReadType)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_input_file_stream<true>(any);
+    if constexpr (is_real_v<ReadType> || is_complex_v<ReadType>)
+    {
+        ReadType val;
+        if (!stream.binary_read(val))
+            throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_BINARY);
+        return val;
+    }
+    else if constexpr (is_string_v<ReadType>)
+    {
+        static_assert(always_false_v<ReadType>,
+            WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    }
+    else
+    {
+        static_assert(always_false_v<ReadType>,
+            WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename ReadType, typename Count>
+auto binary_read_list(Any& any, ReadType, const Count& in_count)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
+    const auto count = int64_t(std::max(Count(0), in_count));
+    auto& stream = _as_input_file_stream<true>(any);
+    static_assert(is_real_v<ReadType> || is_complex_v<ReadType>,
+        WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    return stream.binary_read(ReadType{}, count);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename ReadType>
+auto binary_read_list(Any& any, ReadType)
+{
+    WL_TRY_BEGIN()
+    return binary_read_list(any, ReadType{}, const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename X, typename WriteType>
+void binary_write(Any& any, const X& x, WriteType)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream<true>(any);
+    static_assert(is_real_v<WriteType> || is_complex_v<WriteType>,
+        WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    constexpr auto XR = array_rank_v<X>;
+    if constexpr (XR ==  0u)
+    {
+        const auto& val = cast<WriteType>(x);
+        stream.binary_write(&val, 1u);
+    }
+    else
+    {
+        const auto& val = cast<ndarray<WriteType, XR>>(x);
+        stream.binary_write(val.data(), val.size());
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename Any, typename X>
+void binary_write(Any& any, const X& x)
+{
+    WL_TRY_BEGIN()
+    if constexpr (array_rank_v<X> == 0u)
+        binary_write(any, x, X{});
+    else
+        binary_write(any, x, value_type_t<X>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

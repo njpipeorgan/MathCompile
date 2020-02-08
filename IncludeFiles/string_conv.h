@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cassert>
+#include <cstdlib>
 #include <cstring>
 
 #include "macros.h"
@@ -430,36 +431,50 @@ template<bool AlwaysPrintSign = false>
 auto double_to_string(char* const first, char* const last, double x)
 {
     assert(first + double_buffer_size <= last);
-    assert(!isnan(x));
-    assert(!isinf(x));
-
     char* ptr = first;
-    if (x == 0.0)
+    int fpclass = std::fpclassify(x);
+    int signbit = std::signbit(x);
+    switch (fpclass)
     {
-        if constexpr (AlwaysPrintSign)
+    case FP_ZERO:
+        if (signbit)
+            *ptr++ = '-';
+        else if constexpr (AlwaysPrintSign)
             *ptr++ = '+';
         *ptr++ = '0';
         *ptr++ = '.';
         *ptr = '\0';
-        return string_view(first, ptr);
-    }
-    else
-    {
-        if (x < 0)
+        break;
+    case FP_INFINITE:
+        if (signbit)
+            *ptr++ = '-';
+        else if constexpr (AlwaysPrintSign)
+            *ptr++ = '+';
+        *ptr++ = 'i';
+        *ptr++ = 'n';
+        *ptr++ = 'f';
+        *ptr = '\0';
+        break;
+    case FP_NAN:
+        *ptr++ = 'n';
+        *ptr++ = 'a';
+        *ptr++ = 'n';
+        *ptr = '\0';
+        break;
+    default:
+        if (signbit)
         {
             *ptr++ = '-';
             x = -x;
         }
         else if constexpr (AlwaysPrintSign)
-        {
             *ptr++ = '+';
-        }
         int length = 0;
         int exponent_10 = 0;
         grisu2(x, ptr, length, exponent_10);
         ptr = format(ptr, length, exponent_10);
-        return string_view(first, ptr);
     }
+    return string_view(first, ptr);
 }
 
 template<typename T>
@@ -475,6 +490,25 @@ auto complex_to_string(char* const first, char* const last, complex<T> x)
     *ptr++ = 'I';
     *ptr = '\0';
     return string_view(first, ptr);
+}
+
+}
+
+namespace _from_string_impl
+{
+
+inline bool string_to_double(const char* str, double& val)
+{
+    char* end = nullptr;
+    val = std::strtod(str, &end);
+    return (end > str) && (*end == '\0');
+}
+
+inline bool string_to_integer(const char* str, int64_t& val)
+{
+    char* end = nullptr;
+    val = std::strtoll(str, &end, 10);
+    return (end > str) && (*end == '\0');
 }
 
 }

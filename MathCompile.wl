@@ -129,6 +129,8 @@ parse[Hold[any_]]:=(Message[parse::unknown,ToString[Unevaluated[any]]];Throw["le
 $typenames={
   (*informal names*)
   {"int64_t","MachineInteger"},
+  {"uint8_t","Byte"},
+  {"wl::string","TerminatedString"},
   (*formal names*)
   {"wl::void_type", "Void"},
   {"wl::boolean", "Boolean"},
@@ -634,7 +636,19 @@ $builtinfunctions=
   "Directory"       ->"directory",
   "Print"           ->"print",
   "Echo"            ->"echo",
-  "EchoFunction"    ->"echo_function"
+  "EchoFunction"    ->"echo_function",
+  "OpenRead"        ->"open_read",
+  "OpenWrite"       ->"open_write",
+  "OpenAppend"      ->"open_append",
+  "StreamPosition"  ->"stream_position",
+  "SetStreamPosition"->"set_stream_position",
+  "Read"            ->"read",
+  "ReadLine"        ->"read_line",
+  "ReadString"      ->"read_string",
+  "Write"           ->"write",
+  "WriteLine"       ->"write_line",
+  "WriteString"     ->"write_string",
+  "BinaryWrite"     ->"binary_write"
 |>;
 
 
@@ -767,7 +781,17 @@ functionmacro[code_]:=code//.{
     id["StringCases",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_cases<true>",p][str,patt],
     id["StringCases",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_cases<false>",p][str,patt],
     id["StringPosition",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_position<true>",p][str,patt],
-    id["StringPosition",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_position<false>",p][str,patt]
+    id["StringPosition",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_position<false>",p][str,patt],
+    id["OpenRead",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_read<true>",p][str,patt],
+    id["OpenRead",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_read<false>",p][str,patt],
+    id["OpenWrite",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_write<true>",p][str,patt],
+    id["OpenWrite",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_write<false>",p][str,patt],
+    id["OpenAppend",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_append<true>",p][str,patt],
+    id["OpenAppend",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_append<false>",p][str,patt],
+    id["BinaryRead",p_][str_,literal[type_String,pt_]]:>
+      native["binary_read",p][str,typed[pt][totypespec[type]/.Missing[]:>"wl::void_type"]],
+    id["BinaryReadList",p_][str_,literal[type_String,pt_],any___]:>
+      native["binary_read_list",p][str,typed[pt][totypespec[type]/.Missing[]:>"wl::void_type"],any]
   }
 
 arithmeticmacro[code_]:=code//.{
@@ -1107,15 +1131,15 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
 $joinoptions=StringRiffle[Flatten[#]," "]&;
 $compileroptionsbase=<|
   "GCC"-><|
-    "Base"->"-x c++ -std=c++1z -fPIC -march=native -lstdc++fs",
+    "Base"->"-x c++ -std=c++1z -fPIC -march=native",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "MinGW"-><|
-    "Base"->"-static -x c++ -std=c++1z -fPIC -march=native -lstdc++fs",
+    "Base"->"-static -x c++ -std=c++1z -fPIC -march=native",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "ICC"-><|
-    "Base"->"-std=c++17 -Kc++ -restrict -march=native -lstdc++fs",
+    "Base"->"-std=c++17 -Kc++ -restrict -march=native",
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -fp-model fast=2"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "Clang"-><|

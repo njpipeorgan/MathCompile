@@ -270,12 +270,12 @@ struct string_iterator
     {
     }
 
-    WL_INLINE static bool _is_valid_codepoint_leading(uint8_t byte)
+    WL_INLINE static bool _is_valid_codepoint_leading(char_t byte)
     {
         return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
     }
 
-    WL_INLINE static bool _is_valid_codepoint_tailing(uint8_t byte)
+    WL_INLINE static bool _is_valid_codepoint_tailing(char_t byte)
     {
         return (byte & 0b1100'0000u) == 0b1000'0000u;
     }
@@ -473,31 +473,27 @@ struct string_iterator
         }
     }
 
+    WL_INLINE static size_t _num_bytes_by_leading(char_t byte)
+    {
+        assert(_is_valid_codepoint_leading(byte));
+        if (byte < 0b1000'0000u)
+            return 1u;
+        else if (byte < 0b1110'0000u)
+            return 2u;
+        else if (byte < 0b1111'0000u)
+            return 3u;
+        else
+            return 4u;
+    }
+
     size_t num_bytes() const
     {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
-        if (*ptr_ < 0b1000'0000u)
+        size_t ret = _num_bytes_by_leading(*ptr_);
+        for (size_t i = 1u; i < ret; ++i)
         {
-            return 1u;
+            assert(_is_valid_codepoint_tailing(ptr_[i]));
         }
-        else if (*ptr_ < 0b1110'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            return 2u;
-        }
-        else if (*ptr_ < 0b1111'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            return 3u;
-        }
-        else
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            assert(_is_valid_codepoint_tailing(ptr_[3]));
-            return 4u;
-        }
+        return ret;
     }
 };
 

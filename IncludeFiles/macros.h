@@ -340,6 +340,18 @@ namespace wl
 #define WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE \
 "This type is not supported for binary read/write."
 
+#define WL_ERROR_IMPORT_UNKNOWN_TYPE \
+"This type is not supported for import."
+
+#define WL_ERROR_IMPORT_PADDING_TYPE \
+"The padding value cannot be converted into import data type."
+
+#define WL_ERROR_EXPORT_ARRAY_RANK \
+"The array for export should have a rank not greater than two."
+
+#define WL_ERROR_EXPORT_TYPE \
+"Only arithmetic types are supported for export."
+
 // runtime error messages
 
 #define WL_ERROR_CALLBACK \
@@ -500,5 +512,8 @@ namespace wl
 
 #define WL_ERROR_STREAM_BINARINESS \
 "The read/write operation does not match the binariness of the stream."
+
+#define WL_ERROR_IMPORT_NO_PADDING \
+"A padding element is required while reading an irregular table."
 
 }

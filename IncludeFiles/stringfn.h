@@ -2028,7 +2028,7 @@ template<typename X>
 auto to_string(const X& x)
 {
     WL_TRY_BEGIN()
-    char buffer[64];
+    char buffer[_to_string_impl::default_buffer_size];
     if constexpr (array_rank_v<X> == 0u)
     {
         return string(_to_string_scalar_impl(x, buffer));

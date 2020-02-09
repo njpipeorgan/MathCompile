@@ -944,4 +944,203 @@ void binary_write(Any& any, const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+enum class file_format { Table, TSV, CSV };
+
+template<typename InWriteType, typename X, size_t XR>
+void _export_text_impl(output_file_stream& stream, const X& x,
+    const std::array<size_t, XR>& x_dims, char line_sep, char field_sep)
+{
+    static_assert(XR <= 2u, WL_ERROR_INTERNAL);
+    char buffer[_to_string_impl::default_buffer_size];
+    using XV = std::conditional_t<XR == 0u, X, value_type_t<X>>;
+    using WriteType = std::conditional_t<
+        std::is_same_v<InWriteType, void_type>, XV, InWriteType>;
+    static_assert(is_arithmetic_v<WriteType>, WL_ERROR_EXPORT_TYPE);
+    if constexpr (XR == 0u)
+    {
+        auto view = _to_string_scalar_impl(cast<WriteType>(x), buffer);
+        stream.write(view.byte_data(), view.byte_size());
+    }
+    else if constexpr (XR == 1u)
+    {
+        const auto row_size = x_dims[0];
+        auto x_data = x.data();
+        for (size_t i = 0; i < row_size; ++i, ++x_data)
+        {
+            if (i > 0)
+                stream.write(&line_sep, 1u);
+            auto str = _to_string_scalar_impl(
+                cast<WriteType>(*x_data), buffer);
+            stream.write(str.byte_data(), str.byte_size());
+        }
+    }
+    else
+    {
+        const auto row_size = x_dims[0];
+        const auto col_size = x_dims[1];
+        auto x_data = x.data();
+        for (size_t i = 0; i < row_size; ++i)
+        {
+            if (i > 0)
+                stream.write(&line_sep, 1u);
+            for (size_t j = 0; j < col_size; ++j, ++x_data)
+            {
+                if (j > 0)
+                    stream.write(&field_sep, 1u);
+                auto str = _to_string_scalar_impl(
+                    cast<WriteType>(*x_data), buffer);
+                stream.write(str.byte_data(), str.byte_size());
+            }
+        }
+    }
+}
+
+template<typename String, typename X, typename WriteType>
+auto export_text(const String& path, const X& x, file_format format, WriteType)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream(path);
+    char line_sep = '\n';
+    char field_sep = (format == file_format::CSV) ? ',' : '\t';
+    const auto& valx = allows<view_category::Simple>(x);
+    if constexpr (array_rank_v<X> == 0u)
+        _export_text_impl<WriteType>(stream, valx, std::array<size_t, 0u>{},
+            line_sep, field_sep);
+    else if constexpr (array_rank_v<X> <= 2u)
+        _export_text_impl<WriteType>(stream, valx, valx.dims(),
+            line_sep, field_sep);
+    else
+        static_assert(always_false_v<X>, WL_ERROR_EXPORT_ARRAY_RANK);
+    return stream.path();
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename String, typename ReadType, typename Padding>
+auto import_text(const String& path, file_format format, ReadType,
+    Padding in_padding)
+{
+    WL_TRY_BEGIN()
+    using namespace stream_separator;
+    auto& stream = _as_input_file_stream(path);
+    const separator_table* sep_table_ptr = &default_table;
+    switch (format)
+    {
+    case file_format::TSV:
+        sep_table_ptr = &tsv_table; break;
+    case file_format::CSV:
+        sep_table_ptr = &csv_table; break;
+    default:
+        sep_table_ptr = &default_table;
+    }
+
+    static_assert(is_real_v<ReadType>, WL_ERROR_IMPORT_UNKNOWN_TYPE);
+    constexpr auto has_padding = !std::is_same_v<Padding, void_type>;
+    auto padding = ReadType{};
+    if constexpr (has_padding)
+    {
+        static_assert(is_convertible_v<Padding, ReadType>,
+            WL_ERROR_IMPORT_PADDING_TYPE);
+        const ReadType padding = cast<ReadType>(in_padding);
+    }
+
+    ndarray<ReadType, 1u> list;
+    ndarray<size_t, 1u> num_fields;
+    num_fields.append(0u);
+    size_t* num_fields_back_ptr = num_fields.end() - 1;
+    for (;;)
+    {
+        using Val = std::conditional_t<is_float_v<ReadType>, double, int64_t>;
+        Val val;
+        char sep_found;
+        auto has_number = stream.read_number(*sep_table_ptr, sep_found, val);
+        if (!has_number)
+            break;
+        list.append(ReadType(val));
+        ++(*num_fields_back_ptr);
+        if (sep_table_ptr->is_separator(sep_found, EOS))
+            break;
+        else if (sep_table_ptr->is_separator(sep_found, Line))
+        {
+            num_fields.append(0u);
+            num_fields_back_ptr = num_fields.end() - 1;
+        }
+    }
+
+    size_t row_size = 0u;
+    size_t col_size = 0u;
+    bool is_regular = true;
+    num_fields.for_each([&](const size_t& n)
+        {
+            if (n > 0u)
+            {
+                ++row_size;
+                if (col_size == 0u)
+                    col_size = n;
+                else if (col_size > n)
+                    is_regular = false;
+                else if (col_size < n)
+                    col_size = n;
+            }
+        });
+    const auto ret_dims = std::array<size_t, 2u>{row_size, col_size};
+    if (is_regular)
+        return ndarray<ReadType, 2u>(ret_dims, std::move(list).data_vector());
+    else if constexpr (!has_padding)
+        throw std::logic_error(WL_ERROR_IMPORT_NO_PADDING);
+    else
+    {
+        ndarray<ReadType, 2u> ret(ret_dims);
+        auto ret_data = ret.data();
+        auto list_data = list.data();
+        auto num_fields_data = num_fields.data();
+        for (size_t i = 0; i < row_size; ++i, ++num_fields_data)
+        {
+            size_t j = 0;
+            for (; j < *num_fields_data; ++j, ++list_data, ++ret_data)
+                *ret_data = *list_data;
+            for (; j < col_size; ++j, ++ret_data)
+                *ret_data = padding;
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+
+template<typename String, typename ReadType>
+auto import_text(const String& path, file_format format, ReadType)
+{
+    WL_TRY_BEGIN()
+    return import_text(path, format, ReadType{}, const_null);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename String, typename X, typename WriteType>
+void export_binary(const String& path, const X& x, WriteType)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream<true>(path);
+    write_binary(stream, x, WriteType{});
+    return stream.path();
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename String, typename X>
+void export_binary(const String& path, const X& x)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream<true>(path);
+    write_binary(stream, x);
+    return stream.path();
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename String, typename ReadType>
+auto import_binary(const String& path, ReadType)
+{
+    WL_TRY_BEGIN()
+    return binary_read_list(path, ReadType{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 }

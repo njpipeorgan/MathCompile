@@ -393,6 +393,7 @@ inline char* format(char* buffer0, int digits_length, int exponent_10)
 constexpr size_t integer_buffer_size = 21u;
 constexpr size_t double_buffer_size = 25u;
 constexpr size_t complex_buffer_size = 2u * double_buffer_size + 2u;
+constexpr size_t default_buffer_size = 64u;
 
 template<typename X>
 auto integer_to_string(char* const first, char* const last, const X& x)

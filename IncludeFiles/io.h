@@ -164,49 +164,71 @@ inline auto directory()
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-namespace stream_delimiter
+
+namespace stream_separator
 {
 
-enum : int
+enum : int { None = 0, Field, Line, EOS };
+
+struct separator_table
 {
-    Not = 0, Element, Word, Line, File
+    static constexpr size_t table_size = 128u;
+
+    const std::array<uint8_t, table_size> table_;
+
+    template<size_t NL, size_t NF, size_t... Is>
+    constexpr separator_table(const char (&line_seps)[NL],
+        const char (&field_seps)[NF], std::index_sequence<Is...>) :
+        table_{(uint8_t(char(Is) == '\0' ? EOS :
+            matches_any(char(Is), line_seps) ? Line :
+            matches_any(char(Is), field_seps) ? Field : None))...}
+    {
+    }
+
+    template<size_t N, size_t... Is>
+    static constexpr bool _matches_any_impl(const char ch,
+        const char (&seps)[N], std::index_sequence<Is...>)
+    {
+        return ((ch == seps[Is]) || ...);
+    }
+
+    template<size_t N>
+    static constexpr bool matches_any(const char ch, const char (&seps)[N])
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        return _matches_any_impl(ch, seps, std::make_index_sequence<N - 1u>{});
+    }
+
+    template<typename CharT>
+    constexpr bool is_separator(CharT ch, const int sep_class) const
+    {
+        const auto uch = std::make_unsigned_t<CharT>(ch);
+        return (uch < unsigned(table_size)) && table_[uch] >= sep_class;
+    }
 };
 
-constexpr auto E = int8_t(Element);
-constexpr auto W = int8_t(Word);
-constexpr auto L = int8_t(Line);
-constexpr auto F = int8_t(File);
-
-constexpr int8_t table[] =
+template<size_t NL, size_t NF>
+constexpr auto make_table(const char(&line_seps)[NL],
+    const char(&field_seps)[NF])
 {
-    /*      0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f */
-    /* 0 */ F, 0, 0, 0, 0, 0, 0, 0, 0, W, L, 0, 0, L, 0, 0,
-    /* 1 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 2 */ W, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, E, 0, 0, 0,
-    /* 3 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 4 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 5 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 6 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 7 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 8 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 9 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* a */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* b */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* c */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* d */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* e */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* f */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-};
+    return separator_table(line_seps, field_seps,
+        std::make_index_sequence<separator_table::table_size>{});
+}
+
+constexpr auto default_table = make_table("\n\r", " \t");
+constexpr auto tsv_table = make_table("\n\r", "\t");
+constexpr auto csv_table = make_table("\n\r", ",");
 
 }
 
 template<stream_direction Direction>
 struct file_stream
 {
+    using separator_table = stream_separator::separator_table;
     static constexpr auto is_input  = (Direction == stream_direction::In);
     static constexpr auto is_output = (Direction == stream_direction::Out);
-    using stream_t = std::conditional_t<
-        is_input, std::ifstream, std::ofstream>;
+    using stream_t = std::conditional_t<is_input,
+        std::ifstream, std::ofstream>;
     static constexpr size_t chunk_size = 1048576u;
 
     const string path_;
@@ -292,6 +314,7 @@ struct file_stream
         }
     }
 
+    // Get the entire file as a string
     auto read_string()
     {
         static_assert(is_input, WL_ERROR_INTERNAL);
@@ -320,8 +343,8 @@ struct file_stream
     }
     
     template<typename CharT>
-    size_t get_until(CharT* str, size_t max_count, int delim_level,
-        char& delim_found)
+    size_t get_until(CharT* str, size_t max_count,
+        const separator_table& sep_table, const int sep_class, char& sep_found)
     {
         using traits = std::char_traits<char>;
         using sentry_t = typename decltype(stream_)::sentry;
@@ -339,9 +362,9 @@ struct file_stream
                 stream_.setstate(std::ios_base::eofbit);
                 break;
             }
-            else if (stream_delimiter::table[meta_char] >= delim_level)
+            else if (sep_table.is_separator(meta, sep_class))
             {
-                delim_found = meta_char;
+                sep_found = meta_char;
                 rdbuf->sbumpc();
                 break;
             }
@@ -359,23 +382,24 @@ struct file_stream
         return count;
     }
 
-    // Get the next character as a string
-    // EOF: returns empty string, delim_found = \0
-    auto read_line(int delim_level, char& delim_found)
+    // Get the next line/field as a string
+    // EOF: returns empty string, sep_found = '\0'
+    auto read(const separator_table& sep_table, const int sep_class,
+        char& sep_found)
     {
         static_assert(is_input, WL_ERROR_INTERNAL);
         if (test_eof())
         {
-            delim_found = '\0';
+            sep_found = '\0';
             return string();
         }
-        auto ret = string(size_t(0));
+        auto ret = string(size_t(0)); // is_ascii = Unknown
         for (;;)
         {
             const auto ret_capacity = ret.capacity();
             const auto max_count = ret_capacity - ret.byte_size();
             const auto count = get_until(ret.byte_end(), max_count,
-                delim_level, delim_found);
+                sep_table, sep_class, sep_found);
             if (count > max_count)
             { // buffer is too small
                 ret.uninitialized_resize(ret.byte_size() + max_count);
@@ -393,7 +417,7 @@ struct file_stream
     }
 
     // Get the next byte in the stream as a char
-    // EOF: returns \0
+    // EOF: returns '\0'
     char read_byte()
     {
         using traits = std::char_traits<char>;
@@ -432,41 +456,41 @@ struct file_stream
     // Read the next number from the stream
     // EOF: returns false
     template<typename Val>
-    bool read_number(int delim_level, char& delim_found, Val& val)
+    bool read_number(const separator_table& sep_table, char& sep_found,
+        Val& val)
     {
         static_assert(is_input, WL_ERROR_INTERNAL);
         for (;;)
         {
-            delim_found = read_byte();
-            if (delim_found == '\0')
+            sep_found = read_byte();
+            if (sep_found == '\0')
+            {
                 return false;
-            if (stream_delimiter::table[delim_found] < delim_level)
+            }
+            if (!sep_table.is_separator(sep_found, stream_separator::Field))
             {
                 stream_.clear();
                 stream_.unget();
                 break;
             }
         }
-        for (;;)
+        auto str = read(sep_table, stream_separator::Field, sep_found);
+        assert(str.byte_size() > 0);
+        if constexpr (std::is_same_v<Val, double>)
         {
-            auto str = read_line(delim_level, delim_found);
-            assert(str.byte_size() > 0);
-            if constexpr (std::is_same_v<Val, double>)
-            {
-                if (!_from_string_impl::string_to_double(str.c_str(), val))
-                    throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
-            }
-            else if constexpr (std::is_same_v<Val, int64_t>)
-            {
-                if (!_from_string_impl::string_to_integer(str.c_str(), val))
-                    throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
-            }
-            else
-            {
-                static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
-            }
-            return true;
+            if (!_from_string_impl::string_to_double(str.c_str(), val))
+                throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
         }
+        else if constexpr (std::is_same_v<Val, int64_t>)
+        {
+            if (!_from_string_impl::string_to_integer(str.c_str(), val))
+                throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
+        }
+        else
+        {
+            static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
+        }
+        return true;
     }
 
     template<typename Val>
@@ -479,8 +503,9 @@ struct file_stream
         }
         if constexpr (is_string_v<Val>)
         {
-            char delim_found;
-            return read_line(stream_delimiter::File, delim_found);
+            char sep_found;
+            return read(stream_separator::default_table,
+                stream_separator::EOS, sep_found);
         }
         else
         {
@@ -659,8 +684,9 @@ template<typename Any, typename ReadType>
 auto read(Any& any, ReadType)
 {
     WL_TRY_BEGIN()
+    using namespace stream_separator;
     auto& stream = _as_input_file_stream(any);
-    char delim_found = '\0';
+    char sep_found = '\0';
     if constexpr (std::is_same_v<ReadType, byte_type>)
     {
         return int64_t(stream.read_byte());
@@ -669,35 +695,24 @@ auto read(Any& any, ReadType)
     {
         return stream.read_character();
     }
-    else if constexpr (std::is_same_v<ReadType, word_type>)
+    else if constexpr (std::is_same_v<ReadType, word_type> ||
+        std::is_same_v<ReadType, string_type>)
     {
         for (;;)
         {
-            auto str = stream.read_line(stream_delimiter::Word, delim_found);
-            if ((str.byte_size() > 0u) || (delim_found == '\0'))
+            auto str = stream.read(default_table,
+                std::is_same_v<ReadType, word_type> ? Field : Line, sep_found);
+            if ((str.byte_size() > 0u) || (sep_found == '\0'))
                 return str;
         }
     }
-    else if constexpr (std::is_same_v<ReadType, string_type>)
+    else if constexpr (std::is_same_v<ReadType, real_type> ||
+        std::is_same_v<ReadType, integer_type>)
     {
-        for (;;)
-        {
-            auto str = stream.read_line(stream_delimiter::Line, delim_found);
-            if ((str.byte_size() > 0u) || (delim_found == '\0'))
-                return str;
-        }
-    }
-    else if constexpr (std::is_same_v<ReadType, real_type>)
-    {
-        double ret;
-        if (!stream.read_number(stream_delimiter::Element, delim_found, ret))
-            throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
-        return ret;
-    }
-    else if constexpr (std::is_same_v<ReadType, integer_type>)
-    {
-        int64_t ret;
-        if (!stream.read_number(stream_delimiter::Element, delim_found, ret))
+        using Ret = std::conditional_t<
+            std::is_same_v<ReadType, real_type>, double, int64_t>;
+        Ret ret;
+        if (!stream.read_number(default_table, sep_found, ret))
             throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
         return ret;
     }
@@ -720,16 +735,17 @@ template<typename Any, typename ReadType, typename Count>
 auto read_list(Any& any, ReadType, const Count& in_count)
 {
     WL_TRY_BEGIN()
+    using namespace stream_separator;
     static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
     const auto count = int64_t(std::max(Count(0), in_count));
     auto& stream = _as_input_file_stream(any);
     char ignored = '\0';
     if constexpr (std::is_same_v<ReadType, byte_type>)
     {
-        ndarray<uint8_t, 1u> ret;
+        ndarray<utf8::char_t, 1u> ret;
         for (int64_t i = 0; i < count; ++i)
         {
-            auto ch = uint8_t(stream.read_byte());
+            auto ch = utf8::char_t(stream.read_byte());
             if (ch == 0)
                 break;
             ret.append(ch);
@@ -748,57 +764,32 @@ auto read_list(Any& any, ReadType, const Count& in_count)
         }
         return ret;
     }
-    else if constexpr (std::is_same_v<ReadType, word_type>)
+    else if constexpr (std::is_same_v<ReadType, word_type> ||
+        std::is_same_v<ReadType, string_type>)
     {
         ndarray<string, 1u> ret;
-        char delim_found = '\0';
+        char sep_found = '\0';
         for (int64_t i = 0; i < count; ++i)
         {
-            auto str = stream.read_line(stream_delimiter::Word, delim_found);
-            if (delim_found == '\0')
+            auto str = stream.read(default_table,
+                std::is_same_v<ReadType, word_type> ? Field : Line, sep_found);
+            if (sep_found == '\0')
                 break;
             ret.append(std::move(str));
         }
         return ret;
     }
-    else if constexpr (std::is_same_v<ReadType, string_type>)
+    else if constexpr (std::is_same_v<ReadType, real_type> ||
+        std::is_same_v<ReadType, integer_type>)
     {
-        ndarray<string, 1u> ret;
-        char delim_found = '\0';
+        using Elem = std::conditional_t<
+            std::is_same_v<ReadType, real_type>, double, int64_t>;
+        ndarray<Elem, 1u> ret;
+        char sep_found = '\0';
         for (int64_t i = 0; i < count; ++i)
         {
-            auto str = stream.read_line(stream_delimiter::Line, delim_found);
-            if (delim_found == '\0')
-                break;
-            ret.append(std::move(str));
-        }
-        return ret;
-    }
-    else if constexpr (std::is_same_v<ReadType, real_type>)
-    {
-        ndarray<double, 1u> ret;
-        char delim_found = '\0';
-        for (int64_t i = 0; i < count; ++i)
-        {
-            double elem;
-            if (!stream.read_number(
-                stream_delimiter::Element, delim_found, elem))
-            { // EOF
-                break;
-            }
-            ret.append(elem);
-        }
-        return ret;
-    }
-    else if constexpr (std::is_same_v<ReadType, integer_type>)
-    {
-        ndarray<int64_t, 1u> ret;
-        char delim_found = '\0';
-        for (int64_t i = 0; i < count; ++i)
-        {
-            int64_t elem;
-            if (!stream.read_number(
-                stream_delimiter::Element, delim_found, elem))
+            Elem elem;
+            if (!stream.read_number(default_table, Field, sep_found, elem))
             { // EOF
                 break;
             }

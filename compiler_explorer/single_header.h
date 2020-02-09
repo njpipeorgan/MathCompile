@@ -1,5 +1,4 @@
 #include <immintrin.h>
-#include <version>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -23,14 +22,17 @@
 #include <thread>
 #include <cmath>
 #include <random>
-#include <filesystem>
-#include <experimental/filesystem>
+#include <wchar.h>
+#include <unistd.h>
+#include <cstdio>
+#include <locale>
 #include <fstream>
 #include <iostream>
+#include <functional>
+#include <cstdlib>
 #include <limits.h>
 #include <stdlib.h>
 #include <inttypes.h>
-#include <functional>
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  if _MSC_VER < 1920
 #    pragma message (": error cxx::compilerver")
@@ -255,8 +257,14 @@ namespace wl
 "The stream position can only be changed for input streams."
 #define WL_ERROR_STREAM_POSITION_INTEGRAL \
 "The stream position should be an integer."
-#define WL_ERROR_UNKNOWN_READ_TYPE \
+#define WL_ERROR_READ_UNKNOWN_TYPE \
 "Read type should be one of Byte, Character, String, Word, Real, or Integer."
+#define WL_ERROR_WRITE_STRING_ONLY \
+"The function can only write strings."
+#define WL_ERROR_READ_LIST_COUNT_INTEGRAL \
+"The number of elements to read should be an integer."
+#define WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE \
+"This type is not supported for binary read/write."
 #define WL_ERROR_CALLBACK \
 "Callback failed."
 #define WL_ERROR_NEGATIVE_DIMS \
@@ -353,6 +361,16 @@ namespace wl
 "The content is not a valid UTF-8 string."
 #define WL_ERROR_STREAM_CANNOT_READ_NUMBER \
 "Cannot read the number from the stream."
+#define WL_ERROR_STREAM_CANNOT_READ_BINARY \
+"Cannot read the binary data from the stream."
+#define WL_ERROR_GETCWD \
+"An error has occurred while getting the current working directory."
+#define WL_ERROR_STREAM_READ \
+"An error has occurred while reading from the stream."
+#define WL_ERROR_STREAM_WRITE \
+"An error has occurred while writing to the stream."
+#define WL_ERROR_STREAM_BINARINESS \
+"The read/write operation does not match the binariness of the stream."
 }
 namespace wl
 {
@@ -5879,10 +5897,8 @@ auto bit_shift_right(X&& x, Y&& y)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
-#if defined(__cpp_lib_filesystem) || defined(_MSC_VER)
-#  define STD_FILESYSTEM std::filesystem
+#ifdef _WIN32
 #else
-#  define STD_FILESYSTEM std::experimental::filesystem
 #endif
 namespace wl
 {
@@ -6111,11 +6127,11 @@ struct string_iterator
     string_iterator(const char_t* ptr) : ptr_{ptr}
     {
     }
-    WL_INLINE static bool _is_valid_codepoint_leading(uint8_t byte)
+    WL_INLINE static bool _is_valid_codepoint_leading(char_t byte)
     {
         return (byte < 0b1000'0000u) || (byte >= 0b1100'0000u);
     }
-    WL_INLINE static bool _is_valid_codepoint_tailing(uint8_t byte)
+    WL_INLINE static bool _is_valid_codepoint_tailing(char_t byte)
     {
         return (byte & 0b1100'0000u) == 0b1000'0000u;
     }
@@ -6291,31 +6307,26 @@ struct string_iterator
             return 4u;
         }
     }
+    WL_INLINE static size_t _num_bytes_by_leading(char_t byte)
+    {
+        assert(_is_valid_codepoint_leading(byte));
+        if (byte < 0b1000'0000u)
+            return 1u;
+        else if (byte < 0b1110'0000u)
+            return 2u;
+        else if (byte < 0b1111'0000u)
+            return 3u;
+        else
+            return 4u;
+    }
     size_t num_bytes() const
     {
-        assert((*ptr_ > 0u) && _is_valid_codepoint_leading(*ptr_));
-        if (*ptr_ < 0b1000'0000u)
+        size_t ret = _num_bytes_by_leading(*ptr_);
+        for (size_t i = 1u; i < ret; ++i)
         {
-            return 1u;
+            assert(_is_valid_codepoint_tailing(ptr_[i]));
         }
-        else if (*ptr_ < 0b1110'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            return 2u;
-        }
-        else if (*ptr_ < 0b1111'0000u)
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            return 3u;
-        }
-        else
-        {
-            assert(_is_valid_codepoint_tailing(ptr_[1]));
-            assert(_is_valid_codepoint_tailing(ptr_[2]));
-            assert(_is_valid_codepoint_tailing(ptr_[3]));
-            return 4u;
-        }
+        return ret;
     }
 };
 }
@@ -7181,4764 +7192,6 @@ auto string_expression(Patterns&&... patterns)
 {
     return _string_expression<remove_cvref_t<Patterns>...>{
         std::make_tuple(std::forward<decltype(patterns)>(patterns)...)};
-}
-}
-namespace wl
-{
-namespace _to_string_impl
-{
-struct float_pair
-{
-    static constexpr int      mantissa_size = 64;
-    static constexpr int      fraction_size = 52;
-    static constexpr int      exponent_bias = 0x3ff + fraction_size;
-    static constexpr int      min_exponent  = -exponent_bias;
-    static constexpr uint64_t exponent_mask = 0x7ff0'0000'0000'0000u;
-    static constexpr uint64_t fraction_mask = 0x000f'ffff'ffff'ffffu;
-    static constexpr uint64_t hidden_bit    = 0x0010'0000'0000'0000u;
-    uint64_t mantissa = 0;
-    int      exponent = 0;
-    constexpr float_pair() = default;
-    constexpr float_pair(uint64_t mantissa, int exponent) :
-        mantissa{mantissa}, exponent{exponent}
-    {
-    }
-    float_pair(double d)
-    {
-        uint64_t ud;
-        std::memcpy(&ud, &d, sizeof(double));
-        auto biased_e = int(exponent_bits(ud));
-        auto fraction = fraction_bits(ud);
-        if (biased_e > 0)
-        {
-            mantissa = fraction + hidden_bit;
-            exponent = biased_e - exponent_bias;
-        }
-        else
-        {
-            mantissa = fraction;
-            exponent = min_exponent + 1;
-        }
-    }
-    float_pair operator-(const float_pair& other) const
-    {
-        assert(this->exponent == other.exponent);
-        assert(this->mantissa >= other.mantissa);
-        return {this->mantissa - other.mantissa, this->exponent};
-    }
-    float_pair operator*(const float_pair& other) const
-    {
-#if defined (__BMI2__)
-        uint64_t hi, lo;
-        lo = _mulx_u64(mantissa, other.mantissa, &hi);
-        return {hi + (lo >> 63u), exponent + other.exponent + 64};
-#else
-        static constexpr uint64_t mask_32 = 0xffff'ffffu;
-        uint64_t ll = (mantissa & mask_32) * (other.mantissa & mask_32);
-        uint64_t hl = (mantissa >> 32u)    * (other.mantissa & mask_32);
-        uint64_t lh = (mantissa & mask_32) * (other.mantissa >> 32u);
-        uint64_t hh = (mantissa >> 32u)    * (other.mantissa >> 32u);
-        uint64_t carry = ((ll >> 32u) + (hl & mask_32) + (lh & mask_32) +
-            (uint64_t(1) << 31u)) >> 32u;
-        return {hh + (hl >> 32u) + (lh >> 32u) + (carry >> 32u),
-            exponent + other.exponent + 64};
-#endif
-    }
-    float_pair& normalize(ptrdiff_t offset = 0)
-    {
-        size_t leading_zero = (mantissa & (hidden_bit << offset)) ?
-            (mantissa_size - fraction_size - 1 - offset) :
-            wl::utils::lzcnt_u64(mantissa);
-        mantissa <<= leading_zero;
-        exponent -= int(leading_zero);
-        return *this;
-    }
-    void normalize_boundaries(float_pair& minus, float_pair& plus) const
-    {
-        plus = float_pair((mantissa << 1u) + 1u, exponent - 1);
-        plus.normalize(1);
-        if (mantissa == hidden_bit)
-            minus = float_pair((mantissa << 2u) - 1u, exponent - 2);
-        else
-            minus = float_pair((mantissa << 1u) - 1u, exponent - 1);
-        minus.mantissa <<= minus.exponent - plus.exponent;
-        minus.exponent = plus.exponent;
-    }
-    static uint64_t exponent_bits(uint64_t ud)
-    {
-        return (ud & exponent_mask) >> fraction_size;
-    }
-    static uint64_t fraction_bits(uint64_t ud)
-    {
-        return ud & fraction_mask;
-    }
-};
-inline float_pair cached_power(int exponent_2, int& exponent_10)
-{
-    // 10^-348, 10^-340, ..., 10^340
-    // Table[{"0x"<>IntegerString[Round[10^p*2^#],16]<>"u",#}&@NestWhile[
-    //   #-1&,Round[68-N@Log2[10^p]],10^p*2^#>=2^64&],{p,-348,340,8}]
-    static constexpr float_pair cached_powers[] =
-    {
-        {0xfa8fd5a0081c0288u,-1220},{0xbaaee17fa23ebf76u,-1193},
-        {0x8b16fb203055ac76u,-1166},{0xcf42894a5dce35eau,-1140},
-        {0x9a6bb0aa55653b2du,-1113},{0xe61acf033d1a45dfu,-1087},
-        {0xab70fe17c79ac6cau,-1060},{0xff77b1fcbebcdc4fu,-1034},
-        {0xbe5691ef416bd60cu,-1007},{0x8dd01fad907ffc3cu,-980},
-        {0xd3515c2831559a83u,-954},{0x9d71ac8fada6c9b5u,-927},
-        {0xea9c227723ee8bcbu,-901},{0xaecc49914078536du,-874},
-        {0x823c12795db6ce57u,-847},{0xc21094364dfb5637u,-821},
-        {0x9096ea6f3848984fu,-794},{0xd77485cb25823ac7u,-768},
-        {0xa086cfcd97bf97f4u,-741},{0xef340a98172aace5u,-715},
-        {0xb23867fb2a35b28eu,-688},{0x84c8d4dfd2c63f3bu,-661},
-        {0xc5dd44271ad3cdbau,-635},{0x936b9fcebb25c996u,-608},
-        {0xdbac6c247d62a584u,-582},{0xa3ab66580d5fdaf6u,-555},
-        {0xf3e2f893dec3f126u,-529},{0xb5b5ada8aaff80b8u,-502},
-        {0x87625f056c7c4a8bu,-475},{0xc9bcff6034c13053u,-449},
-        {0x964e858c91ba2655u,-422},{0xdff9772470297ebdu,-396},
-        {0xa6dfbd9fb8e5b88fu,-369},{0xf8a95fcf88747d94u,-343},
-        {0xb94470938fa89bcfu,-316},{0x8a08f0f8bf0f156bu,-289},
-        {0xcdb02555653131b6u,-263},{0x993fe2c6d07b7facu,-236},
-        {0xe45c10c42a2b3b06u,-210},{0xaa242499697392d3u,-183},
-        {0xfd87b5f28300ca0eu,-157},{0xbce5086492111aebu,-130},
-        {0x8cbccc096f5088ccu,-103},{0xd1b71758e219652cu,-77},
-        {0x9c40000000000000u,-50},{0xe8d4a51000000000u,-24},
-        {0xad78ebc5ac620000u,3},{0x813f3978f8940984u,30},
-        {0xc097ce7bc90715b3u,56},{0x8f7e32ce7bea5c70u,83},
-        {0xd5d238a4abe98068u,109},{0x9f4f2726179a2245u,136},
-        {0xed63a231d4c4fb27u,162},{0xb0de65388cc8ada8u,189},
-        {0x83c7088e1aab65dbu,216},{0xc45d1df942711d9au,242},
-        {0x924d692ca61be758u,269},{0xda01ee641a708deau,295},
-        {0xa26da3999aef774au,322},{0xf209787bb47d6b85u,348},
-        {0xb454e4a179dd1877u,375},{0x865b86925b9bc5c2u,402},
-        {0xc83553c5c8965d3du,428},{0x952ab45cfa97a0b3u,455},
-        {0xde469fbd99a05fe3u,481},{0xa59bc234db398c25u,508},
-        {0xf6c69a72a3989f5cu,534},{0xb7dcbf5354e9beceu,561},
-        {0x88fcf317f22241e2u,588},{0xcc20ce9bd35c78a5u,614},
-        {0x98165af37b2153dfu,641},{0xe2a0b5dc971f303au,667},
-        {0xa8d9d1535ce3b396u,694},{0xfb9b7cd9a4a7443cu,720},
-        {0xbb764c4ca7a44410u,747},{0x8bab8eefb6409c1au,774},
-        {0xd01fef10a657842cu,800},{0x9b10a4e5e9913129u,827},
-        {0xe7109bfba19c0c9du,853},{0xac2820d9623bf429u,880},
-        {0x80444b5e7aa7cf85u,907},{0xbf21e44003acdd2du,933},
-        {0x8e679c2f5e44ff8fu,960},{0xd433179d9c8cb841u,986},
-        {0x9e19db92b4e31ba9u,1013},{0xeb96bf6ebadf77d9u,1039},
-        {0xaf87023b9bf0ee6bu,1066}
-    };
-    static_assert(sizeof(cached_powers) / sizeof(cached_powers[0]) == 87u);
-    constexpr double log10_2 = 0.301029995663981195;
-    const auto k = int(std::ceil(log10_2 * (-61 - exponent_2))) + 347;
-    const auto index = k / 8 + 1;
-    exponent_10 = -(-348 + 8 * index);
-    assert(index < sizeof(cached_powers) / sizeof(cached_powers[0]));
-    return cached_powers[index];
-}
-inline void grisu_round(char* buffer, int length, uint64_t delta,
-    uint64_t rest, uint64_t ten_kappa, uint64_t wp_w)
-{
-    while ((rest < wp_w) && (delta - rest >= ten_kappa) &&
-        ((rest + ten_kappa < wp_w) || (wp_w - rest > rest + ten_kappa - wp_w)))
-    {
-        buffer[length - 1]--;
-        rest += ten_kappa;
-    }
-}
-inline int count_decimal_digits(uint32_t n) {
-    if (n < 10)
-        return 1;
-    else if (n < 100)
-        return 2;
-    else if (n < 1000)
-        return 3;
-    else if (n < 10000)
-        return 4;
-    else if (n < 100000)
-        return 5;
-    else if (n < 1000000)
-        return 6;
-    else if (n < 10000000)
-        return 7;
-    else if (n < 100000000)
-        return 8;
-    else if (n < 1000000000)
-        return 9;
-    else
-        return 10;
-}
-inline void generate_digits(const float_pair& val, const float_pair& upper,
-    uint64_t mantissa_window, char* buffer, int& length, int& exponent_10)
-{
-    static constexpr uint64_t power_10[] =
-    {
-        1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
-        1000000000, 10000000000, 100000000000, 1000000000000, 10000000000000,
-        100000000000000
-    };
-    const auto upper_exponent = upper.exponent;
-    const auto mantissa_mask = (uint64_t(1) << -upper_exponent) - 1u;
-    const auto upper_window = upper - val;
-    auto integer_part = upper.mantissa >> -upper_exponent;
-    auto fraction_part = upper.mantissa & mantissa_mask;
-    auto exponent_10_diff = count_decimal_digits(uint32_t(integer_part));
-    while (exponent_10_diff > 0)
-    {
-        uint64_t d = 0;
-        switch (exponent_10_diff)
-        {
-#define WL_GENERATE_DIGITS_INTEGER_PART_CASE(i)     \
-        case i:                                     \
-            d = integer_part / power_10[i - 1];     \
-            integer_part %= power_10[i - 1];        \
-            break;
-            WL_GENERATE_DIGITS_INTEGER_PART_CASE(10)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(9)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(8)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(7)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(6)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(5)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(4)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(3)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(2)
-                WL_GENERATE_DIGITS_INTEGER_PART_CASE(1)
-#undef WL_GENERATE_DIGITS_INTEGER_PART_CASE
-        default: d = 0;
-        }
-        if (d || length)
-            buffer[length++] = char('0' + int(d));
-        --exponent_10_diff;
-        uint64_t new_mantissa = (integer_part << -upper_exponent) + fraction_part;
-        if (new_mantissa <= mantissa_window)
-        {
-            exponent_10 += exponent_10_diff;
-            grisu_round(buffer, length, mantissa_window, new_mantissa,
-                power_10[exponent_10_diff] << -upper_exponent,
-                upper_window.mantissa);
-            return;
-        }
-    }
-    for (;;)
-    {
-        fraction_part *= 10;
-        mantissa_window *= 10;
-        auto d = char(fraction_part >> -upper_exponent);
-        if (d || length)
-            buffer[length++] = '0' + d;
-        fraction_part &= mantissa_mask;
-        --exponent_10_diff;
-        if (fraction_part < mantissa_window)
-        {
-            exponent_10 += exponent_10_diff;
-            grisu_round(buffer, length, mantissa_window, fraction_part,
-                (uint64_t(1) << -upper_exponent),
-                upper_window.mantissa * power_10[-exponent_10_diff]);
-            return;
-        }
-    }
-}
-inline void grisu2(double value, char* buffer, int& length, int& exponent_10)
-{
-    float_pair v(value);
-    float_pair w_m, w_p;
-    v.normalize_boundaries(w_m, w_p);
-    const auto c_mk = cached_power(w_p.exponent, exponent_10);
-    v.normalize();
-    const auto W = v * c_mk;
-    auto Wp = w_p * c_mk;
-    auto Wm = w_m * c_mk;
-    ++Wm.mantissa;
-    --Wp.mantissa;
-    generate_digits(W, Wp, Wp.mantissa - Wm.mantissa, buffer, length,
-        exponent_10);
-}
-inline char* write_exponent(int exponent_10, char* buffer)
-{
-    if (exponent_10 < 0)
-    {
-        *buffer++ = '-';
-        exponent_10 = -exponent_10;
-    }
-    if (exponent_10 >= 100)
-    {
-        buffer[2] = char('0' + (exponent_10 % 10));
-        exponent_10 /= 10;
-        buffer[1] = char('0' + (exponent_10 % 10));
-        buffer[0] = char('0' + (exponent_10 / 10));
-        buffer += 3;
-    }
-    else if (exponent_10 >= 10)
-    {
-        *buffer++ = char('0' + (exponent_10 / 10));
-        *buffer++ = char('0' + (exponent_10 % 10));
-    }
-    else
-    {
-        *buffer++ = char('0' + exponent_10);
-    }
-    *buffer = '\0';
-    return buffer;
-}
-inline char* format(char* buffer0, int digits_length, int exponent_10)
-{
-    char* buffer = buffer0;
-    const auto scientific_e = digits_length + exponent_10 - 1;
-    const auto integral_length = std::max(0, scientific_e) + 1;
-    const auto fractional_length = std::max(0, -exponent_10);
-    const auto plain_length = integral_length + fractional_length + 1;
-    const auto scientific_length = digits_length + 2 +
-        (scientific_e >= 0 ? count_decimal_digits(uint32_t(scientific_e)) :
-            count_decimal_digits(uint32_t(-scientific_e)) + 1);
-    if (plain_length <= scientific_length)
-    {
-        if (exponent_10 >= 0)
-        {
-            std::memset(buffer + digits_length, '0', exponent_10);
-            buffer += digits_length + exponent_10;
-            *buffer++ = '.';
-        }
-        else if (scientific_e < 0)
-        {
-            std::memmove(&buffer[1 - scientific_e], &buffer[0], digits_length);
-            buffer[0] = '0';
-            buffer[1] = '.';
-            std::memset(&buffer[2], '0', -scientific_e - 1);
-            buffer += 1 - scientific_e + digits_length;
-        }
-        else
-        {
-            std::memmove(&buffer[scientific_e + 2], &buffer[scientific_e + 1],
-                digits_length - (scientific_e + 1));
-            buffer[scientific_e + 1] = '.';
-            buffer += digits_length + 1;
-        }
-        *buffer = '\0';
-        assert(buffer0 + plain_length == buffer);
-        return buffer;
-    }
-    else
-    {
-        std::memmove(&buffer[2], &buffer[1], size_t(digits_length) - 1);
-        buffer[1] = '.';
-        buffer[digits_length + 1] = 'e';
-        buffer = write_exponent(scientific_e, &buffer[digits_length + 2]);
-        assert(buffer0 + scientific_length == buffer);
-        return buffer;
-    }
-}
-constexpr size_t integer_buffer_size = 21u;
-constexpr size_t double_buffer_size = 25u;
-constexpr size_t complex_buffer_size = 2u * double_buffer_size + 2u;
-template<typename X>
-auto integer_to_string(char* const first, char* const last, const X& x)
-{
-    assert(first + integer_buffer_size <= last);
-    using Unsigned = std::make_unsigned_t<decltype(x + 0)>;
-    char* ptr = last;
-    if (x == X(0))
-    {
-        *--ptr = '0';
-    }
-    else
-    {
-        bool is_negative = false;
-        Unsigned ux = 0;
-        if constexpr (std::is_unsigned_v<X>)
-            ux = Unsigned(x);
-        else
-        {
-            is_negative = x < X(0);
-            ux = is_negative ? Unsigned(-x) : Unsigned(x);
-        }
-        do
-        {
-            *--ptr = char(Unsigned('0') + (ux % 10u));
-            ux /= 10u;
-        } while (ux != 0u);
-        if (!std::is_unsigned_v<X> && is_negative)
-            *--ptr = '-';
-    }
-    return string_view(ptr, last);
-}
-template<bool AlwaysPrintSign = false>
-auto double_to_string(char* const first, char* const last, double x)
-{
-    assert(first + double_buffer_size <= last);
-    assert(!isnan(x));
-    assert(!isinf(x));
-    char* ptr = first;
-    if (x == 0.0)
-    {
-        if constexpr (AlwaysPrintSign)
-            *ptr++ = '+';
-        *ptr++ = '0';
-        *ptr++ = '.';
-        *ptr = '\0';
-        return string_view(first, ptr);
-    }
-    else
-    {
-        if (x < 0)
-        {
-            *ptr++ = '-';
-            x = -x;
-        }
-        else if constexpr (AlwaysPrintSign)
-        {
-            *ptr++ = '+';
-        }
-        int length = 0;
-        int exponent_10 = 0;
-        grisu2(x, ptr, length, exponent_10);
-        ptr = format(ptr, length, exponent_10);
-        return string_view(first, ptr);
-    }
-}
-template<typename T>
-auto complex_to_string(char* const first, char* const last, complex<T> x)
-{
-    assert(first + complex_buffer_size <= last);
-    auto ptr = first;
-    ptr = (char*)double_to_string<false>(
-        ptr, last, double(x.real())).byte_end();
-    ptr = (char*)double_to_string<true>(
-        ptr, last, double(x.imag())).byte_end();
-    *ptr++ = '*';
-    *ptr++ = 'I';
-    *ptr = '\0';
-    return string_view(first, ptr);
-}
-}
-}
-#define PCRE2_STATIC 1
-#define PCRE2_CODE_UNIT_WIDTH 8
-/*************************************************
-*       Perl-Compatible Regular Expressions      *
-*************************************************/
-/* This is the public header file for the PCRE library, second API, to be
-#included by applications that call PCRE2 functions.
-           Copyright (c) 2016-2019 University of Cambridge
------------------------------------------------------------------------------
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the University of Cambridge nor the names of its
-      contributors may be used to endorse or promote products derived from
-      this software without specific prior written permission.
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGE.
------------------------------------------------------------------------------
-*/
-#ifndef PCRE2_H_IDEMPOTENT_GUARD
-#define PCRE2_H_IDEMPOTENT_GUARD
-/* The current PCRE version information. */
-#define PCRE2_MAJOR           10
-#define PCRE2_MINOR           34
-#define PCRE2_PRERELEASE      
-#define PCRE2_DATE            2019-11-21
-/* When an application links to a PCRE DLL in Windows, the symbols that are
-imported have to be identified as such. When building PCRE2, the appropriate
-export setting is defined in pcre2_internal.h, which includes this file. So we
-don't change existing definitions of PCRE2_EXP_DECL. */
-#if defined(_WIN32) && !defined(PCRE2_STATIC)
-#  ifndef PCRE2_EXP_DECL
-#    define PCRE2_EXP_DECL  extern __declspec(dllimport)
-#  endif
-#endif
-/* By default, we use the standard "extern" declarations. */
-#ifndef PCRE2_EXP_DECL
-#  ifdef __cplusplus
-#    define PCRE2_EXP_DECL  extern "C"
-#  else
-#    define PCRE2_EXP_DECL  extern
-#  endif
-#endif
-/* When compiling with the MSVC compiler, it is sometimes necessary to include
-a "calling convention" before exported function names. (This is secondhand
-information; I know nothing about MSVC myself). For example, something like
-  void __cdecl function(....)
-might be needed. In order so make this easy, all the exported functions have
-PCRE2_CALL_CONVENTION just before their names. It is rarely needed; if not
-set, we ensure here that it has no effect. */
-#ifndef PCRE2_CALL_CONVENTION
-#define PCRE2_CALL_CONVENTION
-#endif
-/* Have to include limits.h, stdlib.h, and inttypes.h to ensure that size_t and
-uint8_t, UCHAR_MAX, etc are defined. Some systems that do have inttypes.h do
-not have stdint.h, which is why we use inttypes.h, which according to the C
-standard is a superset of stdint.h. If none of these headers are available,
-the relevant values must be provided by some other means. */
-/* Allow for C++ users compiling this directly. */
-#ifdef __cplusplus
-extern "C" {
-#endif
-/* The following option bits can be passed to pcre2_compile(), pcre2_match(),
-or pcre2_dfa_match(). PCRE2_NO_UTF_CHECK affects only the function to which it
-is passed. Put these bits at the most significant end of the options word so
-others can be added next to them */
-#define PCRE2_ANCHORED            0x80000000u
-#define PCRE2_NO_UTF_CHECK        0x40000000u
-#define PCRE2_ENDANCHORED         0x20000000u
-/* The following option bits can be passed only to pcre2_compile(). However,
-they may affect compilation, JIT compilation, and/or interpretive execution.
-The following tags indicate which:
-C   alters what is compiled by pcre2_compile()
-J   alters what is compiled by pcre2_jit_compile()
-M   is inspected during pcre2_match() execution
-D   is inspected during pcre2_dfa_match() execution
-*/
-#define PCRE2_ALLOW_EMPTY_CLASS   0x00000001u  /* C       */
-#define PCRE2_ALT_BSUX            0x00000002u  /* C       */
-#define PCRE2_AUTO_CALLOUT        0x00000004u  /* C       */
-#define PCRE2_CASELESS            0x00000008u  /* C       */
-#define PCRE2_DOLLAR_ENDONLY      0x00000010u  /*   J M D */
-#define PCRE2_DOTALL              0x00000020u  /* C       */
-#define PCRE2_DUPNAMES            0x00000040u  /* C       */
-#define PCRE2_EXTENDED            0x00000080u  /* C       */
-#define PCRE2_FIRSTLINE           0x00000100u  /*   J M D */
-#define PCRE2_MATCH_UNSET_BACKREF 0x00000200u  /* C J M   */
-#define PCRE2_MULTILINE           0x00000400u  /* C       */
-#define PCRE2_NEVER_UCP           0x00000800u  /* C       */
-#define PCRE2_NEVER_UTF           0x00001000u  /* C       */
-#define PCRE2_NO_AUTO_CAPTURE     0x00002000u  /* C       */
-#define PCRE2_NO_AUTO_POSSESS     0x00004000u  /* C       */
-#define PCRE2_NO_DOTSTAR_ANCHOR   0x00008000u  /* C       */
-#define PCRE2_NO_START_OPTIMIZE   0x00010000u  /*   J M D */
-#define PCRE2_UCP                 0x00020000u  /* C J M D */
-#define PCRE2_UNGREEDY            0x00040000u  /* C       */
-#define PCRE2_UTF                 0x00080000u  /* C J M D */
-#define PCRE2_NEVER_BACKSLASH_C   0x00100000u  /* C       */
-#define PCRE2_ALT_CIRCUMFLEX      0x00200000u  /*   J M D */
-#define PCRE2_ALT_VERBNAMES       0x00400000u  /* C       */
-#define PCRE2_USE_OFFSET_LIMIT    0x00800000u  /*   J M D */
-#define PCRE2_EXTENDED_MORE       0x01000000u  /* C       */
-#define PCRE2_LITERAL             0x02000000u  /* C       */
-#define PCRE2_MATCH_INVALID_UTF   0x04000000u  /*   J M D */
-/* An additional compile options word is available in the compile context. */
-#define PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES  0x00000001u  /* C */
-#define PCRE2_EXTRA_BAD_ESCAPE_IS_LITERAL    0x00000002u  /* C */
-#define PCRE2_EXTRA_MATCH_WORD               0x00000004u  /* C */
-#define PCRE2_EXTRA_MATCH_LINE               0x00000008u  /* C */
-#define PCRE2_EXTRA_ESCAPED_CR_IS_LF         0x00000010u  /* C */
-#define PCRE2_EXTRA_ALT_BSUX                 0x00000020u  /* C */
-/* These are for pcre2_jit_compile(). */
-#define PCRE2_JIT_COMPLETE        0x00000001u  /* For full matching */
-#define PCRE2_JIT_PARTIAL_SOFT    0x00000002u
-#define PCRE2_JIT_PARTIAL_HARD    0x00000004u
-#define PCRE2_JIT_INVALID_UTF     0x00000100u
-/* These are for pcre2_match(), pcre2_dfa_match(), pcre2_jit_match(), and
-pcre2_substitute(). Some are allowed only for one of the functions, and in
-these cases it is noted below. Note that PCRE2_ANCHORED, PCRE2_ENDANCHORED and
-PCRE2_NO_UTF_CHECK can also be passed to these functions (though
-pcre2_jit_match() ignores the latter since it bypasses all sanity checks). */
-#define PCRE2_NOTBOL                      0x00000001u
-#define PCRE2_NOTEOL                      0x00000002u
-#define PCRE2_NOTEMPTY                    0x00000004u  /* ) These two must be kept */
-#define PCRE2_NOTEMPTY_ATSTART            0x00000008u  /* ) adjacent to each other. */
-#define PCRE2_PARTIAL_SOFT                0x00000010u
-#define PCRE2_PARTIAL_HARD                0x00000020u
-#define PCRE2_DFA_RESTART                 0x00000040u  /* pcre2_dfa_match() only */
-#define PCRE2_DFA_SHORTEST                0x00000080u  /* pcre2_dfa_match() only */
-#define PCRE2_SUBSTITUTE_GLOBAL           0x00000100u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_EXTENDED         0x00000200u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_UNSET_EMPTY      0x00000400u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_UNKNOWN_UNSET    0x00000800u  /* pcre2_substitute() only */
-#define PCRE2_SUBSTITUTE_OVERFLOW_LENGTH  0x00001000u  /* pcre2_substitute() only */
-#define PCRE2_NO_JIT                      0x00002000u  /* Not for pcre2_dfa_match() */
-#define PCRE2_COPY_MATCHED_SUBJECT        0x00004000u
-/* Options for pcre2_pattern_convert(). */
-#define PCRE2_CONVERT_UTF                    0x00000001u
-#define PCRE2_CONVERT_NO_UTF_CHECK           0x00000002u
-#define PCRE2_CONVERT_POSIX_BASIC            0x00000004u
-#define PCRE2_CONVERT_POSIX_EXTENDED         0x00000008u
-#define PCRE2_CONVERT_GLOB                   0x00000010u
-#define PCRE2_CONVERT_GLOB_NO_WILD_SEPARATOR 0x00000030u
-#define PCRE2_CONVERT_GLOB_NO_STARSTAR       0x00000050u
-/* Newline and \R settings, for use in compile contexts. The newline values
-must be kept in step with values set in config.h and both sets must all be
-greater than zero. */
-#define PCRE2_NEWLINE_CR          1
-#define PCRE2_NEWLINE_LF          2
-#define PCRE2_NEWLINE_CRLF        3
-#define PCRE2_NEWLINE_ANY         4
-#define PCRE2_NEWLINE_ANYCRLF     5
-#define PCRE2_NEWLINE_NUL         6
-#define PCRE2_BSR_UNICODE         1
-#define PCRE2_BSR_ANYCRLF         2
-/* Error codes for pcre2_compile(). Some of these are also used by
-pcre2_pattern_convert(). */
-#define PCRE2_ERROR_END_BACKSLASH                  101
-#define PCRE2_ERROR_END_BACKSLASH_C                102
-#define PCRE2_ERROR_UNKNOWN_ESCAPE                 103
-#define PCRE2_ERROR_QUANTIFIER_OUT_OF_ORDER        104
-#define PCRE2_ERROR_QUANTIFIER_TOO_BIG             105
-#define PCRE2_ERROR_MISSING_SQUARE_BRACKET         106
-#define PCRE2_ERROR_ESCAPE_INVALID_IN_CLASS        107
-#define PCRE2_ERROR_CLASS_RANGE_ORDER              108
-#define PCRE2_ERROR_QUANTIFIER_INVALID             109
-#define PCRE2_ERROR_INTERNAL_UNEXPECTED_REPEAT     110
-#define PCRE2_ERROR_INVALID_AFTER_PARENS_QUERY     111
-#define PCRE2_ERROR_POSIX_CLASS_NOT_IN_CLASS       112
-#define PCRE2_ERROR_POSIX_NO_SUPPORT_COLLATING     113
-#define PCRE2_ERROR_MISSING_CLOSING_PARENTHESIS    114
-#define PCRE2_ERROR_BAD_SUBPATTERN_REFERENCE       115
-#define PCRE2_ERROR_NULL_PATTERN                   116
-#define PCRE2_ERROR_BAD_OPTIONS                    117
-#define PCRE2_ERROR_MISSING_COMMENT_CLOSING        118
-#define PCRE2_ERROR_PARENTHESES_NEST_TOO_DEEP      119
-#define PCRE2_ERROR_PATTERN_TOO_LARGE              120
-#define PCRE2_ERROR_HEAP_FAILED                    121
-#define PCRE2_ERROR_UNMATCHED_CLOSING_PARENTHESIS  122
-#define PCRE2_ERROR_INTERNAL_CODE_OVERFLOW         123
-#define PCRE2_ERROR_MISSING_CONDITION_CLOSING      124
-#define PCRE2_ERROR_LOOKBEHIND_NOT_FIXED_LENGTH    125
-#define PCRE2_ERROR_ZERO_RELATIVE_REFERENCE        126
-#define PCRE2_ERROR_TOO_MANY_CONDITION_BRANCHES    127
-#define PCRE2_ERROR_CONDITION_ASSERTION_EXPECTED   128
-#define PCRE2_ERROR_BAD_RELATIVE_REFERENCE         129
-#define PCRE2_ERROR_UNKNOWN_POSIX_CLASS            130
-#define PCRE2_ERROR_INTERNAL_STUDY_ERROR           131
-#define PCRE2_ERROR_UNICODE_NOT_SUPPORTED          132
-#define PCRE2_ERROR_PARENTHESES_STACK_CHECK        133
-#define PCRE2_ERROR_CODE_POINT_TOO_BIG             134
-#define PCRE2_ERROR_LOOKBEHIND_TOO_COMPLICATED     135
-#define PCRE2_ERROR_LOOKBEHIND_INVALID_BACKSLASH_C 136
-#define PCRE2_ERROR_UNSUPPORTED_ESCAPE_SEQUENCE    137
-#define PCRE2_ERROR_CALLOUT_NUMBER_TOO_BIG         138
-#define PCRE2_ERROR_MISSING_CALLOUT_CLOSING        139
-#define PCRE2_ERROR_ESCAPE_INVALID_IN_VERB         140
-#define PCRE2_ERROR_UNRECOGNIZED_AFTER_QUERY_P     141
-#define PCRE2_ERROR_MISSING_NAME_TERMINATOR        142
-#define PCRE2_ERROR_DUPLICATE_SUBPATTERN_NAME      143
-#define PCRE2_ERROR_INVALID_SUBPATTERN_NAME        144
-#define PCRE2_ERROR_UNICODE_PROPERTIES_UNAVAILABLE 145
-#define PCRE2_ERROR_MALFORMED_UNICODE_PROPERTY     146
-#define PCRE2_ERROR_UNKNOWN_UNICODE_PROPERTY       147
-#define PCRE2_ERROR_SUBPATTERN_NAME_TOO_LONG       148
-#define PCRE2_ERROR_TOO_MANY_NAMED_SUBPATTERNS     149
-#define PCRE2_ERROR_CLASS_INVALID_RANGE            150
-#define PCRE2_ERROR_OCTAL_BYTE_TOO_BIG             151
-#define PCRE2_ERROR_INTERNAL_OVERRAN_WORKSPACE     152
-#define PCRE2_ERROR_INTERNAL_MISSING_SUBPATTERN    153
-#define PCRE2_ERROR_DEFINE_TOO_MANY_BRANCHES       154
-#define PCRE2_ERROR_BACKSLASH_O_MISSING_BRACE      155
-#define PCRE2_ERROR_INTERNAL_UNKNOWN_NEWLINE       156
-#define PCRE2_ERROR_BACKSLASH_G_SYNTAX             157
-#define PCRE2_ERROR_PARENS_QUERY_R_MISSING_CLOSING 158
-/* Error 159 is obsolete and should now never occur */
-#define PCRE2_ERROR_VERB_ARGUMENT_NOT_ALLOWED      159
-#define PCRE2_ERROR_VERB_UNKNOWN                   160
-#define PCRE2_ERROR_SUBPATTERN_NUMBER_TOO_BIG      161
-#define PCRE2_ERROR_SUBPATTERN_NAME_EXPECTED       162
-#define PCRE2_ERROR_INTERNAL_PARSED_OVERFLOW       163
-#define PCRE2_ERROR_INVALID_OCTAL                  164
-#define PCRE2_ERROR_SUBPATTERN_NAMES_MISMATCH      165
-#define PCRE2_ERROR_MARK_MISSING_ARGUMENT          166
-#define PCRE2_ERROR_INVALID_HEXADECIMAL            167
-#define PCRE2_ERROR_BACKSLASH_C_SYNTAX             168
-#define PCRE2_ERROR_BACKSLASH_K_SYNTAX             169
-#define PCRE2_ERROR_INTERNAL_BAD_CODE_LOOKBEHINDS  170
-#define PCRE2_ERROR_BACKSLASH_N_IN_CLASS           171
-#define PCRE2_ERROR_CALLOUT_STRING_TOO_LONG        172
-#define PCRE2_ERROR_UNICODE_DISALLOWED_CODE_POINT  173
-#define PCRE2_ERROR_UTF_IS_DISABLED                174
-#define PCRE2_ERROR_UCP_IS_DISABLED                175
-#define PCRE2_ERROR_VERB_NAME_TOO_LONG             176
-#define PCRE2_ERROR_BACKSLASH_U_CODE_POINT_TOO_BIG 177
-#define PCRE2_ERROR_MISSING_OCTAL_OR_HEX_DIGITS    178
-#define PCRE2_ERROR_VERSION_CONDITION_SYNTAX       179
-#define PCRE2_ERROR_INTERNAL_BAD_CODE_AUTO_POSSESS 180
-#define PCRE2_ERROR_CALLOUT_NO_STRING_DELIMITER    181
-#define PCRE2_ERROR_CALLOUT_BAD_STRING_DELIMITER   182
-#define PCRE2_ERROR_BACKSLASH_C_CALLER_DISABLED    183
-#define PCRE2_ERROR_QUERY_BARJX_NEST_TOO_DEEP      184
-#define PCRE2_ERROR_BACKSLASH_C_LIBRARY_DISABLED   185
-#define PCRE2_ERROR_PATTERN_TOO_COMPLICATED        186
-#define PCRE2_ERROR_LOOKBEHIND_TOO_LONG            187
-#define PCRE2_ERROR_PATTERN_STRING_TOO_LONG        188
-#define PCRE2_ERROR_INTERNAL_BAD_CODE              189
-#define PCRE2_ERROR_INTERNAL_BAD_CODE_IN_SKIP      190
-#define PCRE2_ERROR_NO_SURROGATES_IN_UTF16         191
-#define PCRE2_ERROR_BAD_LITERAL_OPTIONS            192
-#define PCRE2_ERROR_SUPPORTED_ONLY_IN_UNICODE      193
-#define PCRE2_ERROR_INVALID_HYPHEN_IN_OPTIONS      194
-#define PCRE2_ERROR_ALPHA_ASSERTION_UNKNOWN        195
-#define PCRE2_ERROR_SCRIPT_RUN_NOT_AVAILABLE       196
-#define PCRE2_ERROR_TOO_MANY_CAPTURES              197
-#define PCRE2_ERROR_CONDITION_ATOMIC_ASSERTION_EXPECTED  198
-/* "Expected" matching error codes: no match and partial match. */
-#define PCRE2_ERROR_NOMATCH          (-1)
-#define PCRE2_ERROR_PARTIAL          (-2)
-/* Error codes for UTF-8 validity checks */
-#define PCRE2_ERROR_UTF8_ERR1        (-3)
-#define PCRE2_ERROR_UTF8_ERR2        (-4)
-#define PCRE2_ERROR_UTF8_ERR3        (-5)
-#define PCRE2_ERROR_UTF8_ERR4        (-6)
-#define PCRE2_ERROR_UTF8_ERR5        (-7)
-#define PCRE2_ERROR_UTF8_ERR6        (-8)
-#define PCRE2_ERROR_UTF8_ERR7        (-9)
-#define PCRE2_ERROR_UTF8_ERR8       (-10)
-#define PCRE2_ERROR_UTF8_ERR9       (-11)
-#define PCRE2_ERROR_UTF8_ERR10      (-12)
-#define PCRE2_ERROR_UTF8_ERR11      (-13)
-#define PCRE2_ERROR_UTF8_ERR12      (-14)
-#define PCRE2_ERROR_UTF8_ERR13      (-15)
-#define PCRE2_ERROR_UTF8_ERR14      (-16)
-#define PCRE2_ERROR_UTF8_ERR15      (-17)
-#define PCRE2_ERROR_UTF8_ERR16      (-18)
-#define PCRE2_ERROR_UTF8_ERR17      (-19)
-#define PCRE2_ERROR_UTF8_ERR18      (-20)
-#define PCRE2_ERROR_UTF8_ERR19      (-21)
-#define PCRE2_ERROR_UTF8_ERR20      (-22)
-#define PCRE2_ERROR_UTF8_ERR21      (-23)
-/* Error codes for UTF-16 validity checks */
-#define PCRE2_ERROR_UTF16_ERR1      (-24)
-#define PCRE2_ERROR_UTF16_ERR2      (-25)
-#define PCRE2_ERROR_UTF16_ERR3      (-26)
-/* Error codes for UTF-32 validity checks */
-#define PCRE2_ERROR_UTF32_ERR1      (-27)
-#define PCRE2_ERROR_UTF32_ERR2      (-28)
-/* Miscellaneous error codes for pcre2[_dfa]_match(), substring extraction
-functions, context functions, and serializing functions. They are in numerical
-order. Originally they were in alphabetical order too, but now that PCRE2 is
-released, the numbers must not be changed. */
-#define PCRE2_ERROR_BADDATA           (-29)
-#define PCRE2_ERROR_MIXEDTABLES       (-30)  /* Name was changed */
-#define PCRE2_ERROR_BADMAGIC          (-31)
-#define PCRE2_ERROR_BADMODE           (-32)
-#define PCRE2_ERROR_BADOFFSET         (-33)
-#define PCRE2_ERROR_BADOPTION         (-34)
-#define PCRE2_ERROR_BADREPLACEMENT    (-35)
-#define PCRE2_ERROR_BADUTFOFFSET      (-36)
-#define PCRE2_ERROR_CALLOUT           (-37)  /* Never used by PCRE2 itself */
-#define PCRE2_ERROR_DFA_BADRESTART    (-38)
-#define PCRE2_ERROR_DFA_RECURSE       (-39)
-#define PCRE2_ERROR_DFA_UCOND         (-40)
-#define PCRE2_ERROR_DFA_UFUNC         (-41)
-#define PCRE2_ERROR_DFA_UITEM         (-42)
-#define PCRE2_ERROR_DFA_WSSIZE        (-43)
-#define PCRE2_ERROR_INTERNAL          (-44)
-#define PCRE2_ERROR_JIT_BADOPTION     (-45)
-#define PCRE2_ERROR_JIT_STACKLIMIT    (-46)
-#define PCRE2_ERROR_MATCHLIMIT        (-47)
-#define PCRE2_ERROR_NOMEMORY          (-48)
-#define PCRE2_ERROR_NOSUBSTRING       (-49)
-#define PCRE2_ERROR_NOUNIQUESUBSTRING (-50)
-#define PCRE2_ERROR_NULL              (-51)
-#define PCRE2_ERROR_RECURSELOOP       (-52)
-#define PCRE2_ERROR_DEPTHLIMIT        (-53)
-#define PCRE2_ERROR_RECURSIONLIMIT    (-53)  /* Obsolete synonym */
-#define PCRE2_ERROR_UNAVAILABLE       (-54)
-#define PCRE2_ERROR_UNSET             (-55)
-#define PCRE2_ERROR_BADOFFSETLIMIT    (-56)
-#define PCRE2_ERROR_BADREPESCAPE      (-57)
-#define PCRE2_ERROR_REPMISSINGBRACE   (-58)
-#define PCRE2_ERROR_BADSUBSTITUTION   (-59)
-#define PCRE2_ERROR_BADSUBSPATTERN    (-60)
-#define PCRE2_ERROR_TOOMANYREPLACE    (-61)
-#define PCRE2_ERROR_BADSERIALIZEDDATA (-62)
-#define PCRE2_ERROR_HEAPLIMIT         (-63)
-#define PCRE2_ERROR_CONVERT_SYNTAX    (-64)
-#define PCRE2_ERROR_INTERNAL_DUPMATCH (-65)
-#define PCRE2_ERROR_DFA_UINVALID_UTF  (-66)
-/* Request types for pcre2_pattern_info() */
-#define PCRE2_INFO_ALLOPTIONS            0
-#define PCRE2_INFO_ARGOPTIONS            1
-#define PCRE2_INFO_BACKREFMAX            2
-#define PCRE2_INFO_BSR                   3
-#define PCRE2_INFO_CAPTURECOUNT          4
-#define PCRE2_INFO_FIRSTCODEUNIT         5
-#define PCRE2_INFO_FIRSTCODETYPE         6
-#define PCRE2_INFO_FIRSTBITMAP           7
-#define PCRE2_INFO_HASCRORLF             8
-#define PCRE2_INFO_JCHANGED              9
-#define PCRE2_INFO_JITSIZE              10
-#define PCRE2_INFO_LASTCODEUNIT         11
-#define PCRE2_INFO_LASTCODETYPE         12
-#define PCRE2_INFO_MATCHEMPTY           13
-#define PCRE2_INFO_MATCHLIMIT           14
-#define PCRE2_INFO_MAXLOOKBEHIND        15
-#define PCRE2_INFO_MINLENGTH            16
-#define PCRE2_INFO_NAMECOUNT            17
-#define PCRE2_INFO_NAMEENTRYSIZE        18
-#define PCRE2_INFO_NAMETABLE            19
-#define PCRE2_INFO_NEWLINE              20
-#define PCRE2_INFO_DEPTHLIMIT           21
-#define PCRE2_INFO_RECURSIONLIMIT       21  /* Obsolete synonym */
-#define PCRE2_INFO_SIZE                 22
-#define PCRE2_INFO_HASBACKSLASHC        23
-#define PCRE2_INFO_FRAMESIZE            24
-#define PCRE2_INFO_HEAPLIMIT            25
-#define PCRE2_INFO_EXTRAOPTIONS         26
-/* Request types for pcre2_config(). */
-#define PCRE2_CONFIG_BSR                     0
-#define PCRE2_CONFIG_JIT                     1
-#define PCRE2_CONFIG_JITTARGET               2
-#define PCRE2_CONFIG_LINKSIZE                3
-#define PCRE2_CONFIG_MATCHLIMIT              4
-#define PCRE2_CONFIG_NEWLINE                 5
-#define PCRE2_CONFIG_PARENSLIMIT             6
-#define PCRE2_CONFIG_DEPTHLIMIT              7
-#define PCRE2_CONFIG_RECURSIONLIMIT          7  /* Obsolete synonym */
-#define PCRE2_CONFIG_STACKRECURSE            8  /* Obsolete */
-#define PCRE2_CONFIG_UNICODE                 9
-#define PCRE2_CONFIG_UNICODE_VERSION        10
-#define PCRE2_CONFIG_VERSION                11
-#define PCRE2_CONFIG_HEAPLIMIT              12
-#define PCRE2_CONFIG_NEVER_BACKSLASH_C      13
-#define PCRE2_CONFIG_COMPILED_WIDTHS        14
-/* Types for code units in patterns and subject strings. */
-typedef uint8_t  PCRE2_UCHAR8;
-typedef uint16_t PCRE2_UCHAR16;
-typedef uint32_t PCRE2_UCHAR32;
-typedef const PCRE2_UCHAR8  *PCRE2_SPTR8;
-typedef const PCRE2_UCHAR16 *PCRE2_SPTR16;
-typedef const PCRE2_UCHAR32 *PCRE2_SPTR32;
-/* The PCRE2_SIZE type is used for all string lengths and offsets in PCRE2,
-including pattern offsets for errors and subject offsets after a match. We
-define special values to indicate zero-terminated strings and unset offsets in
-the offset vector (ovector). */
-#define PCRE2_SIZE            size_t
-#define PCRE2_SIZE_MAX        SIZE_MAX
-#define PCRE2_ZERO_TERMINATED (~(PCRE2_SIZE)0)
-#define PCRE2_UNSET           (~(PCRE2_SIZE)0)
-/* Generic types for opaque structures and JIT callback functions. These
-declarations are defined in a macro that is expanded for each width later. */
-#define PCRE2_TYPES_LIST \
-struct pcre2_real_general_context; \
-typedef struct pcre2_real_general_context pcre2_general_context; \
-\
-struct pcre2_real_compile_context; \
-typedef struct pcre2_real_compile_context pcre2_compile_context; \
-\
-struct pcre2_real_match_context; \
-typedef struct pcre2_real_match_context pcre2_match_context; \
-\
-struct pcre2_real_convert_context; \
-typedef struct pcre2_real_convert_context pcre2_convert_context; \
-\
-struct pcre2_real_code; \
-typedef struct pcre2_real_code pcre2_code; \
-\
-struct pcre2_real_match_data; \
-typedef struct pcre2_real_match_data pcre2_match_data; \
-\
-struct pcre2_real_jit_stack; \
-typedef struct pcre2_real_jit_stack pcre2_jit_stack; \
-\
-typedef pcre2_jit_stack *(*pcre2_jit_callback)(void *);
-/* The structures for passing out data via callout functions. We use structures
-so that new fields can be added on the end in future versions, without changing
-the API of the function, thereby allowing old clients to work without
-modification. Define the generic versions in a macro; the width-specific
-versions are generated from this macro below. */
-/* Flags for the callout_flags field. These are cleared after a callout. */
-#define PCRE2_CALLOUT_STARTMATCH    0x00000001u  /* Set for each bumpalong */
-#define PCRE2_CALLOUT_BACKTRACK     0x00000002u  /* Set after a backtrack */
-#define PCRE2_STRUCTURE_LIST \
-typedef struct pcre2_callout_block { \
-  uint32_t      version;           /* Identifies version of block */ \
-  /* ------------------------ Version 0 ------------------------------- */ \
-  uint32_t      callout_number;    /* Number compiled into pattern */ \
-  uint32_t      capture_top;       /* Max current capture */ \
-  uint32_t      capture_last;      /* Most recently closed capture */ \
-  PCRE2_SIZE   *offset_vector;     /* The offset vector */ \
-  PCRE2_SPTR    mark;              /* Pointer to current mark or NULL */ \
-  PCRE2_SPTR    subject;           /* The subject being matched */ \
-  PCRE2_SIZE    subject_length;    /* The length of the subject */ \
-  PCRE2_SIZE    start_match;       /* Offset to start of this match attempt */ \
-  PCRE2_SIZE    current_position;  /* Where we currently are in the subject */ \
-  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
-  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
-  /* ------------------- Added for Version 1 -------------------------- */ \
-  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
-  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
-  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
-  /* ------------------- Added for Version 2 -------------------------- */ \
-  uint32_t      callout_flags;     /* See above for list */ \
-  /* ------------------------------------------------------------------ */ \
-} pcre2_callout_block; \
-\
-typedef struct pcre2_callout_enumerate_block { \
-  uint32_t      version;           /* Identifies version of block */ \
-  /* ------------------------ Version 0 ------------------------------- */ \
-  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
-  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
-  uint32_t      callout_number;    /* Number compiled into pattern */ \
-  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
-  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
-  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
-  /* ------------------------------------------------------------------ */ \
-} pcre2_callout_enumerate_block; \
-\
-typedef struct pcre2_substitute_callout_block { \
-  uint32_t      version;           /* Identifies version of block */ \
-  /* ------------------------ Version 0 ------------------------------- */ \
-  PCRE2_SPTR    input;             /* Pointer to input subject string */ \
-  PCRE2_SPTR    output;            /* Pointer to output buffer */ \
-  PCRE2_SIZE    output_offsets[2]; /* Changed portion of the output */ \
-  PCRE2_SIZE   *ovector;           /* Pointer to current ovector */ \
-  uint32_t      oveccount;         /* Count of pairs set in ovector */ \
-  uint32_t      subscount;         /* Substitution number */ \
-  /* ------------------------------------------------------------------ */ \
-} pcre2_substitute_callout_block;
-/* List the generic forms of all other functions in macros, which will be
-expanded for each width below. Start with functions that give general
-information. */
-#define PCRE2_GENERAL_INFO_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION pcre2_config(uint32_t, void *);
-/* Functions for manipulating contexts. */
-#define PCRE2_GENERAL_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
-  *pcre2_general_context_copy(pcre2_general_context *); \
-PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
-  *pcre2_general_context_create(void *(*)(PCRE2_SIZE, void *), \
-    void (*)(void *, void *), void *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_general_context_free(pcre2_general_context *);
-#define PCRE2_COMPILE_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
-  *pcre2_compile_context_copy(pcre2_compile_context *); \
-PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
-  *pcre2_compile_context_create(pcre2_general_context *);\
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_compile_context_free(pcre2_compile_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_bsr(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_character_tables(pcre2_compile_context *, const uint8_t *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_compile_extra_options(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_max_pattern_length(pcre2_compile_context *, PCRE2_SIZE); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_newline(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_parens_nest_limit(pcre2_compile_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_compile_recursion_guard(pcre2_compile_context *, \
-    int (*)(uint32_t, void *), void *);
-#define PCRE2_MATCH_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
-  *pcre2_match_context_copy(pcre2_match_context *); \
-PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
-  *pcre2_match_context_create(pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_match_context_free(pcre2_match_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_callout(pcre2_match_context *, \
-    int (*)(pcre2_callout_block *, void *), void *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_substitute_callout(pcre2_match_context *, \
-    int (*)(pcre2_substitute_callout_block *, void *), void *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_depth_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_heap_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_match_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_offset_limit(pcre2_match_context *, PCRE2_SIZE); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_recursion_limit(pcre2_match_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_recursion_memory_management(pcre2_match_context *, \
-    void *(*)(PCRE2_SIZE, void *), void (*)(void *, void *), void *);
-#define PCRE2_CONVERT_CONTEXT_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
-  *pcre2_convert_context_copy(pcre2_convert_context *); \
-PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
-  *pcre2_convert_context_create(pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_convert_context_free(pcre2_convert_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_glob_escape(pcre2_convert_context *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_set_glob_separator(pcre2_convert_context *, uint32_t);
-/* Functions concerned with compiling a pattern to PCRE internal code. */
-#define PCRE2_COMPILE_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
-  *pcre2_compile(PCRE2_SPTR, PCRE2_SIZE, uint32_t, int *, PCRE2_SIZE *, \
-    pcre2_compile_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_code_free(pcre2_code *); \
-PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
-  *pcre2_code_copy(const pcre2_code *); \
-PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
-  *pcre2_code_copy_with_tables(const pcre2_code *);
-/* Functions that give information about a compiled pattern. */
-#define PCRE2_PATTERN_INFO_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_pattern_info(const pcre2_code *, uint32_t, void *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_callout_enumerate(const pcre2_code *, \
-    int (*)(pcre2_callout_enumerate_block *, void *), void *);
-/* Functions for running a match and inspecting the result. */
-#define PCRE2_MATCH_FUNCTIONS \
-PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
-  *pcre2_match_data_create(uint32_t, pcre2_general_context *); \
-PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
-  *pcre2_match_data_create_from_pattern(const pcre2_code *, \
-    pcre2_general_context *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_dfa_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *, int *, PCRE2_SIZE); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_match_data_free(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SPTR PCRE2_CALL_CONVENTION \
-  pcre2_get_mark(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
-  pcre2_get_match_data_size(pcre2_match_data *); \
-PCRE2_EXP_DECL uint32_t PCRE2_CALL_CONVENTION \
-  pcre2_get_ovector_count(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
-  *pcre2_get_ovector_pointer(pcre2_match_data *); \
-PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
-  pcre2_get_startchar(pcre2_match_data *);
-/* Convenience functions for handling matched substrings. */
-#define PCRE2_SUBSTRING_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_copy_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR *, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_copy_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR *, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_substring_free(PCRE2_UCHAR *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_get_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR **, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_get_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR **, \
-    PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_length_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_length_bynumber(pcre2_match_data *, uint32_t, PCRE2_SIZE *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_nametable_scan(const pcre2_code *, PCRE2_SPTR, PCRE2_SPTR *, \
-    PCRE2_SPTR *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_number_from_name(const pcre2_code *, PCRE2_SPTR); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_substring_list_free(PCRE2_SPTR *); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substring_list_get(pcre2_match_data *, PCRE2_UCHAR ***, PCRE2_SIZE **);
-/* Functions for serializing / deserializing compiled patterns. */
-#define PCRE2_SERIALIZE_FUNCTIONS \
-PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
-  pcre2_serialize_encode(const pcre2_code **, int32_t, uint8_t **, \
-    PCRE2_SIZE *, pcre2_general_context *); \
-PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
-  pcre2_serialize_decode(pcre2_code **, int32_t, const uint8_t *, \
-    pcre2_general_context *); \
-PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
-  pcre2_serialize_get_number_of_codes(const uint8_t *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_serialize_free(uint8_t *);
-/* Convenience function for match + substitute. */
-#define PCRE2_SUBSTITUTE_FUNCTION \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_substitute(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *, PCRE2_SPTR, \
-    PCRE2_SIZE, PCRE2_UCHAR *, PCRE2_SIZE *);
-/* Functions for converting pattern source strings. */
-#define PCRE2_CONVERT_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_pattern_convert(PCRE2_SPTR, PCRE2_SIZE, uint32_t, PCRE2_UCHAR **, \
-    PCRE2_SIZE *, pcre2_convert_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_converted_pattern_free(PCRE2_UCHAR *);
-/* Functions for JIT processing */
-#define PCRE2_JIT_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_jit_compile(pcre2_code *, uint32_t); \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_jit_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
-    uint32_t, pcre2_match_data *, pcre2_match_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_jit_free_unused_memory(pcre2_general_context *); \
-PCRE2_EXP_DECL pcre2_jit_stack PCRE2_CALL_CONVENTION \
-  *pcre2_jit_stack_create(PCRE2_SIZE, PCRE2_SIZE, pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_jit_stack_assign(pcre2_match_context *, pcre2_jit_callback, void *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_jit_stack_free(pcre2_jit_stack *);
-/* Other miscellaneous functions. */
-#define PCRE2_OTHER_FUNCTIONS \
-PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
-  pcre2_get_error_message(int, PCRE2_UCHAR *, PCRE2_SIZE); \
-PCRE2_EXP_DECL const uint8_t PCRE2_CALL_CONVENTION \
-  *pcre2_maketables(pcre2_general_context *); \
-PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
-  pcre2_maketables_free(pcre2_general_context *, const uint8_t *);
-/* Define macros that generate width-specific names from generic versions. The
-three-level macro scheme is necessary to get the macros expanded when we want
-them to be. First we get the width from PCRE2_LOCAL_WIDTH, which is used for
-generating three versions of everything below. After that, PCRE2_SUFFIX will be
-re-defined to use PCRE2_CODE_UNIT_WIDTH, for use when macros such as
-pcre2_compile are called by application code. */
-#define PCRE2_JOIN(a,b) a ## b
-#define PCRE2_GLUE(a,b) PCRE2_JOIN(a,b)
-#define PCRE2_SUFFIX(a) PCRE2_GLUE(a,PCRE2_LOCAL_WIDTH)
-/* Data types */
-#define PCRE2_UCHAR                 PCRE2_SUFFIX(PCRE2_UCHAR)
-#define PCRE2_SPTR                  PCRE2_SUFFIX(PCRE2_SPTR)
-#define pcre2_code                  PCRE2_SUFFIX(pcre2_code_)
-#define pcre2_jit_callback          PCRE2_SUFFIX(pcre2_jit_callback_)
-#define pcre2_jit_stack             PCRE2_SUFFIX(pcre2_jit_stack_)
-#define pcre2_real_code             PCRE2_SUFFIX(pcre2_real_code_)
-#define pcre2_real_general_context  PCRE2_SUFFIX(pcre2_real_general_context_)
-#define pcre2_real_compile_context  PCRE2_SUFFIX(pcre2_real_compile_context_)
-#define pcre2_real_convert_context  PCRE2_SUFFIX(pcre2_real_convert_context_)
-#define pcre2_real_match_context    PCRE2_SUFFIX(pcre2_real_match_context_)
-#define pcre2_real_jit_stack        PCRE2_SUFFIX(pcre2_real_jit_stack_)
-#define pcre2_real_match_data       PCRE2_SUFFIX(pcre2_real_match_data_)
-/* Data blocks */
-#define pcre2_callout_block            PCRE2_SUFFIX(pcre2_callout_block_)
-#define pcre2_callout_enumerate_block  PCRE2_SUFFIX(pcre2_callout_enumerate_block_)
-#define pcre2_substitute_callout_block PCRE2_SUFFIX(pcre2_substitute_callout_block_)
-#define pcre2_general_context          PCRE2_SUFFIX(pcre2_general_context_)
-#define pcre2_compile_context          PCRE2_SUFFIX(pcre2_compile_context_)
-#define pcre2_convert_context          PCRE2_SUFFIX(pcre2_convert_context_)
-#define pcre2_match_context            PCRE2_SUFFIX(pcre2_match_context_)
-#define pcre2_match_data               PCRE2_SUFFIX(pcre2_match_data_)
-/* Functions: the complete list in alphabetical order */
-#define pcre2_callout_enumerate               PCRE2_SUFFIX(pcre2_callout_enumerate_)
-#define pcre2_code_copy                       PCRE2_SUFFIX(pcre2_code_copy_)
-#define pcre2_code_copy_with_tables           PCRE2_SUFFIX(pcre2_code_copy_with_tables_)
-#define pcre2_code_free                       PCRE2_SUFFIX(pcre2_code_free_)
-#define pcre2_compile                         PCRE2_SUFFIX(pcre2_compile_)
-#define pcre2_compile_context_copy            PCRE2_SUFFIX(pcre2_compile_context_copy_)
-#define pcre2_compile_context_create          PCRE2_SUFFIX(pcre2_compile_context_create_)
-#define pcre2_compile_context_free            PCRE2_SUFFIX(pcre2_compile_context_free_)
-#define pcre2_config                          PCRE2_SUFFIX(pcre2_config_)
-#define pcre2_convert_context_copy            PCRE2_SUFFIX(pcre2_convert_context_copy_)
-#define pcre2_convert_context_create          PCRE2_SUFFIX(pcre2_convert_context_create_)
-#define pcre2_convert_context_free            PCRE2_SUFFIX(pcre2_convert_context_free_)
-#define pcre2_converted_pattern_free          PCRE2_SUFFIX(pcre2_converted_pattern_free_)
-#define pcre2_dfa_match                       PCRE2_SUFFIX(pcre2_dfa_match_)
-#define pcre2_general_context_copy            PCRE2_SUFFIX(pcre2_general_context_copy_)
-#define pcre2_general_context_create          PCRE2_SUFFIX(pcre2_general_context_create_)
-#define pcre2_general_context_free            PCRE2_SUFFIX(pcre2_general_context_free_)
-#define pcre2_get_error_message               PCRE2_SUFFIX(pcre2_get_error_message_)
-#define pcre2_get_mark                        PCRE2_SUFFIX(pcre2_get_mark_)
-#define pcre2_get_match_data_size             PCRE2_SUFFIX(pcre2_get_match_data_size_)
-#define pcre2_get_ovector_pointer             PCRE2_SUFFIX(pcre2_get_ovector_pointer_)
-#define pcre2_get_ovector_count               PCRE2_SUFFIX(pcre2_get_ovector_count_)
-#define pcre2_get_startchar                   PCRE2_SUFFIX(pcre2_get_startchar_)
-#define pcre2_jit_compile                     PCRE2_SUFFIX(pcre2_jit_compile_)
-#define pcre2_jit_match                       PCRE2_SUFFIX(pcre2_jit_match_)
-#define pcre2_jit_free_unused_memory          PCRE2_SUFFIX(pcre2_jit_free_unused_memory_)
-#define pcre2_jit_stack_assign                PCRE2_SUFFIX(pcre2_jit_stack_assign_)
-#define pcre2_jit_stack_create                PCRE2_SUFFIX(pcre2_jit_stack_create_)
-#define pcre2_jit_stack_free                  PCRE2_SUFFIX(pcre2_jit_stack_free_)
-#define pcre2_maketables                      PCRE2_SUFFIX(pcre2_maketables_)
-#define pcre2_maketables_free                 PCRE2_SUFFIX(pcre2_maketables_free_)
-#define pcre2_match                           PCRE2_SUFFIX(pcre2_match_)
-#define pcre2_match_context_copy              PCRE2_SUFFIX(pcre2_match_context_copy_)
-#define pcre2_match_context_create            PCRE2_SUFFIX(pcre2_match_context_create_)
-#define pcre2_match_context_free              PCRE2_SUFFIX(pcre2_match_context_free_)
-#define pcre2_match_data_create               PCRE2_SUFFIX(pcre2_match_data_create_)
-#define pcre2_match_data_create_from_pattern  PCRE2_SUFFIX(pcre2_match_data_create_from_pattern_)
-#define pcre2_match_data_free                 PCRE2_SUFFIX(pcre2_match_data_free_)
-#define pcre2_pattern_convert                 PCRE2_SUFFIX(pcre2_pattern_convert_)
-#define pcre2_pattern_info                    PCRE2_SUFFIX(pcre2_pattern_info_)
-#define pcre2_serialize_decode                PCRE2_SUFFIX(pcre2_serialize_decode_)
-#define pcre2_serialize_encode                PCRE2_SUFFIX(pcre2_serialize_encode_)
-#define pcre2_serialize_free                  PCRE2_SUFFIX(pcre2_serialize_free_)
-#define pcre2_serialize_get_number_of_codes   PCRE2_SUFFIX(pcre2_serialize_get_number_of_codes_)
-#define pcre2_set_bsr                         PCRE2_SUFFIX(pcre2_set_bsr_)
-#define pcre2_set_callout                     PCRE2_SUFFIX(pcre2_set_callout_)
-#define pcre2_set_character_tables            PCRE2_SUFFIX(pcre2_set_character_tables_)
-#define pcre2_set_compile_extra_options       PCRE2_SUFFIX(pcre2_set_compile_extra_options_)
-#define pcre2_set_compile_recursion_guard     PCRE2_SUFFIX(pcre2_set_compile_recursion_guard_)
-#define pcre2_set_depth_limit                 PCRE2_SUFFIX(pcre2_set_depth_limit_)
-#define pcre2_set_glob_escape                 PCRE2_SUFFIX(pcre2_set_glob_escape_)
-#define pcre2_set_glob_separator              PCRE2_SUFFIX(pcre2_set_glob_separator_)
-#define pcre2_set_heap_limit                  PCRE2_SUFFIX(pcre2_set_heap_limit_)
-#define pcre2_set_match_limit                 PCRE2_SUFFIX(pcre2_set_match_limit_)
-#define pcre2_set_max_pattern_length          PCRE2_SUFFIX(pcre2_set_max_pattern_length_)
-#define pcre2_set_newline                     PCRE2_SUFFIX(pcre2_set_newline_)
-#define pcre2_set_parens_nest_limit           PCRE2_SUFFIX(pcre2_set_parens_nest_limit_)
-#define pcre2_set_offset_limit                PCRE2_SUFFIX(pcre2_set_offset_limit_)
-#define pcre2_set_substitute_callout          PCRE2_SUFFIX(pcre2_set_substitute_callout_)
-#define pcre2_substitute                      PCRE2_SUFFIX(pcre2_substitute_)
-#define pcre2_substring_copy_byname           PCRE2_SUFFIX(pcre2_substring_copy_byname_)
-#define pcre2_substring_copy_bynumber         PCRE2_SUFFIX(pcre2_substring_copy_bynumber_)
-#define pcre2_substring_free                  PCRE2_SUFFIX(pcre2_substring_free_)
-#define pcre2_substring_get_byname            PCRE2_SUFFIX(pcre2_substring_get_byname_)
-#define pcre2_substring_get_bynumber          PCRE2_SUFFIX(pcre2_substring_get_bynumber_)
-#define pcre2_substring_length_byname         PCRE2_SUFFIX(pcre2_substring_length_byname_)
-#define pcre2_substring_length_bynumber       PCRE2_SUFFIX(pcre2_substring_length_bynumber_)
-#define pcre2_substring_list_get              PCRE2_SUFFIX(pcre2_substring_list_get_)
-#define pcre2_substring_list_free             PCRE2_SUFFIX(pcre2_substring_list_free_)
-#define pcre2_substring_nametable_scan        PCRE2_SUFFIX(pcre2_substring_nametable_scan_)
-#define pcre2_substring_number_from_name      PCRE2_SUFFIX(pcre2_substring_number_from_name_)
-/* Keep this old function name for backwards compatibility */
-#define pcre2_set_recursion_limit PCRE2_SUFFIX(pcre2_set_recursion_limit_)
-/* Keep this obsolete function for backwards compatibility: it is now a noop. */
-#define pcre2_set_recursion_memory_management PCRE2_SUFFIX(pcre2_set_recursion_memory_management_)
-/* Now generate all three sets of width-specific structures and function
-prototypes. */
-#define PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS \
-PCRE2_TYPES_LIST \
-PCRE2_STRUCTURE_LIST \
-PCRE2_GENERAL_INFO_FUNCTIONS \
-PCRE2_GENERAL_CONTEXT_FUNCTIONS \
-PCRE2_COMPILE_CONTEXT_FUNCTIONS \
-PCRE2_CONVERT_CONTEXT_FUNCTIONS \
-PCRE2_CONVERT_FUNCTIONS \
-PCRE2_MATCH_CONTEXT_FUNCTIONS \
-PCRE2_COMPILE_FUNCTIONS \
-PCRE2_PATTERN_INFO_FUNCTIONS \
-PCRE2_MATCH_FUNCTIONS \
-PCRE2_SUBSTRING_FUNCTIONS \
-PCRE2_SERIALIZE_FUNCTIONS \
-PCRE2_SUBSTITUTE_FUNCTION \
-PCRE2_JIT_FUNCTIONS \
-PCRE2_OTHER_FUNCTIONS
-#define PCRE2_LOCAL_WIDTH 8
-PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-#undef PCRE2_LOCAL_WIDTH
-#define PCRE2_LOCAL_WIDTH 16
-PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-#undef PCRE2_LOCAL_WIDTH
-#define PCRE2_LOCAL_WIDTH 32
-PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-#undef PCRE2_LOCAL_WIDTH
-/* Undefine the list macros; they are no longer needed. */
-#undef PCRE2_TYPES_LIST
-#undef PCRE2_STRUCTURE_LIST
-#undef PCRE2_GENERAL_INFO_FUNCTIONS
-#undef PCRE2_GENERAL_CONTEXT_FUNCTIONS
-#undef PCRE2_COMPILE_CONTEXT_FUNCTIONS
-#undef PCRE2_CONVERT_CONTEXT_FUNCTIONS
-#undef PCRE2_MATCH_CONTEXT_FUNCTIONS
-#undef PCRE2_COMPILE_FUNCTIONS
-#undef PCRE2_PATTERN_INFO_FUNCTIONS
-#undef PCRE2_MATCH_FUNCTIONS
-#undef PCRE2_SUBSTRING_FUNCTIONS
-#undef PCRE2_SERIALIZE_FUNCTIONS
-#undef PCRE2_SUBSTITUTE_FUNCTION
-#undef PCRE2_JIT_FUNCTIONS
-#undef PCRE2_OTHER_FUNCTIONS
-#undef PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
-/* PCRE2_CODE_UNIT_WIDTH must be defined. If it is 8, 16, or 32, redefine
-PCRE2_SUFFIX to use it. If it is 0, undefine the other macros and make
-PCRE2_SUFFIX a no-op. Otherwise, generate an error. */
-#undef PCRE2_SUFFIX
-#ifndef PCRE2_CODE_UNIT_WIDTH
-#error PCRE2_CODE_UNIT_WIDTH must be defined before including pcre2.h.
-#error Use 8, 16, or 32; or 0 for a multi-width application.
-#else  /* PCRE2_CODE_UNIT_WIDTH is defined */
-#if PCRE2_CODE_UNIT_WIDTH == 8 || \
-    PCRE2_CODE_UNIT_WIDTH == 16 || \
-    PCRE2_CODE_UNIT_WIDTH == 32
-#define PCRE2_SUFFIX(a) PCRE2_GLUE(a, PCRE2_CODE_UNIT_WIDTH)
-#elif PCRE2_CODE_UNIT_WIDTH == 0
-#undef PCRE2_JOIN
-#undef PCRE2_GLUE
-#define PCRE2_SUFFIX(a) a
-#else
-#error PCRE2_CODE_UNIT_WIDTH must be 0, 8, 16, or 32.
-#endif
-#endif  /* PCRE2_CODE_UNIT_WIDTH is defined */
-#ifdef __cplusplus
-}  /* extern "C" */
-#endif
-#endif  /* PCRE2_H_IDEMPOTENT_GUARD */
-/* End of pcre2.h */
-namespace pcre2
-{
-using regex_t = std::shared_ptr<const pcre2_code_8>;
-using match_data_dtor_t = std::integral_constant<
-    decltype(&pcre2_match_data_free_8), &pcre2_match_data_free_8>;
-using match_data_t = std::unique_ptr<
-    pcre2_match_data_8, match_data_dtor_t>;
-using match_context_dtor_t = std::integral_constant<
-    decltype(&pcre2_match_context_free_8), &pcre2_match_context_free_8>;
-using match_context_t = std::unique_ptr<
-    pcre2_match_context_8, match_context_dtor_t>;
-template<typename String>
-regex_t new_regex(const String& pattern)
-{
-    static_assert(wl::is_string_view_v<String>, "");
-    int error = 0;
-    PCRE2_SIZE pos = 0;
-    pcre2_code_8* regex_ptr = pcre2_compile_8((PCRE2_SPTR8)pattern.c_str(),
-        pattern.byte_size(), 0, &error, &pos, nullptr);
-    if (!regex_ptr)
-    {
-        constexpr PCRE2_SIZE buffer_size = 256;
-        PCRE2_UCHAR buffer[buffer_size];
-        pcre2_get_error_message_8(error, buffer, buffer_size);
-        throw std::logic_error((const char*)buffer);
-    }
-    return {regex_ptr, &pcre2_code_free_8};
-}
-template<typename C, typename P>
-struct _regex_search_state
-{
-    const wl::strexp::compiled_pattern<C, P>& pattern_;
-    uint32_t capture_count_ = 0;
-    const PCRE2_SPTR8 text_data_;
-    const size_t text_size_;
-    size_t start_pos_ = 0;
-    match_data_t match_{};
-    PCRE2_SIZE* match_ptr_ = nullptr;
-    _regex_search_state(const wl::strexp::compiled_pattern<C, P>& pattern,
-        PCRE2_SPTR8 text_data, size_t text_size) :
-        pattern_{pattern}, text_data_{text_data}, text_size_{text_size}
-    {
-        *pattern_.conditions_ptr = &pattern_.conditions;
-        pcre2_pattern_info_8(pattern_.regex_ptr.get(),
-            PCRE2_INFO_CAPTURECOUNT, &capture_count_);
-        match_.reset(pcre2_match_data_create_8(capture_count_ + 1u, nullptr));
-        match_ptr_ = pcre2_get_ovector_pointer_8(match_.get());
-        match_ptr_[0] = PCRE2_SIZE(-1);
-        match_ptr_[1] = PCRE2_SIZE(0);
-    }
-    wl::string_view prefix() const
-    {
-        return {text_data_ + start_pos_, text_data_ + match_ptr_[0u]};
-    }
-    auto capture_count() const
-    {
-        return size_t(capture_count_);
-    }
-    size_t match_begin_idx() const
-    {
-        return size_t(match_ptr_[0u]);
-    }
-    size_t match_end_idx() const
-    {
-        return size_t(match_ptr_[1u]);
-    }
-    wl::string_view match() const
-    {
-        return {text_data_ + match_ptr_[0u], text_data_ + match_ptr_[1u]};
-    }
-    wl::string_view match(size_t i) const
-    {
-        assert(i <= capture_count_);
-        return {text_data_ + match_ptr_[2u * i],
-            text_data_ + match_ptr_[2u * i + 1u]};
-    }
-    bool find_next(bool overlap = false, uint32_t options = 0u)
-    {
-        WL_THROW_IF_ABORT()
-        start_pos_ = overlap ? match_ptr_[0] + PCRE2_SIZE(1) : match_ptr_[1];
-        auto match_start_pos = start_pos_;
-        if (start_pos_ == match_ptr_[0]) // causes indefinite loop
-            ++match_start_pos;
-        if (match_start_pos > text_size_)
-            return false;
-        auto result = pcre2_match_8(pattern_.regex_ptr.get(),
-            text_data_, text_size_, match_start_pos, options, match_.get(),
-            pattern_.match_context_ptr.get());
-        return result >= 0;
-    }
-};
-template<typename C, typename P, typename CharT>
-auto regex_search(const wl::strexp::compiled_pattern<C, P>& pattern,
-    const CharT* text_data, size_t text_size)
-{
-    return _regex_search_state<C, P>(pattern, (PCRE2_SPTR8)text_data,
-        text_size);
-}
-template<typename PatternIdList>
-struct callout_matches_t
-{
-    PCRE2_SPTR text_data;
-    const PCRE2_SIZE* offset_vector;
-    const size_t capture_top;
-    template<int64_t I>
-    wl::string_view operator[](wl::const_int<I> id) const
-    {
-        if constexpr (I > 0)
-        { // Condition
-            constexpr auto group_idx = PatternIdList::find(id);
-            assert(group_idx < capture_top);
-            return {text_data + offset_vector[2u * group_idx],
-                text_data + offset_vector[2u * group_idx + 1u]};
-        }
-        else
-        { // PatternTest
-            return {text_data + offset_vector[2u * capture_top - 2u],
-                text_data + offset_vector[2u * capture_top - 1u]};
-        }
-    }
-};
-template<typename PL, typename CL, size_t... Is>
-auto callout_evaluate(size_t number, const callout_matches_t<PL>& matches,
-    const CL& conditions, std::index_sequence<Is...>)
-{
-    assert(number < CL::size);
-    return ((number != Is || conditions.template get<Is>()(matches)) && ...);
-}
-template<typename PatternIdList, typename ConditionList>
-int callout_function(pcre2_callout_block_8* block_ptr,
-    void* condition_list_ptr)
-{
-    WL_THROW_IF_ABORT()
-    auto matches = callout_matches_t<PatternIdList>{block_ptr->subject,
-        block_ptr->offset_vector, block_ptr->capture_top};
-    const ConditionList& condition_list =
-        **(const ConditionList**)condition_list_ptr;
-    bool pass = callout_evaluate(
-        block_ptr->callout_number, matches, condition_list,
-        std::make_index_sequence<ConditionList::size>{});
-    return pass ? 0 : 1;
-}
-}
-namespace wl
-{
-template<typename X>
-auto string_length(const X& x)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_string_type_v<X>, WL_ERROR_STRING_TYPE_ONLY);
-    auto pure = [](const auto& str)
-    {
-        return int64_t(str.size());
-    };
-    return utils::listable_function(pure, std::forward<decltype(x)>(x));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Any>
-auto _integer_to_string(const Any& any, const size_t min_length = 0)
-{
-    if constexpr (array_rank_v<Any> == 0u)
-    {
-        if constexpr (is_integral_v<Any>)
-        {
-            if (any == Any(0))
-                return string("0");
-            constexpr size_t buffer_size = 24;
-            utf8::char_t buffer[buffer_size];
-            auto ptr = buffer + buffer_size;
-            size_t length = 0;
-            auto value = any;
-            while (value || length < min_length)
-            {
-                auto rem = value % Any(10);
-                value = value / Any(10);
-                if constexpr (std::is_unsigned_v<Any>)
-                    *--ptr = utf8::char_t('0' + rem);
-                else
-                    *--ptr = utf8::char_t('0' + (rem < 0 ? -rem : rem));
-                ++length;
-            }
-            if (any < Any(0))
-                *--ptr = '-';
-            return string(ptr, buffer_size - size_t(ptr - buffer));
-        }
-        else
-        {
-            assert(false);
-            return string();
-        }
-    }
-    else
-    {
-        assert(false);
-        return string();
-    }
-}
-template<typename Arg>
-auto _string_join_attributes_by_args_impl(
-    size_t& byte_size, bool& ascii_only, const Arg& arg)
-{
-    if constexpr (is_argument_pack_v<Arg>)
-    {
-        for (size_t i = 0; i < arg.size(); ++i)
-        {
-            byte_size += arg.get(i).byte_size();
-            if (ascii_only)
-                ascii_only = arg.get(i).ascii_only();
-        }
-        return byte_size;
-    }
-    else if constexpr (array_rank_v<Arg> >= 1u)
-    {
-        static_assert(is_string_v<value_type_t<Arg>>, WL_ERROR_STRING_ONLY);
-        arg.for_each([&](const auto& x)
-            {
-                byte_size += x.byte_size();
-                if (ascii_only)
-                    ascii_only = x.ascii_only();
-            });
-        return byte_size;
-    }
-    else
-    {
-        static_assert(is_string_view_v<Arg>, WL_ERROR_STRING_ONLY);
-        byte_size += arg.byte_size();
-        if (ascii_only)
-            ascii_only = arg.ascii_only();
-    }
-}
-template<typename... Args>
-auto _string_join_attributes_by_args(const Args&... args)
-{
-    size_t total_size = 0u;
-    bool ascii_only = true;
-    [[maybe_unused]] const auto& _1 = (
-        _string_join_attributes_by_args_impl(
-            total_size, ascii_only, args),
-        ..., 0);
-    return std::pair(total_size, ascii_only);
-}
-template<typename Char, typename Arg>
-void _string_join_copy_by_args_impl(Char*& str, const Arg& arg)
-{
-    if constexpr (is_argument_pack_v<Arg>)
-    {
-        for (size_t i = 0; i < arg.size(); ++i)
-            _string_join_copy_by_args_impl(str, arg.get(i));
-    }
-    else if constexpr (array_rank_v<Arg> >= 1u)
-    {
-        arg.for_each([&](const auto& x)
-            { _string_join_copy_by_args_impl(str, x); });
-    }
-    else
-    {
-        const size_t byte_size = arg.byte_size();
-        utils::restrict_copy_n(arg.byte_data(), byte_size, str);
-        str += byte_size;
-    }
-}
-template<typename Char, typename... Args>
-auto _string_join_copy_by_args(Char*& str, const Args&... args)
-{
-    [[maybe_unused]] const auto& _1 = (
-        _string_join_copy_by_args_impl(str, args), ..., 0);
-}
-template<typename... Args>
-auto string_join(const Args&... args)
-{
-    WL_TRY_BEGIN()
-    auto [total_size, ascii_only] = _string_join_attributes_by_args(args...);
-    auto ret = string(total_size, ascii_only);
-    auto ret_data = ret.byte_data();
-    WL_THROW_IF_ABORT()
-    _string_join_copy_by_args(ret_data, args...);
-    assert(ret.check_validity());
-    return ret;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Spec>
-auto _string_take_impl_ascii_only()
-{
-    return string();
-}
-template<typename Iter, typename Offset>
-Iter _string_take_find_offset(const Iter& begin, const Iter& end,
-    const Offset offset, const bool adjust_end)
-{
-    if (std::is_unsigned_v<Offset> || offset > 0)
-    {
-        auto ret = begin;
-        ret.apply_offset(offset - ptrdiff_t(!adjust_end), end);
-        if (ret.get_pointer() > end.get_pointer())
-            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-        return ret;
-    }
-    else if (offset < 0)
-    {
-        auto ret = end;
-        ret.apply_offset(offset + ptrdiff_t(adjust_end), begin);
-        if (ret.get_pointer() < begin.get_pointer())
-            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-        return ret;
-    }
-    else
-    {
-        throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-        return begin;
-    }
-}
-template<typename Iter>
-auto _string_take_impl_unicode_1arg(const Iter& begin, const Iter& end,
-    ptrdiff_t offset)
-{
-    if (offset > 0)
-    {
-        const auto mid = _string_take_find_offset(begin, end, offset, true);
-        return string_view(begin, mid, size_t(offset));
-    }
-    else
-    {
-        const auto mid = _string_take_find_offset(begin, end, offset, false);
-        return string_view(mid, end, size_t(-offset));
-    }
-}
-template<typename Iter>
-auto _string_take_impl_unicode_2args(const Iter& begin, const Iter& end,
-    ptrdiff_t offset, ptrdiff_t string_size)
-{
-    if (string_size <= 0)
-        return string_view(begin, begin, size_t(0));
-    const auto mid1 = _string_take_find_offset(
-        begin, end, offset, false);
-    const auto mid2 = _string_take_find_offset(
-        mid1, end, size_t(string_size), true);
-    const auto byte_size = size_t(mid2.byte_difference(mid1));
-    return string_view(mid1, mid2, size_t(string_size));
-}
-template<typename String, typename Spec>
-auto _string_take_impl_unicode(const String& str, const Spec& spec,
-    ptrdiff_t total_size = -1)
-{
-    const auto begin = str.begin();
-    const auto end = str.end();
-    if constexpr (is_integral_v<Spec>)
-    {
-        if (spec == Spec(0))
-            return string_view(begin, begin, size_t(0));
-        else
-            return _string_take_impl_unicode_1arg(
-                begin, end, ptrdiff_t(spec));
-    }
-    else if constexpr (array_rank_v<Spec> == 1u &&
-        is_integral_v<value_type_t<Spec>>)
-    {
-        const auto spec_size = spec.size();
-        std::array<ptrdiff_t, 2u> offsets{};
-        spec.copy_to(offsets.data());
-        if (spec_size == 1u)
-        {
-            if (offsets[0] == 0)
-                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-            return _string_take_impl_unicode_2args(
-                begin, end, offsets[0], 1u);
-        }
-        else if (spec_size == 2u)
-        {
-            if (offsets[0] == 0 || offsets[1] == 0)
-                throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
-            if (offsets[0] * offsets[1] < 0)
-            {
-                if (total_size < 0)
-                    total_size = str.size();
-                if (offsets[0] < 0)
-                    offsets[0] += ptrdiff_t(total_size + 1u);
-                else
-                    offsets[1] += ptrdiff_t(total_size + 1u);
-            }
-            return _string_take_impl_unicode_2args(
-                begin, end, offsets[0], offsets[1] - offsets[0] + 1u);
-        }
-        else
-        {
-            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
-        }
-    }
-    else if constexpr (array_rank_v<Spec> == 2u &&
-        is_integral_v<value_type_t<Spec>>)
-    {
-        const auto& valspec = allows<view_category::Simple>(spec);
-        const auto ret_size = valspec.dims()[0];
-        const auto spec_size = valspec.dims()[1];
-        const auto spec_data = valspec.data();
-        ndarray<string, 1u> ret(std::array<size_t, 1u>{ret_size});
-        auto ret_data = ret.data();
-        if (spec_size == 1u)
-        {
-            for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = string(_string_take_impl_unicode(str,
-                    wl::list(spec_data[i])));
-        }
-        else if (spec_size == 2u)
-        {
-            if constexpr (std::is_signed_v<value_type_t<Spec>>)
-            {
-                if ((total_size < 0) && std::any_of(
-                    spec_data, spec_data + 2u * ret_size,
-                    [](auto i) { return i < 0; }))
-                {
-                    total_size = str.size();
-                }
-            }
-            for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = string(_string_take_impl_unicode(str,
-                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u]),
-                    total_size));
-        }
-        else
-        {
-            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
-        }
-        return ret;
-    }
-    else
-    {
-        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
-    }
-}
-template<typename String, typename Spec>
-auto _string_take_impl_ascii(const String& str, const Spec& spec)
-{
-    const auto begin = str.byte_begin();
-    const auto end = str.byte_end();
-    const auto total_size = str.byte_size();
-    if constexpr (is_integral_v<Spec>)
-    {
-        if (spec == Spec(0))
-            return string_view(begin, begin, size_t(0));
-        else if (size_t(wl::abs(spec)) > total_size)
-            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-        else if (spec > Spec(0))
-            return string_view(begin, begin + ptrdiff_t(spec), size_t(spec));
-        else
-            return string_view(end + ptrdiff_t(spec), end,
-                size_t(-ptrdiff_t(spec)));
-    }
-    else if constexpr (array_rank_v<Spec> == 1u &&
-        is_integral_v<value_type_t<Spec>>)
-    {
-        const auto spec_size = spec.size();
-        std::array<ptrdiff_t, 2u> offsets{};
-        spec.copy_to(offsets.data());
-        if (spec_size == 1u)
-        {
-            if (offsets[0] == 0 || size_t(wl::abs(offsets[0])) > total_size)
-                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-            auto substr_begin = (offsets[0] > 0) ?
-                (begin + offsets[0] - 1) : (end + offsets[0]);
-            return string_view(substr_begin, substr_begin + 1, size_t(1));
-        }
-        else if (spec_size == 2u)
-        {
-            if (offsets[0] == 0 || offsets[1] == 0)
-                throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
-            if (offsets[0] < 0)
-                offsets[0] += ptrdiff_t(total_size + 1u);
-            if (offsets[1] < 0)
-                offsets[1] += ptrdiff_t(total_size + 1u);
-            if (offsets[0] > offsets[1])
-                return string_view(begin, begin, size_t(0));
-            if (size_t(offsets[0]) > total_size ||
-                size_t(offsets[1]) > total_size)
-                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
-            return string_view(begin + offsets[0] - 1,
-                begin + offsets[1], size_t(offsets[1] - offsets[0] + 1));
-        }
-        else
-        {
-            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
-        }
-    }
-    else if constexpr (array_rank_v<Spec> == 2u &&
-        is_integral_v<value_type_t<Spec>>)
-    {
-        const auto& valspec = allows<view_category::Simple>(spec);
-        const auto ret_size = valspec.dims()[0];
-        const auto spec_size = valspec.dims()[1];
-        const auto spec_data = valspec.data();
-        ndarray<string, 1u> ret(std::array<size_t, 1u>{ret_size});
-        auto ret_data = ret.data();
-        if (spec_size == 1u)
-        {
-            for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = string(_string_take_impl_ascii(str,
-                    wl::list(spec_data[i])));
-        }
-        else if (spec_size == 2u)
-        {
-            for (size_t i = 0; i < ret_size; ++i)
-                ret_data[i] = string(_string_take_impl_ascii(str,
-                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u])));
-        }
-        else
-        {
-            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
-        }
-        return ret;
-    }
-    else
-    {
-        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
-    }
-}
-template<typename String, typename Spec>
-auto string_take(String&& str, const Spec& spec)
-{
-    WL_TRY_BEGIN()
-    using StringT = remove_cvref_t<String>;
-    static_assert(is_string_view_v<StringT>, WL_ERROR_STRING_ONLY);
-    WL_THROW_IF_ABORT()
-    if constexpr (array_rank_v<Spec> <= 1u)
-    {
-        auto view = u8string_view{};
-        if (str.ascii_only())
-            view = _string_take_impl_ascii(str, spec);
-        else
-            view = _string_take_impl_unicode(str, spec);
-        if constexpr (is_string_v<StringT> && std::is_rvalue_reference_v<String&&>)
-        { // must return a string
-            return string(view);
-        }
-        else
-        { // can return a string view
-            return view;
-        }
-    }
-    else
-    {
-        if (str.ascii_only())
-            return _string_take_impl_ascii(str, spec);
-        else
-            return _string_take_impl_unicode(str, spec);
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<int64_t Id, int64_t... List>
-struct _pattern_id_list_find_impl;
-template<int64_t Id, int64_t First, int64_t... Rest>
-struct _pattern_id_list_find_impl<Id, First, Rest...>
-{
-    static constexpr auto next =
-        _pattern_id_list_find_impl<Id, Rest...>::value;
-    static constexpr auto value =
-        (next == -1) ? int64_t(-1) : next + 1;
-};
-template<int64_t Id, int64_t... Rest>
-struct _pattern_id_list_find_impl<Id, Id, Rest...>
-{
-    static constexpr auto value = int64_t(1);
-};
-template<int64_t Id>
-struct _pattern_id_list_find_impl<Id>
-{
-    static constexpr auto value = int64_t(-1);
-};
-template<int64_t Start, int64_t... List>
-struct _pattern_id_list_max;
-template<int64_t Start, int64_t First, int64_t... Rest>
-struct _pattern_id_list_max<Start, First, Rest...> :
-    _pattern_id_list_max<std::max(Start, First), Rest...> {};
-template<int64_t Final>
-struct _pattern_id_list_max<Final>
-{
-    static constexpr auto value = Final;
-};
-template<int64_t... Ids>
-struct _pattern_id_list
-{
-    static constexpr auto size = sizeof...(Ids);
-    template<int64_t Id>
-    static constexpr auto find(const_int<Id>)
-    {
-        return _pattern_id_list_find_impl<Id, Ids...>::value;
-    }
-    template<int64_t Id>
-    static constexpr auto append(const_int<Id>)
-    {
-        return _pattern_id_list<Ids..., Id>{};
-    }
-};
-template<typename... Conditions>
-struct _pattern_condition_list
-{
-    static constexpr auto size = sizeof...(Conditions);
-    std::tuple<Conditions...> conditions_;
-    template<typename Condition, size_t... Is>
-    auto append_impl(Condition&& condition, std::index_sequence<Is...>) &&
-    {
-        return _pattern_condition_list<Conditions..., Condition>{
-            std::make_tuple(std::get<Is>(std::move(conditions_))...,
-                std::move(condition))};
-    }
-    
-    template<typename Condition>
-    auto append(Condition condition) &&
-    {
-        return std::move(*this).append_impl(std::move(condition),
-            std::make_index_sequence<size>{});
-    }
-    template<size_t I>
-    auto get() const -> const auto&
-    {
-        return std::get<I>(conditions_);
-    }
-};
-namespace strexp
-{
-template<typename ConditionList, typename PatternIdList_>
-struct compilation_state
-{
-    using PatternIdList = PatternIdList_;
-    ConditionList conditions;
-    template<int64_t Id>
-    auto append_id(const_int<Id>) &&
-    {
-        using NewList = decltype(PatternIdList::append(const_int<Id>{}));
-        return compilation_state<ConditionList, NewList>{std::move(conditions)};
-    }
-    template<typename Condition>
-    auto append_condition(Condition condition) &&
-    {
-        auto new_conditions =
-            std::move(conditions).append(std::move(condition));
-        return compilation_state<decltype(new_conditions), PatternIdList>{
-            std::move(new_conditions)};
-    }
-};
-template<typename ConditionList, typename PatternIdList_>
-struct compiled_pattern
-{
-    pcre2::regex_t regex_ptr;
-    pcre2::match_context_t match_context_ptr;
-    const ConditionList conditions;
-    std::unique_ptr<const ConditionList*> conditions_ptr;
-    const string regex_text;
-    using PatternIdList = PatternIdList_;
-    compiled_pattern(pcre2::regex_t in_regex_ptr,
-        ConditionList&& in_conditions, string&& in_regex_text) :
-        regex_ptr{in_regex_ptr},
-        match_context_ptr{pcre2_match_context_create_8(nullptr)},
-        conditions{std::move(in_conditions)},
-        conditions_ptr{new (const ConditionList*){nullptr}},
-        regex_text{std::move(in_regex_text)}
-    {
-        set_callout();
-    }
-    compiled_pattern(pcre2::regex_t in_regex_ptr) :
-        regex_ptr{in_regex_ptr},
-        match_context_ptr{pcre2_match_context_create_8(nullptr)},
-        conditions{},
-        conditions_ptr{new (const ConditionList*){nullptr}},
-        regex_text{""}
-    {
-        set_callout();
-    }
-    void set_callout()
-    {
-        pcre2_set_callout_8(match_context_ptr.get(),
-            &pcre2::callout_function<PatternIdList, ConditionList>,
-            conditions_ptr.get());
-    }
-};
-template<typename FormatIdList_>
-struct compiled_format
-{
-    using FormatIdList = FormatIdList_;
-    const string text;
-};
-template<typename Pattern, typename Format>
-struct compiled_rule
-{
-    const Pattern pattern;
-    const Format format;
-};
-template<typename T>
-struct _is_compiled_pattern : std::false_type {};
-template<typename C, typename P>
-struct _is_compiled_pattern<compiled_pattern<C, P>> : std::true_type {};
-template<typename P, typename R>
-struct _is_compiled_pattern<compiled_rule<P, R>> : std::true_type {};
-template<typename T>
-constexpr auto _is_compiled_pattern_v = _is_compiled_pattern<T>::value;
-enum tag_t
-{
-    WithinGroup = 0,
-    Alternation,
-    Concatenation,
-    MatchShortest,
-    Repetition,
-    Grouping,
-    CharacterSet,
-    Exception
-};
-template<int64_t Id, typename Pattern, typename State>
-auto compile(_named_pattern<Id, Pattern> p, string& str, State s, tag_t tag)
-{
-    constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
-    if constexpr (group_idx < 0 || Id < 0)
-    {
-        // group does not exist; capture a new group
-        // negative id means that the group is used for PatternTest
-        str.join("(");
-        auto s1 = std::move(s).append_id(const_int<Id>{});
-        auto s2 = compile(std::move(p.pattern), str, std::move(s1),
-            tag == MatchShortest ? MatchShortest : WithinGroup);
-        str.join(")");
-        return std::move(s2);
-    }
-    else
-    { // group already exists; refer to that group
-        str.join("\\g{").join(_integer_to_string(group_idx)).join("}");
-        return std::move(s);
-    }
-}
-template<typename... Head, typename State>
-auto compile(_pattern_blank<Head...>, string& str, State s, tag_t)
-{
-    str.join(".");
-    return std::move(s);
-}
-template<typename... Head, typename State>
-auto compile(_pattern_blank_sequence<Head...>, string& str, State s, tag_t tag)
-{
-    if (tag == MatchShortest)
-        str.join(".+?");
-    else if (tag < Repetition)
-        str.join(".+");
-    else
-        str.join("(?:.+)");
-    return std::move(s);
-}
-template<typename... Head, typename State>
-auto compile(_pattern_blank_null_sequence<Head...>, string& str, State s,
-    tag_t tag)
-{
-    if (tag == MatchShortest)
-        str.join(".*?");
-    else if (tag < Repetition)
-        str.join(".*");
-    else
-        str.join("(?:.*)");
-    return std::move(s);
-}
-template<size_t I = 0u, typename... Patterns, typename State>
-auto compile_alternatives(_pattern_alternatives<Patterns...> p, string& str,
-    State s, tag_t tag)
-{
-    if constexpr (I < sizeof...(Patterns))
-    {
-        auto&& pattern = std::move(p).template get<I>();
-        auto s1 = compile(std::move(pattern), str, std::move(s), tag);
-        if ((I + 1u < sizeof...(Patterns)) && tag == Alternation)
-            str.join("|");
-        auto s2 = compile_alternatives<I + 1u>(std::move(p), str,
-            std::move(s1), tag);
-        return std::move(s2);
-    }
-    else
-    {
-        return std::move(s);
-    }
-}
-template<typename String>
-auto is_single_character(const String& s)
-{
-    return (s.byte_size() == 1u) || ((s.byte_size() <= 4u) && (s.size() == 1u));
-}
-template<size_t I = 0u, typename... Patterns>
-auto compile_use_bracket_impl(
-    const _pattern_alternatives<Patterns...>& patterns)
-{
-    if constexpr (I < sizeof...(Patterns))
-    {
-        const auto& p = patterns.template get<I>();
-        using PT = remove_cvref_t<decltype(p)>;
-        bool pass = false;
-        if constexpr (is_string_view_v<remove_cvref_t<decltype(p)>>)
-            pass = is_single_character(p);
-        else
-            pass = std::is_same_v<PT, _whitespace_character_type> ||
-                std::is_same_v<PT, _word_character_type> ||
-                std::is_same_v<PT, _letter_character_type> ||
-                std::is_same_v<PT, _digit_character_type> ||
-                std::is_same_v<PT, _hexadecimal_character_type> ||
-                std::is_same_v<PT, _punctuation_character_type>;
-        return pass && compile_use_bracket_impl<I + 1u>(patterns);
-    }
-    else
-    {
-        return true;
-    }
-}
-template<typename... Patterns>
-auto compile_use_bracket(const _pattern_alternatives<Patterns...>& p)
-{
-    return compile_use_bracket_impl<0u>(p);
-}
-template<typename Any>
-auto compile_use_bracket(const Any& any)
-{
-    if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
-        return bool(all_true(any, [](const string& s)
-            { return boolean(is_single_character(s)); }));
-    else
-        return false;
-}
-template<typename... Patterns, typename State>
-auto compile(_pattern_alternatives<Patterns...> p, string& str, State s,
-    tag_t tag)
-{
-    auto use_bracket = compile_use_bracket(p);
-    if (tag == Exception && !use_bracket)
-        throw std::logic_error(WL_ERROR_STRING_EXCEPT);
-    if (tag == Exception)
-        str.join("[^");
-    else if (use_bracket)
-        str.join("[");
-    else if (tag >= Alternation)
-        str.join("(?:");
-    auto s1 = compile_alternatives(std::move(p), str, std::move(s),
-        use_bracket ? CharacterSet : Alternation);
-    if (use_bracket)
-        str.join("]");
-    else if (tag >= Alternation)
-        str.join(")");
-    return std::move(s1);
-}
-template<typename Pattern, typename State>
-auto compile(_pattern_repeated<Pattern> p, string& str, State s, tag_t tag)
-{
-    if (p.min == 0u)
-        str.join("(?:");
-    auto s1 = compile(p.pattern, str, std::move(s),
-        p.min == 0u ? WithinGroup : Concatenation);
-    if (p.min == 0u)
-    {
-        str.join(")?");
-        if (tag == MatchShortest)
-            str.join("?");
-    }
-    auto s2 = compile(std::move(p).pattern, str, std::move(s1), Repetition);
-    if (p.max_is_infinity())
-        str.join("*");
-    else
-    {
-        if (p.min >= 2u)
-            str.join("{").join(_integer_to_string(p.min - 1u)).join(",");
-        else
-            str.join("{0,");
-        str.join(_integer_to_string(p.max - 1u)).join("}");
-    }
-    if (tag == MatchShortest)
-        str.join("?");
-    return std::move(s2);
-}
-template<typename Pattern, typename State>
-auto compile(_pattern_longest<Pattern> p, string& str, State s, tag_t tag)
-{
-    return compile(std::move(p.pattern), str, std::move(s), tag);
-}
-template<typename Pattern, typename State>
-auto compile(_pattern_shortest<Pattern> p, string& str, State s, tag_t tag)
-{
-    return compile(std::move(p.pattern), str, std::move(s), MatchShortest);
-}
-template<typename Pattern, typename Condition, typename State>
-auto compile(_condition<Pattern, Condition> p, string& str, State s, tag_t tag)
-{
-    auto s1 = std::move(s).append_condition(std::move(p.condition));
-    if (tag > Concatenation)
-        str.join("(?:");
-    auto s2 = compile(std::move(p.pattern), str, std::move(s1), Concatenation);
-    str.join("(?C");
-    str.join(_integer_to_string(decltype(s.conditions)::size));
-    str.join(")");
-    if (tag > Concatenation)
-        str.join(")");
-    return std::move(s2);
-}
-template<size_t I, typename... Patterns, typename State>
-auto compile_impl(_string_expression<Patterns...>&& p, string& str, State s)
-{
-    if constexpr (I < sizeof...(Patterns))
-    {
-        auto s2 = compile(std::move(p).template get<I>(), str, std::move(s),
-            Concatenation);
-        return compile_impl<I + 1u>(std::move(p), str, std::move(s2));
-    }
-    else
-    {
-        return std::move(s);
-    }
-}
-template<typename... Patterns, typename State>
-auto compile(_string_expression<Patterns...> p, string& str, State s,
-    tag_t tag)
-{
-    if (tag > Concatenation)
-        str.join("(?:");
-    auto s1 = compile_impl<0u>(std::move(p), str, std::move(s));
-    if (tag > Concatenation)
-        str.join(")");
-    return std::move(s1);
-}
-inline void compile_impl(const utf8::char_t* begin, const utf8::char_t* end,
-    string& str, tag_t tag)
-{
-    static const bool esc_table[256] ={
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,1,0,0,0,1,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-    if (begin == end)
-    {
-        if (tag > WithinGroup)
-            str.join("(?:)");
-    }
-    else
-    {
-        if (tag > Concatenation && tag != CharacterSet)
-            str.join("(?:");
-        for (; begin < end; ++begin)
-        {
-            if (esc_table[*begin])
-                str.append<false, false>('\\');
-            str.append<false, false>(*begin);
-        }
-        str.place_null_character();
-        if (tag > Concatenation && tag != CharacterSet)
-            str.join(")");
-    }
-}
-template<typename State>
-auto compile(const ndarray<string, 1u>& patterns, string& str, State s,
-    tag_t tag)
-{
-    auto use_bracket = compile_use_bracket(patterns);
-    auto begin = patterns.begin();
-    auto end = patterns.end();
-    if (use_bracket)
-        str.append('[');
-    else if (tag >= Alternation)
-        str.join("(?:");
-    for (; begin != end; ++begin)
-    {
-        compile_impl(begin->byte_begin(), begin->byte_end(), str, Alternation);
-        if (!use_bracket)
-            str.append('|');
-    }
-    if (use_bracket)
-        str.append(']');
-    else if (tag >= Alternation)
-        str.join(")");
-    return std::move(s);
-}
-template<typename Any, typename State>
-auto compile(_pattern_except<Any> p, string& str, State s, tag_t)
-{
-    if constexpr (is_string_view_v<Any>)
-    {
-        if (!is_single_character(p.pattern))
-            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
-        str.join("[^");
-        str.join(p.pattern);
-        str.join("]");
-    }
-    else if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
-    {
-        if (!compile_use_bracket(p.pattern))
-            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
-        auto begin = p.pattern.begin();
-        auto end = p.pattern.end();
-        str.join("[^");
-        for (; begin != end; ++begin)
-            str.join(*begin);
-        str.join("]");
-    }
-    else if constexpr (std::is_same_v<Any, _word_character_type>)
-        str.join("[^[:alnum:]]");
-    else if constexpr (std::is_same_v<Any, _letter_character_type>)
-        str.join("[^[:alpha:]]");
-    else if constexpr (std::is_same_v<Any, _digit_character_type>)
-        str.join("\\D");
-    else if constexpr (std::is_same_v<Any, _whitespace_character_type>)
-        str.join("\\S");
-    else if constexpr (std::is_same_v<Any, _word_boundary_type>)
-        str.join("\\B");
-    else if constexpr (std::is_same_v<Any, _hexadecimal_character_type>)
-        str.join("[^[:xdigit:]]");
-    else if constexpr (std::is_same_v<Any, _punctuation_character_type>)
-        str.join("[^[:punct:]]");
-    else if constexpr (std::is_same_v<Any, _start_of_line_type>)
-        str.join("(?!^)");
-    else if constexpr (std::is_same_v<Any, _end_of_line_type>)
-        str.join("(?!$)");
-    else if constexpr (std::is_same_v<Any, _start_of_string_type>)
-        str.join("(?!\\A)");
-    else if constexpr (std::is_same_v<Any, _end_of_string_type>)
-        str.join("(?!\\z)");
-    else
-        static_assert(always_false_v<Any>, WL_ERROR_STRING_EXCEPT);
-    return std::move(s);
-}
-template<typename... Patterns, typename State>
-auto compile(_pattern_except<_pattern_alternatives<Patterns...>> p,
-    string& str, State s, tag_t)
-{
-    if (!compile_use_bracket(p.pattern))
-        throw std::logic_error(WL_ERROR_STRING_EXCEPT);
-    str.join("[^");
-    auto s2 = compile_alternatives(std::move(p.pattern), str, std::move(s),
-        CharacterSet);
-    str.join("]");
-    return std::move(s2);
-}
-template<typename Any, typename State>
-auto compile(Any&& any, string& str, State s, tag_t tag)
-{
-    using AT = remove_cvref_t<Any>;
-    if constexpr (is_string_view_v<AT>)
-    {
-        compile_impl(any.byte_begin(), any.byte_end(), str, tag);
-        return std::move(s);
-    }
-    else if constexpr (array_rank_v<AT> == 1u)
-    {
-        static_assert(is_string_v<value_type_t<AT>>, WL_ERROR_NOT_A_PATTERN);
-        const auto& valany = allows<view_category::Array>(
-            std::forward<decltype(any)>(any));
-        return compile(valany, str, std::move(s), tag);
-    }
-    else
-    {
-        static_assert(is_pattern_v<AT>, WL_ERROR_NOT_A_PATTERN);
-        if constexpr (std::is_same_v<AT, _whitespace_type>)
-        {
-            if (tag > Concatenation)
-                str.join("(?:\\s+)");
-            else
-                str.join("\\s+");
-        }
-        else if constexpr (std::is_same_v<AT, _number_string_type>)
-            str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
-        else if constexpr (std::is_same_v<AT, _word_character_type>)
-        {
-            if (tag == CharacterSet)
-                str.join("[:alnum:]");
-            else
-                str.join("[[:alnum:]]");
-        }
-        else if constexpr (std::is_same_v<AT, _letter_character_type>)
-        {
-            if (tag == CharacterSet)
-                str.join("[:alpha:]");
-            else
-                str.join("[[:alpha:]]");
-        }
-        else if constexpr (std::is_same_v<AT, _digit_character_type>)
-            str.join("\\d");
-        else if constexpr (std::is_same_v<AT, _whitespace_character_type>)
-            str.join("\\s");
-        else if constexpr (std::is_same_v<AT, _hexadecimal_character_type>)
-        {
-            if (tag == CharacterSet)
-                str.join("[:xdigit:]");
-            else
-                str.join("[[:xdigit:]]");
-        }
-        else if constexpr (std::is_same_v<AT, _punctuation_character_type>)
-        {
-            if (tag == CharacterSet)
-                str.join("[:punct:]");
-            else
-                str.join("[[:punct:]]");
-        }
-        else if constexpr (std::is_same_v<AT, _word_boundary_type>)
-            str.join("\\b");
-        else if constexpr (std::is_same_v<AT, _start_of_line_type>)
-            str.join("^");
-        else if constexpr (std::is_same_v<AT, _end_of_line_type>)
-            str.join("$");
-        else if constexpr (std::is_same_v<AT, _start_of_string_type>)
-            str.join("\\A");
-        else if constexpr (std::is_same_v<AT, _end_of_string_type>)
-            str.join("\\z");
-        else
-            static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
-        return std::move(s);
-    }
-}
-template<size_t I, typename... Patterns, typename State, typename FormatIdList>
-auto format_compile_impl(_string_expression<Patterns...>&& p,
-    string& str, const State& s, FormatIdList f)
-{
-    if constexpr (I < sizeof...(Patterns))
-    {
-        auto f1 = format_compile(std::move(p).template get<I>(), str, s,
-            std::move(f));
-        return format_compile_impl<I + 1u>(std::move(p), str, s,
-            std::move(f1));
-    }
-    else
-    {
-        return std::move(f);
-    }
-}
-template<typename... Patterns, typename State, typename FormatIdList>
-auto format_compile(_string_expression<Patterns...>&& p, string& str,
-    const State& s, FormatIdList f)
-{
-    return format_compile_impl<0u>(std::move(p), str, s, std::move(f));
-}
-template<int64_t Id, typename State, typename FormatIdList>
-auto format_compile(_named_replacement<Id>, string& str, const State&,
-    FormatIdList)
-{
-    constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
-    static_assert(0u < group_idx && group_idx <= 99u, WL_ERROR_INTERNAL);
-    str.append('$');
-    str.join(_integer_to_string(group_idx, 2u));
-    return FormatIdList::append(const_int<group_idx>{});
-}
-inline void format_compile_impl(const utf8::char_t* begin,
-    const utf8::char_t* end, string& str)
-{
-    WL_THROW_IF_ABORT()
-    for (; begin < end; ++begin)
-    {
-        if (*begin == utf8::char_t('$'))
-            str.append('$');
-        str.append(*begin);
-    }
-    str.place_null_character();
-}
-template<typename State, typename FormatIdList>
-auto format_compile(const string& s, string& str, const State&,
-    FormatIdList)
-{
-    format_compile_impl(s.byte_begin(), s.byte_end(), str);
-    return FormatIdList{};
-}
-template<typename State, typename FormatIdList>
-auto format_compile(const string_view& s, string& str, const State&,
-    FormatIdList)
-{
-    format_compile_impl(s.byte_begin(), s.byte_end(), str);
-    return FormatIdList{};
-}
-template<typename Any, typename State, typename FormatIdList>
-auto _string_replacement_compile(
-    Any&& any, string& str, const State&, FormatIdList f)
-{
-    using AT = remove_cvref_t<Any>;
-    if constexpr (is_string_view_v<AT>)
-    {
-        format_compile_impl(any.byte_begin(), any.byte_end(), str);
-        return std::move(f);
-    }
-    else
-    {
-        static_assert(always_false_v<Any>, WL_ERROR_NOT_A_REPLACEMENT);
-        return std::move(f);
-    }
-}
-template<typename Expression>
-auto compile(Expression e)
-{
-    auto str = string("(?ms)");
-    using InitialState = compilation_state<
-        _pattern_condition_list<>, _pattern_id_list<>>;
-    auto s1 = compile(std::move(e), str, InitialState{}, WithinGroup);
-    using CP = compiled_pattern<
-        decltype(s1.conditions), typename decltype(s1)::PatternIdList>;
-    try
-    {
-        WL_THROW_IF_ABORT()
-        return CP{pcre2::new_regex(str), std::move(s1.conditions),
-            std::move(str)};
-    }
-    catch (const std::logic_error& regex_error)
-    {
-        throw std::logic_error(std::string(WL_ERROR_INTERNAL) +
-            WL_ERROR_REGEX + regex_error.what());
-    }
-}
-template<typename C, typename P>
-auto compile(compiled_pattern<C, P>&& pattern)
-{
-    return std::move(pattern);
-}
-template<typename C, typename P>
-const auto& compile(const compiled_pattern<C, P>& pattern)
-{
-    return pattern;
-}
-template<typename P, typename R>
-auto compile(compiled_rule<P, R>&& rule)
-{
-    return std::move(rule);
-}
-template<typename P, typename R>
-const auto& compile(const compiled_rule<P, R>& rule)
-{
-    return rule;
-}
-template<typename Left, typename Right>
-auto compile(_pattern_rule<Left, Right> rule)
-{
-    auto cp = compile(std::move(rule.left));
-    auto s = compilation_state<
-        _pattern_condition_list<>, typename decltype(cp)::PatternIdList>{};
-    auto format = string();
-    auto f = format_compile(std::move(rule.right), format, s,
-        _pattern_id_list<>{});
-    auto replacement = compiled_format<decltype(f)>{format};
-    return compiled_rule<decltype(cp), decltype(replacement)>{
-        std::move(cp), std::move(replacement)};
-}
-template<typename State>
-inline void format_text(const State& state, const string& format, string& ret)
-{
-    auto begin = format.byte_begin();
-    auto end = format.byte_end();
-    while (begin != end)
-    {
-        if (*begin != '$')
-        {
-            ret.template append<false>(*begin++);
-        }
-        else if (++begin == end)
-        {
-            ret.template append<false>('$');
-        }
-        else if (*begin == '$')
-        {
-            ret.template append<false>('$');
-            ++begin;
-        }
-        else if (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'))
-        {
-            auto group_idx = size_t(*begin++ - utf8::char_t('0'));
-            const bool is_two_digit = begin != end &&
-                (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'));
-            if (is_two_digit)
-                group_idx = group_idx * 10u +
-                size_t(*begin++ - utf8::char_t('0'));
-            if (group_idx <= state.capture_count())
-            {
-                const auto& view = state.match(group_idx);
-                ret.template append<false>(view.byte_data(), view.byte_size());
-            }
-        }
-        else
-        {
-            ret.template append<false>('$');
-            ret.template append<false>(*begin++);
-        }
-    }
-    ret.place_null_character();
-}
-}
-template<typename String>
-auto regular_expression(const String& str)
-{
-    WL_TRY_BEGIN()
-    using CP = strexp::compiled_pattern<
-        _pattern_condition_list<>, _pattern_id_list<>>;
-    try
-    {
-        WL_THROW_IF_ABORT()
-        return CP{pcre2::new_regex(str)};
-    }
-    catch (const std::logic_error& regex_error)
-    {
-        throw std::logic_error(
-            std::string(WL_ERROR_REGEX) + regex_error.what());
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename CharT>
-boolean _string_equal(const CharT* a_begin, const CharT* a_end,
-    const CharT* b_begin, const CharT* b_end)
-{
-    if ((a_end - a_begin) != (b_end - b_begin))
-        return const_false;
-    for (; a_begin < a_end; ++a_begin, ++b_begin)
-    {
-        if (*a_begin != *b_begin)
-            return const_false;
-    }
-    return const_true;
-}
-inline boolean operator==(const string& a, const string& b)
-{
-    return _string_equal(a.byte_begin(), a.byte_end(),
-        b.byte_begin(), b.byte_end());
-}
-inline boolean operator==(const string& a, const string_view& b)
-{
-    return _string_equal(a.byte_begin(), a.byte_end(),
-        b.byte_begin(), b.byte_end());
-}
-inline boolean operator==(const string_view& a, const string& b)
-{
-    return _string_equal(a.byte_begin(), a.byte_end(),
-        b.byte_begin(), b.byte_end());
-}
-inline boolean operator==(const string_view& a, const string_view& b)
-{
-    return _string_equal(a.byte_begin(), a.byte_end(),
-        b.byte_begin(), b.byte_end());
-}
-template<typename C, typename P>
-auto _pattern_convert_impl(const strexp::compiled_pattern<C, P>& pattern)
-{
-    return pattern.regex_text;
-}
-template<typename P, typename R>
-auto _pattern_convert_impl(const strexp::compiled_rule<P, R>& rule)
-{
-    auto ret = _pattern_convert_impl(rule.pattern);
-    ret.join(" -> ");
-    ret.join(rule.format.text);
-    return ret;
-}
-template<typename Any>
-auto _pattern_convert(Any&& any)
-{
-    WL_TRY_BEGIN()
-    return _pattern_convert_impl(strexp::compile(
-        std::forward<decltype(any)>(any)));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-#define WL_DEFINE_STRING_PRED_FUNCTION_IMPL(name, anchors)                  \
-template<bool Overlaps = false, typename String, typename C, typename P>    \
-auto _string_##name##_q_impl(String&& str,                                  \
-    const strexp::compiled_pattern<C, P>& pattern)                          \
-{                                                                           \
-    static_assert(is_string_view_v<remove_cvref_t<String>>,                 \
-        WL_ERROR_STRING_FUNCTION_STRING);                                   \
-    auto search = pcre2::regex_search(pattern, str.c_str(),                 \
-        str.byte_size());                                                   \
-    return boolean(search.find_next(false, anchors));                       \
-}
-WL_DEFINE_STRING_PRED_FUNCTION_IMPL(match, PCRE2_ANCHORED | PCRE2_ENDANCHORED)
-WL_DEFINE_STRING_PRED_FUNCTION_IMPL(starts, PCRE2_ANCHORED)
-WL_DEFINE_STRING_PRED_FUNCTION_IMPL(ends, PCRE2_ENDANCHORED)
-WL_DEFINE_STRING_PRED_FUNCTION_IMPL(contains, 0)
-template<bool Overlaps = false, typename String, typename C, typename P>
-auto _string_free_q_impl(String&& str,
-    const strexp::compiled_pattern<C, P>& pattern)
-{
-    return !_string_contains_q_impl(std::forward<decltype(str)>(str), pattern);
-}
-template<bool Overlaps, typename String, typename C, typename P>
-auto _string_count_impl(String&& str,
-    const strexp::compiled_pattern<C, P>& pattern)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    int64_t num_matches = 0;
-    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
-    while (search.find_next(Overlaps))
-    {
-        ++num_matches;
-    }
-    return num_matches;
-}
-template<bool Overlaps, typename String, typename P, typename R>
-auto _string_cases_impl(String&& str,
-    const strexp::compiled_rule<P, R>& rule)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    ndarray<string, 1u> ret;
-    auto search = pcre2::regex_search(
-        rule.pattern, str.c_str(), str.byte_size());
-    while (search.find_next(Overlaps))
-    {
-        auto str = string();
-        strexp::format_text(search, rule.format.text, str);
-        ret.append(std::move(str));
-    }
-    return ret;
-}
-template<bool Overlaps, typename String, typename C, typename P>
-auto _string_cases_impl(String&& str,
-    const strexp::compiled_pattern<C, P>& pattern)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    ndarray<string, 1u> ret;
-    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
-    while (search.find_next(Overlaps))
-    {
-        ret.append(string(search.match()));
-    }
-    return ret;
-}
-template<bool Overlaps = false, typename String, typename P, typename R>
-auto _string_replace_impl(String&& str,
-    const strexp::compiled_rule<P, R>& rule)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    string ret;
-    auto search = pcre2::regex_search(
-        rule.pattern, str.c_str(), str.byte_size());
-    while (search.find_next())
-    {
-        ret.join<false>(search.prefix());
-        strexp::format_text(search, rule.format.text, ret);
-    }
-    ret.join<false>(
-        string_view{search.prefix().byte_begin(), str.byte_end()});
-    ret.place_null_character();
-    return ret;
-}
-template<bool Overlaps = false, typename String, typename C, typename P>
-auto _string_split_impl(String&& str,
-    const strexp::compiled_pattern<C, P>& pattern)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    ndarray<string, 1u> ret;
-    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
-    while (search.find_next())
-    {
-        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
-            ret.append(string(search.prefix()));
-    }
-    const auto& prefix = string_view{
-        search.prefix().byte_begin(), str.byte_end()};
-    if (prefix.byte_size() > 0u)
-        ret.append(string(prefix));
-    return ret;
-}
-template<bool Overlaps = false, typename String, typename P, typename R>
-auto _string_split_impl(String&& str,
-    const strexp::compiled_rule<P, R>& rule)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    ndarray<string, 1u> ret;
-    auto search = pcre2::regex_search(
-        rule.pattern, str.c_str(), str.byte_size());
-    while (search.find_next())
-    {
-        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
-            ret.append(string(search.prefix()));
-        auto replaced = string();
-        strexp::format_text(search, rule.format.text, replaced);
-        ret.append(std::move(replaced));
-    }
-    const auto& prefix = string_view{
-        search.prefix().byte_begin(), str.byte_end()};
-    if (prefix.byte_size() > 0u)
-        ret.append(string(prefix));
-    return ret;
-}
-template<bool Overlaps, typename String, typename C, typename P>
-auto _string_position_impl(String&& str,
-    const strexp::compiled_pattern<C, P>& pattern)
-{
-    static_assert(is_string_view_v<remove_cvref_t<String>>,
-        WL_ERROR_STRING_FUNCTION_STRING);
-    ndarray<int64_t, 1u> ret;
-    size_t ret_size = 0u;
-    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
-    while (search.find_next(Overlaps))
-    {
-        ret.uninitialized_resize(std::array<size_t, 1u>{ret_size + 2u});
-        auto* insert_ptr = ret.data() + ret_size;
-        insert_ptr[0] = int64_t(search.match_begin_idx() + 1u);
-        insert_ptr[1] = int64_t(search.match_end_idx());
-        ret_size += 2u;
-    }
-    return ndarray<int64_t, 2u>(std::array<size_t, 2u>{ret_size / 2u, 2u},
-        std::move(ret).data_vector());
-}
-#define WL_DEFINE_STRING_FUNCTION(name, ret_type, takes_list, can_overlap,  \
-    overlap_default)                                                        \
-template<bool Overlaps = overlap_default, typename String, typename Any>    \
-auto name(String&& str, Any&& any)                                          \
-{                                                                           \
-    WL_TRY_BEGIN()                                                          \
-    static_assert(can_overlap || !Overlaps, WL_ERROR_INTERNAL);             \
-    using ST = remove_cvref_t<String>;                                      \
-    const auto& pattern = strexp::compile(std::forward<decltype(any)>(any));\
-    if constexpr (is_string_view_v<ST>)                                     \
-    {                                                                       \
-        return _##name##_impl<Overlaps>(str, pattern);                      \
-    }                                                                       \
-    else if constexpr (takes_list)                                          \
-    {                                                                       \
-        static_assert(is_string_type_v<ST> && array_rank_v<ST> == 1u,       \
-            WL_ERROR_STRING_TYPE_ONLY);                                     \
-        if constexpr (is_movable_v<String> &&                               \
-            std::is_same_v<ret_type, string>)                               \
-        {                                                                   \
-            str.for_each([&](string& s)                                     \
-                { s =  _##name##_impl<Overlaps>(s, pattern); });            \
-            return std::move(str);                                          \
-        }                                                                   \
-        else                                                                \
-        {                                                                   \
-            ndarray<ret_type, 1u> ret(std::array<size_t, 1u>{str.size()});  \
-            str.for_each([&](const string& s, ret_type& c)                  \
-                { c = _##name##_impl<Overlaps>(s, pattern); }, ret.data()); \
-            return ret;                                                     \
-        }                                                                   \
-    }                                                                       \
-    else                                                                    \
-    {                                                                       \
-        static_assert(always_false_v<String>, WL_ERROR_STRING_ONLY);        \
-    }                                                                       \
-    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
-}
-WL_DEFINE_STRING_FUNCTION(string_count, int64_t, true, true, false)
-WL_DEFINE_STRING_FUNCTION(string_match_q, boolean, true, false, false)
-WL_DEFINE_STRING_FUNCTION(string_contains_q, boolean, true, false, false)
-WL_DEFINE_STRING_FUNCTION(string_free_q, boolean, true, false, false)
-WL_DEFINE_STRING_FUNCTION(string_starts_q, boolean, true, false, false)
-WL_DEFINE_STRING_FUNCTION(string_ends_q, boolean, true, false, false)
-WL_DEFINE_STRING_FUNCTION(string_replace, string, true, false, false)
-WL_DEFINE_STRING_FUNCTION(string_cases, int, false, true, false)
-WL_DEFINE_STRING_FUNCTION(string_split, int, false, false, false)
-WL_DEFINE_STRING_FUNCTION(string_position, int, false, true, true)
-template<typename String>
-auto string_split(String&& str)
-{
-    WL_TRY_BEGIN()
-    static auto whitespace = strexp::compile(const_whitespace);
-    return string_split(std::forward<decltype(str)>(str), whitespace);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-#define WL_DEFINE_CHAR_TYPE_FUNCTION(name, crit)                    \
-template<typename String>                                           \
-auto name(const String& str)                                        \
-{                                                                   \
-    using namespace utf8;                                           \
-    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);  \
-    auto begin = str.byte_begin();                                  \
-    auto end = str.byte_end();                                      \
-    for (; begin != end; ++begin)                                   \
-    {                                                               \
-        const auto ch = *begin;                                     \
-        if (!(crit))                                                \
-            return const_false;                                     \
-    }                                                               \
-    return const_true;                                              \
-}
-WL_DEFINE_CHAR_TYPE_FUNCTION(digit_q, '0'_c <= ch && ch <= '9'_c)
-WL_DEFINE_CHAR_TYPE_FUNCTION(letter_q,
-    ('a'_c <= ch && ch <= 'z'_c) || ('A'_c <= ch && ch <= 'Z'_c))
-WL_DEFINE_CHAR_TYPE_FUNCTION(lower_case_q, 'a'_c <= ch && ch <= 'z'_c)
-WL_DEFINE_CHAR_TYPE_FUNCTION(upper_case_q, 'A'_c <= ch && ch <= 'Z'_c)
-WL_DEFINE_CHAR_TYPE_FUNCTION(printable_ascii_q, ' '_c <= ch && ch <= '~'_c)
-template<typename String>
-auto characters(const String& s)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    const auto size = s.size();
-    ndarray<string, 1u> ret(std::array<size_t, 1u>{size});
-    auto ret_data = ret.data();
-    if (size == s.byte_size())
-    { // ascii only
-        auto s_begin = s.byte_data();
-        WL_CHECK_ABORT_LOOP_BEGIN(size)
-            for (auto i = _loop_begin; i < _loop_end; ++i,
-                ++ret_data, ++s_begin)
-            {
-                *ret_data = string(s_begin, 1u, true);
-            }
-        WL_CHECK_ABORT_LOOP_END()
-    }
-    else
-    { // not ascii only
-        auto s_begin = s.begin();
-        WL_CHECK_ABORT_LOOP_BEGIN(size)
-            for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
-            {
-                size_t num_bytes = s_begin.num_bytes();
-                *ret_data = string(s_begin.get_pointer(), num_bytes,
-                    num_bytes == 1u);
-                s_begin.apply_pointer_offset(num_bytes);
-            }
-        WL_CHECK_ABORT_LOOP_END()
-    }
-    return ret;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X>
-auto _character_range_impl(const X& x)
-{
-    static_assert(is_string_view_v<X> || is_integral_v<X>,
-        WL_ERROR_CHARACTER_RANGE);
-    if constexpr (is_string_view_v<X>)
-    {
-        if (!strexp::is_single_character(x))
-            throw std::logic_error(WL_ERROR_CHARACTER_RANGE);
-        return *x.begin();
-    }
-    else
-    {
-        if (uint64_t(x) > uint64_t(utf8::max_code_point))
-            throw std::logic_error(WL_ERROR_INVALID_CODEPOINT);
-        return utf8::char21_t(x);
-    }
-}
-template<typename X, typename Y>
-auto character_range(const X& x, const Y& y)
-{
-    WL_TRY_BEGIN()
-    utf8::char21_t first_point = _character_range_impl(x);
-    utf8::char21_t last_point = _character_range_impl(y);
-    if (first_point > last_point)
-        return ndarray<string, 1u>{};
-    else
-    {
-        const auto size = size_t(last_point - first_point + 1u);
-        ndarray<string, 1u> ret(std::array<size_t, 1u>{size});
-        auto ret_data = ret.data();
-        if (utf8::is_ascii(last_point))
-        {
-            WL_THROW_IF_ABORT()
-            for (; first_point <= last_point; ++first_point, ++ret_data)
-            {
-                const auto ch = utf8::char_t(first_point);
-                *ret_data = string(&ch, 1u, true);
-            }
-        }
-        else
-        {
-            WL_THROW_IF_ABORT()
-            for (; first_point <= utf8::max_ascii_code_point;
-                ++first_point, ++ret_data)
-            {
-                const auto ch = utf8::char_t(first_point);
-                *ret_data = string(&ch, 1u, true);
-            }
-            WL_CHECK_ABORT_LOOP_BEGIN(last_point - first_point + 1u)
-                for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
-                {
-                    auto [num_bytes, units] = 
-                        utf8::from_code_point(first_point + i);
-                    *ret_data = string(units.data(), num_bytes, false);
-                }
-            WL_CHECK_ABORT_LOOP_END()
-        }
-        return ret;
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Ret = int64_t, typename String>
-auto to_character_code(const String& s)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    static_assert(is_integral_v<Ret> &&
-        (std::numeric_limits<Ret>::max() >= 255), WL_ERROR_BAD_RETURN);
-    const auto size = s.size();
-    ndarray<Ret, 1u> ret(std::array<size_t, 1u>{size});
-    auto ret_data = ret.data();
-    if (size == s.byte_size())
-    { // ascii only
-        auto s_begin = s.byte_data();
-        WL_CHECK_ABORT_LOOP_BEGIN(size)
-            for (auto i = _loop_begin; i < _loop_end; ++i,
-                ++ret_data, ++s_begin)
-            {
-                *ret_data = int64_t(*s_begin);
-            }
-        WL_CHECK_ABORT_LOOP_END()
-    }
-    else
-    { // not ascii only
-        auto s_begin = s.begin();
-        WL_CHECK_ABORT_LOOP_BEGIN(size)
-            for (auto i = _loop_begin; i < _loop_end; ++i,
-                ++ret_data, ++s_begin)
-            {
-                *ret_data = int64_t(*s_begin);
-            }
-        WL_CHECK_ABORT_LOOP_END()
-    }
-    return ret;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X>
-auto from_character_code(const X& x)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> <= 1u, WL_ERROR_FROM_CHARACTER_CODE_ARG);
-    if constexpr (array_rank_v<X> == 0u)
-    {
-        static_assert(is_integral_v<X>, WL_ERROR_FROM_CHARACTER_CODE_ARG);
-        const auto [num_bytes, units] =
-            utf8::from_code_point(utf8::char21_t(x));
-        return string(units.data(), num_bytes, num_bytes == 1u);
-    }
-    else
-    {
-        static_assert(is_integral_v<value_type_t<X>>,
-            WL_ERROR_FROM_CHARACTER_CODE_ARG);
-        const auto& valx = allows<view_category::Simple>(x);
-        const auto size = valx.size();
-        auto x_begin = valx.begin();
-        bool ascii_only = true;
-        auto ret = string();
-        ret.set_capacity(size);
-        WL_CHECK_ABORT_LOOP_BEGIN(size)
-            for (auto i = _loop_begin; i < _loop_end; ++i, ++x_begin)
-            {
-                auto [num_bytes, units] = utf8::from_code_point(*x_begin);
-                if (ascii_only)
-                    ascii_only = (num_bytes == 1u);
-                ret.template append<false>(units.data(), num_bytes);
-            }
-        WL_CHECK_ABORT_LOOP_END()
-        ret.place_null_character();
-        ret.set_ascii_only(ascii_only);
-        return ret;
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Y>
-int64_t _order_string(const X& x, const Y& y)
-{
-    static_assert(is_string_view_v<X> && is_string_view_v<Y>,
-        WL_ERROR_OPERAND_TYPE);
-    if (x.ascii_only() && y.ascii_only())
-    {
-        auto x_begin = x.byte_begin();
-        auto x_end = x.byte_end();
-        auto y_begin = y.byte_begin();
-        auto y_end = y.byte_end();
-        for (; true; ++x_begin, ++y_begin)
-        {
-            if (x_begin == x_end)
-                return (y_begin == y_end) ? 0 : 1;
-            else if (y_begin == y_end)
-                return -1;
-            else if (*x_begin < *y_begin)
-                return 1;
-            else if (*x_begin > *y_begin)
-                return -1;
-        }
-    }
-    else
-    {
-        auto x_begin = x.begin();
-        auto x_end = x.end();
-        auto y_begin = y.begin();
-        auto y_end = y.end();
-        for (; true; ++x_begin, ++y_begin)
-        {
-            if (x_begin == x_end)
-                return (y_begin == y_end) ? 0 : 1;
-            else if (y_begin == y_end)
-                return -1;
-            else if (*x_begin < *y_begin)
-                return 1;
-            else if (*x_begin > *y_begin)
-                return -1;
-        }
-    }
-}
-int64_t _order_scalar(const string& x, const string& y)
-{
-    return _order_string(x, y);
-}
-int64_t _order_scalar(const string& x, const string_view& y)
-{
-    return _order_string(x, y);
-}
-int64_t _order_scalar(const string_view& x, const string& y)
-{
-    return _order_string(x, y);
-}
-int64_t _order_scalar(const string_view& x, const string_view& y)
-{
-    return _order_string(x, y);
-}
-struct _string_riffle_delimiter
-{
-    std::array<string, 3u> dels_{};
-    bool triple_ = false;
-    _string_riffle_delimiter() = default;
-    _string_riffle_delimiter(const string& str) :
-        dels_{string(), str, string()}, triple_{false}
-    {
-    }
-    _string_riffle_delimiter(const string_view& str) :
-        dels_{string(), string(str), string()}, triple_{false}
-    {
-    }
-    template<typename X>
-    _string_riffle_delimiter(const X& x) : triple_{true}
-    {
-        static_assert(array_rank_v<X> == 1u && is_string_v<value_type_t<X>>,
-            WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES);
-        if (x.size() != 3u)
-            throw std::logic_error(WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES);
-        x.copy_to(dels_.data());
-    }
-    bool triple() const
-    {
-        return triple_;
-    }
-    const string& left() const
-    {
-        return dels_[0];
-    }
-    const string& separator() const
-    {
-        return dels_[1];
-    }
-    const string& right() const
-    {
-        return dels_[2];
-    }
-    size_t extra_byte_size(size_t num_string) const
-    {
-        size_t size = triple_ ? left().byte_size() + right().byte_size() : 0u;
-        return (num_string < 2u) ? size :
-            size + (num_string - 1u) * separator().byte_size();
-    }
-};
-template<typename X, size_t XR, size_t ND>
-auto _string_riffle_get_byte_size(const X& x,
-    const std::array<size_t, XR>& x_dims,
-    const std::array<_string_riffle_delimiter, ND>& del_array)
-{
-    size_t string_size = 0u;
-    x.for_each([&](const string& s) { string_size += s.byte_size(); });
-    size_t delimiter_size = 0u;
-    for (auto i = int64_t(XR) - 1; i >= 0; --i)
-    {
-        delimiter_size *= x_dims[i];
-        if constexpr (ND == 0u)
-            delimiter_size += (x_dims[i] > 2u) ? x_dims[i] - 1u : 0u;
-        else
-            delimiter_size += del_array[i].extra_byte_size(x_dims[i]);
-    }
-    return string_size + delimiter_size;
-}
-constexpr char newline_delimiter[] = "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
-static_assert(MaximumArrayRank == 16u, WL_ERROR_INTERNAL);
-template<size_t I, size_t XR, size_t ND>
-void _string_riffle_impl(
-    const string*& x_ptr, const std::array<size_t, XR>& x_dims,
-    const std::array<_string_riffle_delimiter, ND>& del_array, string& ret)
-{
-    if constexpr (ND != 0u)
-        if (del_array[I].triple())
-            ret.template join<false>(del_array[I].left());
-    if constexpr (I + 1u == XR)
-    {
-        auto size = x_dims[XR - 1u];
-        if (size > 0u)
-        {
-            ret.join<false>(*x_ptr++);
-            WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
-                for (auto i = _loop_begin; i < _loop_end; ++i, ++x_ptr)
-                {
-                    if constexpr (ND != 0u)
-                        ret.template join<false>(
-                            del_array[XR - 1u].separator());
-                    else
-                        ret.template join<false>(" ");
-                    ret.join<false>(*x_ptr);
-                }
-            WL_CHECK_ABORT_LOOP_END()
-        }
-    }
-    else
-    {
-        const auto size = x_dims[I];
-        if (size > 0u)
-        {
-            _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
-            for (size_t i = 1u; i < size; ++i)
-            {
-                if constexpr (ND != 0u)
-                    ret.template join<false>(del_array[I].separator());
-                else
-                    ret.template append<false>(
-                    (const utf8::char_t*)newline_delimiter, XR - I - 1u);
-                _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
-            }
-        }
-    }
-    if constexpr (ND != 0u)
-        if (del_array[I].triple())
-            ret.template join<false>(del_array[I].right());
-    if (I == 0u)
-        ret.place_null_character();
-}
-template<typename X, typename... Dels>
-auto string_riffle(const X& x, const Dels&... dels)
-{
-    WL_TRY_BEGIN()
-    constexpr auto XR = array_rank_v<X>;
-    constexpr auto num_dels = sizeof...(Dels);
-    static_assert(num_dels == 0u || num_dels == XR,
-        WL_ERROR_STRING_RIFFLE_DELIMITERS);
-    static_assert(XR >= 1u && is_string_v<value_type_t<X>>,
-        WL_ERROR_STRING_RIFFLE_STRINGS);
-    const auto& valx = allows<view_category::Simple>(x);
-    const auto x_dims = valx.dims();
-    auto x_data = valx.data();
-    std::array<_string_riffle_delimiter, num_dels> del_array{dels...};
-    const auto ret_byte_size = _string_riffle_get_byte_size(
-        valx, x_dims, del_array);
-    auto ret = string();
-    ret.set_capacity(ret_byte_size);
-    _string_riffle_impl<0u>(x_data, x_dims, del_array, ret);
-    return ret;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, size_t N>
-auto _to_string_scalar_impl(const X& x, char (&buffer)[N])
-{
-    WL_THROW_IF_ABORT()
-    static_assert(array_rank_v<X> == 0u, WL_ERROR_INTERNAL);
-    if constexpr (is_integral_v<X>)
-    {
-        static_assert(N >= _to_string_impl::integer_buffer_size,
-            WL_ERROR_INTERNAL);
-        return _to_string_impl::integer_to_string(buffer, buffer + N, x);
-    }
-    else if constexpr (is_real_v<X>)
-    {
-        static_assert(N >= _to_string_impl::double_buffer_size,
-            WL_ERROR_INTERNAL);
-        return _to_string_impl::double_to_string(buffer, buffer + N, x);
-    }
-    else if constexpr (is_complex_v<X>)
-    {
-        static_assert(N >= _to_string_impl::complex_buffer_size,
-            WL_ERROR_INTERNAL);
-        return _to_string_impl::complex_to_string(buffer, buffer + N, x);
-    }
-    else if constexpr (is_string_view_v<X>)
-    {
-        return string_view(x.byte_begin(), x.byte_end());
-    }
-    else
-    {
-        static_assert(always_false_v<X>, WL_ERROR_TO_STRING_UNKNOWN);
-    }
-}
-template<size_t I, typename XV, size_t XR, size_t N>
-auto _to_string_array_impl(const XV*& x_ptr,
-    const std::array<size_t, XR>& x_dims, string& ret, char(&buffer)[N])
-{
-    ret.template join<false>("{");
-    if constexpr (I + 1u == XR)
-    {
-        auto size = x_dims[XR - 1u];
-        if (size > 0u)
-        {
-            ret.join<false>(_to_string_scalar_impl(*x_ptr++, buffer));
-            for (size_t i = 1u; i < size; ++i, ++x_ptr)
-            {
-                ret.template join<false>(", ");
-                ret.join<false>(_to_string_scalar_impl(*x_ptr, buffer));
-            }
-        }
-    }
-    else
-    {
-        auto size = x_dims[I];
-        _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
-        for (size_t i = 1u; i < size; ++i)
-        {
-            ret.template join<false>(", ");
-            _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
-        }
-    }
-    ret.template join<false>("}");
-    if (I == 0u)
-        ret.place_null_character();
-}
-template<typename X>
-auto to_string(const X& x)
-{
-    WL_TRY_BEGIN()
-    char buffer[64];
-    if constexpr (array_rank_v<X> == 0u)
-    {
-        return string(_to_string_scalar_impl(x, buffer));
-    }
-    else
-    {
-        auto ret = string();
-        const auto& valx = allows<view_category::Simple>(x);
-        const auto x_dims = valx.dims();
-        auto x_data = valx.data();
-        _to_string_array_impl<0u>(x_data, x_dims, ret, buffer);
-        return ret;
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-}
-namespace wl
-{
-#if defined(WL_USE_MATHLINK)
-template<typename X>
-auto print(const X& x);
-template<typename X>
-auto echo(X&& x);
-#else
-template<typename X>
-auto print(const X& x)
-{
-    std::cout << to_string(x)._ascii_string() << std::endl;
-    return const_null;
-}
-template<typename X>
-auto echo(X&& x)
-{
-    std::cout << to_string(x)._ascii_string() << std::endl;
-    return std::forward<decltype(x)>(x);
-}
-#endif
-template<typename Function>
-auto echo_function(Function f)
-{
-    return [=](auto&& x)
-    {
-        const auto& xref = x;
-        echo(f(x));
-        return std::forward<decltype(x)>(x);
-    };
-}
-inline auto directory()
-{
-    WL_TRY_BEGIN()
-    auto dir = STD_FILESYSTEM::current_path().u8string();
-    return string(dir.c_str(), dir.size());
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<stream_direction Direction>
-struct file_stream
-{
-    static constexpr auto is_input  = (Direction == stream_direction::In);
-    static constexpr auto is_output = (Direction == stream_direction::Out);
-    using stream_t = std::conditional_t<
-        is_input, std::ifstream, std::ofstream>;
-    static constexpr size_t chunk_size = 1048576u;
-    const STD_FILESYSTEM::path path_;
-    mutable stream_t stream_;
-    template<typename String>
-    file_stream(const String& path, bool binary, bool append = false) :
-        path_{(const char*)path.byte_begin(), (const char*)path.byte_end()},
-        stream_{}
-    {
-        int mode = 0;
-        if (binary) mode |= std::ios_base::binary;
-        if (append) mode |= std::ios_base::app;
-        stream_.open(path_, mode);
-        if (stream_.fail())
-            throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
-    }
-    ~file_stream()
-    {
-        close();
-    }
-    file_stream(const file_stream&) = delete;
-    file_stream(file_stream&&) = default;
-    file_stream& operator=(const file_stream&) = delete;
-    file_stream& operator=(file_stream&&) = default;
-    void close()
-    {
-        if (!stream_.is_open())
-            throw std::logic_error(WL_ERROR_STREAM_ALREADY_CLOSED);
-        stream_.close();
-    }
-    string path() const
-    {
-        if (stream_.is_open())
-            return path_;
-        else
-            return string();
-    }
-    template<typename Pos>
-    void seek(const Pos& pos)
-    {
-        static_assert(is_integral_v<Pos>, WL_ERROR_INTERNAL);
-        static_assert(is_input, WL_ERROR_STREAM_SEEK_ON_OUTPUT);
-        stream_.clear();
-        if (pos >= Pos(0))
-            stream_.seekg(pos, std::ios_base::beg);
-        else
-            stream_.seekg(int64_t(pos), std::ios_base::end);
-        stream_.peek();
-        if (!stream_.good())
-            throw std::logic_error(WL_ERROR_STREAM_SEEK_FAILED);
-    }
-    auto tell() const
-    {
-        if constexpr (is_input)
-            return stream_.tellg() - std::streampos(0);
-        else
-            return stream_.tellp() - std::streampos(0);
-    }
-    auto read_string()
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        if (eof())
-            return string();
-        const auto cur_pos = stream_.tellg();
-        const auto end_pos = stream_.seekg(0, std::ios_base::end).tellg();
-        stream_.seekg(cur_pos);
-        auto ret_size = end_pos - cur_pos;
-        auto ret = string(ret_size);
-        auto ret_data = (char*)ret.byte_begin();
-        for (;;)
-        {
-            WL_THROW_IF_ABORT()
-            if (ret_size <= chunk_size)
-            {
-                stream_.read(ret_data, ret_size);
-                break;
-            }
-            else
-            {
-                stream_.read(ret_data, chunk_size);
-                ret_size -= chunk_size;
-                ret_data += chunk_size;
-            }
-        }
-        if (!ret.check_validity())
-            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
-        stream_.test_eof();
-        return ret;
-    }
-    template<size_t N, size_t... Is>
-    static bool _match_any_delimiter_impl(char ch, const char(&delim)[N],
-        std::index_sequence<Is...>)
-    {
-        return ((ch == delim[Is]) || ...);
-    }
-    template<size_t N>
-    static bool match_any_delimiter(char ch, const char(&delim)[N])
-    {
-        if constexpr (N <= 1u)
-            return false;
-        else
-            return _match_any_delimiter_impl(ch, delim,
-                std::make_index_sequence<N - 1u>{});
-    }
-    template<typename CharT, size_t N>
-    size_t get_until(CharT* str, size_t max_count, const char (&delim)[N])
-    {
-        using traits = std::char_traits<char>;
-        using sentry_t = typename decltype(stream_)::sentry;
-        const sentry_t sentry(stream_, true);
-        if (!sentry || max_count == 0u)
-            return 0u;
-        size_t count = 0u;
-        auto* rdbuf = stream_.rdbuf();
-        for (auto meta = rdbuf->sgetc();; meta = rdbuf->snextc())
-        {
-            const auto meta_char = traits::to_char_type(meta);
-            if (traits::eq_int_type(traits::eof(), meta))
-            {
-                stream_.setstate(std::ios_base::eofbit);
-                break;
-            }
-            else if (match_any_delimiter(meta_char, delim))
-            {
-                rdbuf->sbumpc();
-                break;
-            }
-            else if (count >= max_count)
-            {
-                return max_count + 1;
-            }
-            else
-            {
-                ++count;
-                *str++ = CharT(meta_char);
-            }
-        }
-        *str = '\0';
-        return count;
-    }
-    template<size_t N>
-    auto read_line(const char (&delim)[N])
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        if (eof())
-            return string();
-        auto ret = string(size_t(0));
-        for (;;)
-        {
-            const auto ret_capacity = ret.capacity();
-            const auto max_count = ret_capacity - ret.byte_size();
-            const auto count = get_until(ret.byte_end(), max_count, delim);
-            if (count > max_count)
-            { // buffer is too small
-                ret.uninitialized_resize(ret.byte_size() + max_count);
-                ret.set_capacity(2 * ret_capacity);
-            }
-            else
-            {
-                ret.uninitialized_resize(ret.byte_size() + count);
-                break;
-            }
-        }
-        if (!ret.check_validity())
-            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
-        return ret;
-    }
-    auto read_line()
-    {
-        return read_line("\n");
-    }
-    auto read_character()
-    {
-        stream.clear();
-        auto ch = stream_.get();
-        if (!stream_.good())
-            throw std::logic_error(WL_ERROR_STREAM_SEEK_FAILED);
-        return char(ch);
-    }
-    bool eof() const
-    {
-        return stream_.eof();
-    }
-    bool fail() const
-    {
-        return stream_.fail();
-    }
-    bool test_eof() const
-    {
-        stream_.clear();
-        stream_.peek();
-        return stream_.eof();
-    }
-};
-template<bool Binary = false, typename String>
-auto open_read(const String& path)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    return input_file_stream(path, Binary);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<bool Binary = false, typename String>
-auto open_write(const String& path)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    return output_file_stream(path, Binary);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<bool Binary = false, typename String>
-auto open_append(const String& path)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    return output_file_stream(path, Binary, true);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Stream>
-auto close(const Stream& stream)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
-    const auto path = stream.path();
-    stream.close();
-    return path;
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<bool Binary = false, typename Any>
-auto _as_input_file_stream(Any& any) -> std::conditional_t<
-    is_file_stream_v<remove_cvref_t<Any>>, Any&, input_file_stream>
-{
-    if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
-        return any;
-    else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
-        return open_read(any);
-    else
-        static_assert(always_false_v<Any>, WL_ERROR_FILE_STREAM_OR_PATH_ONLY);
-}
-template<bool Binary = false, typename Any>
-auto _as_output_file_stream(Any& any) -> std::conditional_t<
-    is_file_stream_v<remove_cvref_t<Any>>, Any&, output_file_stream>
-{
-    if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
-        return any;
-    else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
-        return open_write(any);
-    else
-        static_assert(always_false_v<Any>, WL_ERROR_FILE_STREAM_OR_PATH_ONLY);
-}
-template<typename Stream>
-auto stream_position(const Stream& stream)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
-    return int64_t(stream.tell());
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Stream, typename Pos>
-auto stream_position(Stream& stream, const Pos& pos)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
-    static_assert(is_integral_v<Pos>, WL_ERROR_STREAM_POSITION_INTEGRAL);
-    stream.seek(pos);
-    return stream_position();
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Any>
-auto read_string(Any& any)
-{
-    WL_TRY_BEGIN()
-    auto& stream = _as_input_file_stream(any);
-    return stream.read_string();
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Any>
-auto read_line(Any& any)
-{
-    WL_TRY_BEGIN()
-    auto& stream = _as_input_file_stream(any);
-    return stream.read_line();
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<size_t N, typename Val>
-bool _read_impl(input_file_stream& stream, const char (&delim)[N], Val& val)
-{
-    while (!stream.eof())
-    {
-        auto str = stream.read_line(delim);
-        if (str.byte_size() > 0)
-        {
-            if constexpr (std::is_same_v<Val, double>)
-                return (std::sscanf(str.c_str(), "%lf", &val) > 0);
-            else if constexpr (std::is_same_v<Val, int64_t>)
-                return (std::sscanf(str.c_str(), "%dll", &val) > 0);
-            else
-                static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
-        }
-    }
-    return false;
-}
-template<typename Any, typename ReadType>
-auto read(Any& any, ReadType)
-{
-    WL_TRY_BEGIN()
-    auto& stream = _as_input_file_stream(any);
-    if constexpr (std::is_same_v<ReadType, byte_type>)
-    {
-        return int64_t(stream.read_character());
-    }
-    else if constexpr (std::is_same_v<ReadType, character_type>)
-    {
-        char ch = stream.read_character();
-        if (!utf8::is_ascii(ch))
-            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
-        return string(&ch, 1u);
-    }
-    else if constexpr (std::is_same_v<ReadType, word_type>)
-    {
-        while (!stream.eof())
-        {
-            auto str = stream.read_line(" \t");
-            if (str.byte_size() > 0)
-                return str;
-        }
-        return string();
-    }
-    else if constexpr (std::is_same_v<ReadType, string_type>)
-    {
-        while (!stream.eof())
-        {
-            auto str = stream.read_line("\n\r");
-            if (str.byte_size() > 0)
-                return str;
-        }
-        return string();
-    }
-    else if constexpr (std::is_same_v<ReadType, real_type>)
-    {
-        double ret;
-        if (!_read_impl(stream, " \t,", ret))
-            throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
-        return ret;
-    }
-    else if constexpr (std::is_same_v<ReadType, integer_type>)
-    {
-        int64_t ret;
-        if (!_read_impl(stream, " \t,", ret))
-            throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
-        return ret;
-    }
-    else
-    {
-        static_assert(always_false_v<ReadType>, WL_ERROR_UNKNOWN_READ_TYPE);
-    }
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-}
-namespace wl
-{
-struct random_engine
-{
-    using _base_engine_t = WL_BASE_RANDOM_ENGINE;
-    static_assert(uint64_t(_base_engine_t::max()) -
-        uint64_t(_base_engine_t::min()) == uint64_t(-1),
-        "64-bit random engine is required.");
-    static constexpr size_t bits_width = 64u;
-    using result_type = uint64_t;
-    _base_engine_t base_engine_{};
-    uint64_t active_bits_{};
-    uint64_t reserved_bits_{};
-    size_t n_bits_active_{};
-    random_engine()
-    {
-        update_all_bits();
-    }
-    static constexpr auto max()
-    {
-        return _base_engine_t::max();
-    }
-    static constexpr auto min()
-    {
-        return _base_engine_t::min();
-    }
-    WL_INLINE auto base_engine_get_bits()
-    {
-        return uint64_t(base_engine_());
-    }
-    auto get_bits(size_t n)
-    {
-        if (n >= 64u)
-            return base_engine_get_bits();
-        else if (n > 32u)
-            return base_engine_get_bits() >> (64u - n);
-        uint64_t ret = active_bits_ >> (bits_width - n);
-        if (n <= n_bits_active_)
-        {
-            active_bits_ <<= n;
-            n_bits_active_ -= n;
-        }
-        else
-        {
-            size_t n_bits_short = n - n_bits_active_;
-            ret |= reserved_bits_ >> (bits_width - n_bits_short);
-            active_bits_ = reserved_bits_ << n_bits_short;
-            n_bits_active_ = (bits_width - n_bits_short);
-            reserved_bits_ = base_engine_get_bits();
-        }
-        return ret;
-    }
-    void update_all_bits()
-    {
-        active_bits_ = base_engine_get_bits();
-        reserved_bits_ = base_engine_get_bits();
-        n_bits_active_ = bits_width;
-    }
-    template<typename Any>
-    void seed(Any&& any)
-    {
-        base_engine_.seed(std::forward<decltype(any)>(any));
-        update_all_bits();
-    }
-    WL_INLINE auto operator()()
-    {
-        return base_engine_get_bits();
-    }
-};
-extern random_engine global_random_engine;
-namespace distribution
-{
-template<typename T>
-void adjust_bounds(T& min, T& max)
-{
-    if (min > max)
-        std::swap(min, max);
-}
-template<typename T>
-void adjust_bounds(complex<T>& min, complex<T>& max)
-{
-    auto min_real = min.real();
-    auto min_imag = min.imag();
-    auto max_real = max.real();
-    auto max_imag = max.imag();
-    adjust_bounds(min_real, max_real);
-    adjust_bounds(min_imag, max_imag);
-    min = complex<T>(min_real, min_imag);
-    max = complex<T>(max_real, max_imag);
-}
-template<typename T, bool Multiple = false>
-struct uniform
-{
-    static_assert(is_real_v<T>, WL_ERROR_INTERNAL);
-    using value_type = T;
-    static constexpr size_t rank = 0;
-    T min_;
-    T max_;
-    uint64_t range_{};
-    size_t n_bits_{};
-    uniform(T a, T b) : min_{a}, max_{b}
-    {
-        adjust_bounds(min_, max_);
-        if constexpr (is_integral_v<T> && Multiple)
-        {
-            const auto diff = uint64_t(max_) - uint64_t(min_);
-            n_bits_ = size_t(64u - utils::lzcnt_u64(diff));
-            range_ = diff + 1u; // could be zero
-        }
-    }
-    T generate_int()
-    {
-        if (range_ == 0u)
-            return T(global_random_engine());
-        if constexpr (Multiple)
-        {
-            for (;;)
-            {
-                uint64_t rand = global_random_engine.get_bits(n_bits_);
-                if (rand <= uint64_t(range_ - 1u))
-                    return T(rand + std::make_unsigned_t<T>(min_));
-            }
-        }
-        else
-        {
-            for (;;)
-            {
-                uint64_t rand = global_random_engine();
-                uint64_t mask = uint64_t(-1);
-                if (rand / range_ < mask / range_ ||
-                    mask % range_ == (range_ - 1u)) {
-                    return T((rand % range_) + std::make_unsigned_t<T>(min_));
-                }
-            }
-        }
-    }
-    void generate(T* res)
-    {
-        if constexpr (is_integral_v<T>)
-            *res = generate_int();
-        else
-            *res = std::uniform_real_distribution<T>(
-                min_, max_)(global_random_engine);
-    }
-};
-template<typename T, bool Multiple>
-struct uniform<complex<T>, Multiple>
-{
-    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
-    using value_type = complex<T>;
-    static constexpr size_t rank = 0;
-    complex<T> min_;
-    complex<T> max_;
-    uniform(const complex<T>& a, const complex<T>& b) : min_{a}, max_{b}
-    {
-        adjust_bounds(min_, max_);
-    }
-    void generate(complex<T>* res)
-    {
-        using dist_type = std::uniform_real_distribution<T>;
-        auto re_dist = dist_type(min_.real(), max_.real());
-        auto im_dist = dist_type(min_.imag(), max_.imag());
-        *res = complex<T>(re_dist(global_random_engine),
-            im_dist(global_random_engine));
-    }
-};
-template<typename T>
-struct multi_uniform
-{
-    static_assert(is_arithmetic_v<T>, WL_ERROR_INTERNAL);
-    using value_type = T;
-    static constexpr size_t rank = 1;
-    ndarray<T, 2u> bounds_;
-    multi_uniform(const ndarray<T, 2u>& bounds) : bounds_(bounds)
-    {
-        _initialize();
-    }
-    multi_uniform(ndarray<T, 2u>&& bounds) : bounds_(std::move(bounds))
-    {
-        _initialize();
-    }
-    void _initialize()
-    {
-        if (!(bounds_.dims()[0] >= 1u && bounds_.dims()[1] == 2u))
-            throw std::logic_error(WL_ERROR_INTERNAL);
-        const auto length = bounds_.dims()[0];
-        auto iter = bounds_.data();
-        for (size_t i = 0; i < length; ++i, iter += 2)
-            adjust_bounds(iter[0], iter[1]);
-    }
-    size_t length() const
-    {
-        return bounds_.dims()[0];
-    }
-    void _single_generate(T* res, T* bounds)
-    {
-        if constexpr (is_complex_v<T>)
-        {
-            using dist_type = std::uniform_real_distribution<T>;
-            auto re_dist = dist_type(bounds[0].real(), bounds[1].real());
-            auto im_dist = dist_type(bounds[0].imag(), bounds[1].imag());
-            res->real() = re_dist(global_random_engine);
-            res->imag() = im_dist(global_random_engine);
-        }
-        else
-        {
-            using dist_type = std::conditional_t<is_integral_v<T>,
-                std::uniform_int_distribution<T>,
-                std::uniform_real_distribution<T>>;
-            auto dist = dist_type(bounds[0], bounds[1]);
-            *res = dist(global_random_engine);
-        }
-    }
-    void generate(T* res)
-    {
-        const auto length = this->length();
-        auto bounds_ptr = bounds_.data();
-        for (size_t i = 0; i < length; ++i, ++res, bounds_ptr += 2)
-            _single_generate(res, bounds_ptr);
-    }
-};
-template<typename T>
-struct default_multi_uniform
-{
-    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
-    using value_type = T;
-    static constexpr size_t rank = 1;
-    size_t length_;
-    default_multi_uniform(size_t length) : length_{length}
-    {
-        if (!(length >= 1u))
-            throw std::logic_error(WL_ERROR_INTERNAL);
-    }
-    size_t length() const
-    {
-        return length_;
-    }
-    void generate(T* res)
-    {
-        for (size_t i = 0; i < length_; ++i, ++res)
-        {
-            auto dist = std::uniform_real_distribution<T>();
-            *res = dist(global_random_engine);
-        }
-    }
-};
-template<typename RT, template<typename> typename Dist, typename... Params>
-struct scalar_distribution
-{
-    using value_type = RT;
-    static constexpr size_t rank = 0;
-    Dist<RT> dist_;
-    scalar_distribution(const Params&... params) : dist_(params...)
-    {
-    }
-    void generate(RT* res)
-    {
-        *res = dist_(global_random_engine);
-    }
-};
-#define WL_DEFINE_DISTRIBUTION_TYPE(name, stdname)          \
-template<typename ReturnType, typename... Params>           \
-using name = scalar_distribution<                           \
-    ReturnType, std::stdname##_distribution, Params...>;
-WL_DEFINE_DISTRIBUTION_TYPE(log_normal, lognormal)
-WL_DEFINE_DISTRIBUTION_TYPE(normal, normal)
-WL_DEFINE_DISTRIBUTION_TYPE(chi_square, chi_squared)
-WL_DEFINE_DISTRIBUTION_TYPE(cauchy, cauchy)
-WL_DEFINE_DISTRIBUTION_TYPE(student_t_nu, student_t)
-WL_DEFINE_DISTRIBUTION_TYPE(f_ratio, fisher_f)
-WL_DEFINE_DISTRIBUTION_TYPE(exponential, exponential)
-WL_DEFINE_DISTRIBUTION_TYPE(poisson, poisson)
-WL_DEFINE_DISTRIBUTION_TYPE(gamma, gamma)
-WL_DEFINE_DISTRIBUTION_TYPE(weibull, weibull)
-WL_DEFINE_DISTRIBUTION_TYPE(extreme_value, extreme_value)
-WL_DEFINE_DISTRIBUTION_TYPE(geometric, geometric)
-WL_DEFINE_DISTRIBUTION_TYPE(binomial, binomial)
-WL_DEFINE_DISTRIBUTION_TYPE(negative_binomial, negative_binomial)
-template<typename RT, typename Mu, typename Sigma, typename Nu>
-struct student_t
-{
-    using value_type = RT;
-    static constexpr size_t rank = 0;
-    RT mu_;
-    RT sigma_;
-    std::student_t_distribution<RT> dist_;
-    student_t(const Mu& mu, const Sigma& sigma, const Nu& nu) :
-        mu_{RT(mu)}, sigma_{RT(sigma)}, dist_(nu)
-    {
-    }
-    void generate(RT* res)
-    {
-        *res = dist_(global_random_engine) * sigma_ + mu_;
-    }
-};
-template<typename RT, typename P>
-struct bernoulli
-{
-    using value_type = RT;
-    static constexpr size_t rank = 0;
-    double p_;
-    bernoulli(const P& p) : p_{double(p)}
-    {
-    }
-    void generate(RT* res)
-    {
-        double rand = std::uniform_real_distribution<>()(global_random_engine);
-        *res = RT(rand < double(p_));
-    }
-};
-}
-inline auto uniform_distribution()
-{
-    return distribution::uniform<double>(0., 1.);
-}
-template<typename X>
-auto uniform_distribution(const X& x)
-{
-    constexpr auto XR = array_rank_v<X>;
-    static_assert(XR <= 2u, WL_ERROR_UNIFORM_BOUNDS_SPEC);
-    
-    if constexpr (XR == 0u)
-    {
-        static_assert(is_integral_v<X>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
-        if (x <= X(0))
-            throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
-        return distribution::default_multi_uniform<double>(x);
-    }
-    else
-    {
-        using XV = value_type_t<X>;
-        static_assert(is_arithmetic_v<XV>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
-        using RV = promote_integral_t<XV>;
-        if constexpr (XR == 1u)
-        {
-            if (x.dims()[0] != 2u)
-                throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
-            std::array<RV, 2u> bounds;
-            x.copy_to(bounds.data());
-            return distribution::uniform<RV>(bounds[0], bounds[1]);
-        }
-        else // XR == 2u
-        {
-            static_assert(is_arithmetic_v<XV>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
-            if (!(x.dims()[0] >= 1u && x.dims()[1] == 2u))
-                throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
-            auto bounds = cast<ndarray<RV, 2u>>(x);
-            return distribution::multi_uniform<RV>(bounds);
-        }
-    }
-}
-template<typename Nu>
-auto chi_square_distribution(const Nu& nu)
-{
-    static_assert(is_real_v<Nu>, WL_ERROR_REAL_TYPE_ARG);
-    if (!(nu > Nu(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::chi_square<promote_integral_t<Nu>, Nu>(nu);
-}
-template<typename Mean, typename Dev>
-auto normal_distribution(const Mean& mean, const Dev& dev)
-{
-    static_assert(all_is_real_v<Mean, Dev>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<Mean, Dev>>;
-    if (!(dev > Dev(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::normal<P, Mean, Dev>(mean, dev);
-}
-inline auto normal_distribution()
-{
-    return normal_distribution(0., 1.);
-}
-template<typename Mean, typename Dev>
-auto log_normal_distribution(const Mean& mean, const Dev& dev)
-{
-    static_assert(all_is_real_v<Mean, Dev>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<Mean, Dev>>;
-    if (!(dev > Dev(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::log_normal<P, Mean, Dev>(mean, dev);
-}
-template<typename A, typename B>
-auto cauchy_distribution(const A& a, const B& b)
-{
-    static_assert(all_is_real_v<A, B>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<A, B>>;
-    if (!(b > B(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::cauchy<P, A, B>(a, b);
-}
-inline auto cauchy_distribution()
-{
-    return cauchy_distribution(0., 1.);
-}
-template<typename Mean, typename Scale, typename Nu>
-auto student_t_distribution(const Mean& mean, const Scale& scale, const Nu& nu)
-{
-    static_assert(all_is_real_v<Mean, Scale, Nu>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<Mean, Scale, Nu>>;
-    if (!(scale > Scale(0) && nu > Nu(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::student_t<P, Mean, Scale, Nu>(mean, scale, nu);
-}
-template<typename Nu>
-auto student_t_distribution(const Nu& nu)
-{
-    static_assert(is_real_v<Nu>, WL_ERROR_REAL_TYPE_ARG);
-    if (!(nu > Nu(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::student_t_nu<promote_integral_t<Nu>, Nu>(nu);
-}
-template<typename N, typename M>
-auto f_ratio_distribution(const N& n, const M& m)
-{
-    static_assert(all_is_real_v<N, M>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<N, M>>;
-    if (!(n > N(0) && m > M(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::f_ratio<P, N, M>(n, m);
-}
-template<typename Mean>
-auto poisson_distribution(const Mean& mean)
-{
-    static_assert(is_real_v<Mean>, WL_ERROR_REAL_TYPE_ARG);
-    if (!(mean > Mean(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::poisson<int64_t, Mean>(mean);
-}
-template<typename Lambda>
-auto exponential_distribution(const Lambda& lambda)
-{
-    static_assert(is_real_v<Lambda>, WL_ERROR_REAL_TYPE_ARG);
-    if (!(lambda > Lambda(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::exponential<
-        promote_integral_t<Lambda>, Lambda>(lambda);
-}
-template<typename Ret = int64_t, typename P>
-auto bernoulli_distribution(const P& p)
-{
-    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
-    static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
-    if (!(P(0) <= p && p <= P(1)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::bernoulli<Ret, P>(p);
-}
-template<typename Alpha, typename Beta>
-auto gamma_distribution(const Alpha& alpha, const Beta& beta)
-{
-    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
-    if (!(alpha > Alpha(0) && beta > Beta(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::gamma<P, Alpha, Beta>(alpha, beta);
-}
-template<typename Alpha, typename Beta>
-auto weibull_distribution(const Alpha& alpha, const Beta& beta)
-{
-    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
-    if (!(alpha > Alpha(0) && beta > Beta(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::weibull<P, Alpha, Beta>(alpha, beta);
-}
-template<typename Alpha, typename Beta>
-auto extreme_value_distribution(const Alpha& alpha, const Beta& beta)
-{
-    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
-    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
-    if (!(beta > Beta(0)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::extreme_value<P, Alpha, Beta>(alpha, beta);
-}
-inline auto extreme_value_distribution()
-{
-    return extreme_value_distribution(0., 1.);
-}
-template<typename P>
-auto geometric_distribution(const P& p)
-{
-    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
-    if (!(P(0) < p && p < P(1)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::geometric<int64_t, P>(p);
-}
-template<typename N, typename P>
-auto binomial_distribution(const N& n, const P& p)
-{
-    static_assert(is_integral_v<N>, WL_ERROR_INTEGRAL_TYPE_ARG);
-    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
-    if (!(n >= N(0) && P(0) <= p && p <= P(1)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::binomial<N, N, P>(n, p);
-}
-template<typename N, typename P>
-auto negative_binomial_distribution(const N& n, const P& p)
-{
-    static_assert(is_integral_v<N>, WL_ERROR_INTEGRAL_TYPE_ARG);
-    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
-    if (!(n > N(0) && P(0) < p && p <= P(1)))
-        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
-    return distribution::negative_binomial<N, N, P>(n, p);
-}
-template<typename Dist, typename... Dims>
-auto _random_variate_impl(Dist dist, const Dims&... dims)
-{
-    using T = typename Dist::value_type;
-    constexpr size_t R1 = Dist::rank;
-    constexpr size_t R2 = sizeof...(dims);
-    static_assert(R1 <= 1u, WL_ERROR_INTERNAL);
-    if constexpr (R2 == 0u)
-    {
-        if constexpr (R1 == 0u)
-        {
-            T ret;
-            dist.generate(&ret);
-            return ret;
-        }
-        else
-        {
-            ndarray<T, 1u> ret(std::array<size_t, 1u>{dist.length()});
-            dist.generate(ret.data());
-            return ret;
-        }
-    }
-    else
-    {
-        if constexpr (R1 == 0u)
-        {
-            wl::ndarray<T, R2> ret(utils::get_dims_array(dims...));
-            auto iter = ret.data();
-            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
-                for (auto i = _loop_zero; i < _loop_size; ++i, ++iter)
-                    dist.generate(iter);
-            WL_CHECK_ABORT_LOOP_END()
-            return ret;
-        }
-        else
-        {
-            const auto length = dist.length();
-            wl::ndarray<T, R2 + 1u> ret(
-                utils::get_dims_array(dims..., length));
-            const auto outer_size = utils::size_of_dims<R2>(ret.dims().data());
-            auto iter = ret.data();
-            WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
-                for (auto i = _loop_zero; i < _loop_size; ++i, iter += length)
-                    dist.generate(iter);
-            WL_CHECK_ABORT_LOOP_END()
-            return ret;
-        }
-    }
-}
-template<typename Dist, typename... Dims>
-auto random_variate(Dist dist, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    return _random_variate_impl(dist, dims...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Min, typename Max, typename... Dims>
-auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(all_is_integral_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
-    using T = common_type_t<Min, Max>;
-    auto dist = distribution::uniform<T, true>(T(min), T(max));
-    return _random_variate_impl(dist, dims...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Max, typename... Dims>
-auto random_integer(const Max& max, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_integral_v<Max>, WL_ERROR_RANDOM_BOUNDS);
-    return random_integer(Max{}, max, varg_tag{}, dims...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Min, typename Max, typename... Dims>
-auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(all_is_real_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
-    using P = promote_integral_t<common_type_t<Min, Max>>;
-    auto dist = distribution::uniform<P>(min, max);
-    return _random_variate_impl(dist, dims...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Max, typename... Dims>
-auto random_real(const Max& max, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
-    return random_real(Max{}, max, varg_tag{}, dims...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Min, typename Max, typename... Dims>
-auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>,
-        WL_ERROR_RANDOM_BOUNDS);
-    using C = common_type_t<value_type_t<Min>, value_type_t<Max>>;
-    using T = std::conditional_t<std::is_same_v<C, float>,
-        complex<float>, complex<double>>;
-    auto dist = distribution::uniform<T>(cast<T>(min), cast<T>(max));
-    return _random_variate_impl(dist, dims...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Max, typename... Dims>
-auto random_complex(const Max& max, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_arithmetic_v<Max>, WL_ERROR_RANDOM_BOUNDS);
-    return random_complex(Max{}, max, varg_tag{}, dims...);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename Random, typename X, size_t OuterRank>
-auto _random_choice_batch_impl(Random&& random, const X& x,
-    const std::array<size_t, OuterRank>& outer_dims)
-{
-    constexpr auto XR = array_rank_v<X>;
-    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    using XV = value_type_t<X>;
-    const auto& valx = allows<view_category::Regular>(x);
-    const auto x_iter = valx.begin();
-    const auto outer_size = utils::size_of_dims(outer_dims);
-    if constexpr (XR == 1u)
-    {
-        ndarray<XV, OuterRank> ret(outer_dims);
-        auto ret_iter = ret.data();
-        for (size_t i = 0; i < outer_size; ++i, ++ret_iter)
-            *ret_iter = *(x_iter + random());
-        return ret;
-    }
-    else
-    {
-        auto item_dims = utils::dims_take<2u, XR>(x.dims());
-        auto item_size = utils::size_of_dims(item_dims);
-        ndarray<XV, OuterRank + XR - 1u> ret(
-            utils::dims_join(outer_dims, item_dims));
-        auto base_iter = ret.data();
-        for (size_t i = 0u; i < outer_size; ++i, base_iter += item_size)
-            utils::restrict_copy_n(
-                x_iter + item_size * random(),
-                item_size, base_iter);
-        return ret;
-    }
-}
-template<typename Random, typename X>
-auto _random_choice_single_impl(const Random& random, const X& x)
-{
-    constexpr auto XR = array_rank_v<X>;
-    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    using XV = value_type_t<X>;
-    const auto& valx = allows<view_category::Regular>(x);
-    const auto x_iter = valx.begin();
-    if constexpr (XR == 1u)
-    {
-        return *(x_iter + random());
-    }
-    else
-    {
-        auto item_dims = utils::dims_take<2u, XR>(x.dims());
-        auto item_size = utils::size_of_dims(item_dims);
-        ndarray<XV, XR - 1u> ret(item_dims);
-        utils::restrict_copy_n(
-            x_iter + item_size * random(), item_size, ret.data());
-        return ret;
-    }
-}
-inline auto _random_choice_prepare_uniform(const size_t x_length)
-{
-    if (!(x_length >= 1u))
-        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
-    return [max = size_t(x_length - 1u)]
-    {
-        auto dist = std::uniform_int_distribution<size_t>(0u, max);
-        return dist(global_random_engine);
-    };
-}
-template<typename W>
-auto _random_choice_prepare_binary(const W& w, const size_t x_length)
-{
-    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
-        WL_ERROR_RANDOM_WEIGHTS_TYPE);
-    if (!(x_length == w.dims()[0] && x_length >= 1u))
-        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
-    const auto& valw = allows<view_category::Regular>(w);
-    const auto w_size = valw.size();
-    auto ret = ndarray<double, 1u>(valw.dims());
-    auto w_iter = valw.begin();
-    auto ret_iter = ret.data();
-    double accumulate = 0.0;
-    WL_IGNORE_DEPENDENCIES
-    for (size_t i = 0; i < w_size; ++i, ++w_iter, ++ret_iter)
-    {
-        const auto weight = double(*w_iter);
-        if (weight < 0.)
-            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
-        accumulate += weight;
-        *ret_iter = accumulate;
-    }
-    return [weights = std::move(ret), sum = accumulate]
-    {
-        auto w_begin = weights.begin();
-        auto w_end = weights.end();
-        auto dist = std::uniform_real_distribution<>(0., sum);
-        return size_t(std::lower_bound(
-            w_begin, w_end, dist(global_random_engine)) - w_begin);
-    };
-}
-template<typename W>
-auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
-{
-    // Walker, A.J. (1974), Electronics Letters, 10(8), 127
-    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
-        WL_ERROR_RANDOM_WEIGHTS_TYPE);
-    if (!(x_length == w.dims()[0] && x_length >= 1u))
-        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
-    const size_t n = x_length;
-    std::vector<double> p(n);
-    w.copy_to(p.data());
-    struct alias_t { double prob; uint64_t index; };
-    std::vector<alias_t> alias_vec(n);
-    auto small_base = new alias_t[n];
-    auto large_base = new alias_t[n];
-    auto* alias = alias_vec.data();
-    auto* small = small_base;
-    auto* large = large_base;
-    auto push = [](auto*& ptr, alias_t elem) { *(ptr++) = elem; };
-    auto pop = [](auto*& ptr) { return *(--ptr); };
-    double normalize = 0.0;
-    for (const auto& prob : p)
-    {
-        if (prob < 0.)
-            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
-        normalize += prob;
-    }
-    const double factor = double(x_length) / normalize;
-    for (uint64_t i = 0; i < n; ++i)
-    {
-        const double prob = p[i] * factor;
-        push(prob <= 1. ? small : large, alias_t{prob, i});
-    }
-    while (small > small_base && large > large_base)
-    {
-        auto l = pop(small);
-        auto g = pop(large);
-        alias[l.index].prob = l.prob;
-        alias[l.index].index = g.index;
-        g.prob += l.prob - 1.;
-        push(g.prob <= 1. ? small : large, g);
-    }
-    while (large > large_base)
-    {
-        alias[pop(large).index].prob = 1.;
-    }
-    while (small > small_base)
-    {
-        alias[pop(small).index].prob = 1.;
-    }
-    delete[] small_base;
-    delete[] large_base;
-    return[alias_vec = std::move(alias_vec), max = double(n)]
-    {
-        auto dist = std::uniform_real_distribution<>(0.0, max);
-        double rand = dist(global_random_engine);
-        double index = std::floor(rand);
-        const auto& a = alias_vec[size_t(index)];
-        return (rand - index <= a.prob) ? size_t(index) : a.index;
-    };
-}
-template<typename X>
-auto random_choice(const X& x)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    return _random_choice_single_impl(
-        _random_choice_prepare_uniform(x.dims()[0]), x);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename... Dims>
-auto random_choice(const X& x, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    return _random_choice_batch_impl(
-        _random_choice_prepare_uniform(x.dims()[0]),
-        x, utils::get_dims_array(dims...));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename W, typename X>
-auto random_choice(const W& w, const X& x, varg_tag)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    return _random_choice_single_impl(
-        _random_choice_prepare_binary(w, x.dims()[0]), x);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename W, typename X, typename... Dims>
-auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto x_length = x.dims()[0];
-    const auto outer_dims = utils::get_dims_array(dims...);
-    const auto outer_size = utils::size_of_dims(outer_dims);
-    // automatically select between binary and walker74
-    if ((outer_size >= 50u) && (outer_size * 5u >= x_length))
-        return _random_choice_batch_impl(
-            _random_choice_prepare_walker74(w, x_length), x, outer_dims);
-    else
-        return _random_choice_batch_impl(
-            _random_choice_prepare_binary(w, x_length), x, outer_dims);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-inline auto _random_sample_prepare_uniform(const size_t x_length)
-{
-    if (!(x_length >= 1u))
-        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
-    ndarray<size_t, 1u> idx_vec(std::array<size_t, 1u>{x_length});
-    auto* const idx = idx_vec.data();
-    for (size_t i = 0; i < x_length; ++i)
-        idx[i] = i;
-    return [idx_vec = std::move(idx_vec), remain = x_length]() mutable
-    {
-        if (remain == 0u)
-            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
-        else if (remain == 1u)
-            return idx_vec.data()[0];
-        auto* const idx = idx_vec.data();
-        const auto this_idx = std::uniform_int_distribution<size_t>(
-            0u, remain - 1u)(global_random_engine);
-        const auto picked_idx = idx[this_idx];
-        if (this_idx + 1u < remain) // did not pick the last element
-            idx[this_idx] = idx[remain - 1u];
-        --remain;
-        return picked_idx;
-    };
-}
-inline auto _random_sample_prepare_short_uniform(const size_t x_length)
-{
-    if (!(x_length >= 1u))
-        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
-    return [idx_vec = ndarray<size_t, 1u>{}, x_length]() mutable
-    {
-        const auto n_taken = idx_vec.size();
-        auto* const idx_begin = idx_vec.data();
-        auto* const idx_end = idx_begin + n_taken;
-        if (x_length == n_taken)
-            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
-        if (n_taken >= 2u)
-        { // move the last element to its place
-            auto* ins = std::lower_bound(
-                idx_begin, idx_end - 1, idx_end[-1]);
-            std::rotate(ins, idx_end - 1, idx_end);
-        }
-        auto this_idx = std::uniform_int_distribution<size_t>(
-            0u, x_length - n_taken - 1u)(global_random_engine);
-        idx_vec.for_each([&](const auto& taken)
-            {
-                if (this_idx >= taken)
-                    ++this_idx;
-            });
-        idx_vec.append(size_t(this_idx));
-        return this_idx;
-    };
-}
-template<typename W>
-auto _random_sample_prepare_binary(const W& w, const size_t x_length)
-{
-    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
-        WL_ERROR_RANDOM_WEIGHTS_TYPE);
-    if (!(x_length == w.dims()[0] && x_length >= 1u))
-        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
-    const size_t n = x_length;
-    if (n <= 3u)
-        throw std::logic_error(WL_ERROR_INTERNAL);
-    ndarray<double, 1u> probs_vec(std::array<size_t, 1>{n});
-    ndarray<uint64_t, 1u> uint_probs_vec(std::array<size_t, 1>{n});
-    auto* const probs = probs_vec.data();
-    auto* const uint_probs = uint_probs_vec.data();
-    w.copy_to(probs);
-    double sum_prob = 0.0;
-    for (const auto& prob : probs_vec)
-    {
-        if (prob < 0.)
-            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
-        sum_prob += prob;
-    }
-    constexpr double target_sum_prob = 1.0e+19; // ~2^63
-    const double factor = target_sum_prob / sum_prob;
-    WL_IGNORE_DEPENDENCIES
-    for (size_t i = 0; i < n; ++i)
-    {
-        const auto prob = uint64_t(std::floor(probs[i] * factor + 0.5));
-        // each element should have a probability of at least ~2^-63
-        uint_probs[i] = (prob > 0u) ? prob : uint64_t(1);
-    }
-    const auto lzcnt = utils::lzcnt_u64(uint64_t(n - 1u));
-    const auto max_jump = size_t(1) << (63u - lzcnt);
-    // fold the ragged part
-    for (size_t i = max_jump; i < n; ++i)
-        uint_probs[i - max_jump] += uint_probs[i];
-    // fold the regular parts
-    for (auto jump = max_jump >> 1; jump > 0u; jump >>= 1)
-    {
-        for (size_t i = 0; i < jump; ++i)
-            uint_probs[i] += uint_probs[jump + i];
-    }
-    
-    return [uint_probs_vec = std::move(uint_probs_vec), n, max_jump]() mutable
-    {
-        auto* uint_probs = uint_probs_vec.data();
-        if (uint_probs[0] == 0u)
-            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
-        auto rand = std::uniform_int_distribution<uint64_t>(
-            0u, uint_probs[0] - 1u)(global_random_engine);
-        // pick the index
-        auto index = uint64_t(0);
-        auto weight = uint_probs[0]; // to be removed from uint_probs
-        for (size_t jump = 1u; jump <= max_jump; jump <<= 1)
-        {
-            if (index + jump >= n)
-                break;
-            else
-            {
-                const auto proposed = uint_probs[index + jump];
-                if (rand >= proposed)
-                {
-                    rand -= proposed;
-                    weight -= proposed;
-                }
-                else
-                {
-                    index += jump;
-                    weight = proposed;
-                }
-            }
-        }
-        const auto ret_index = size_t(index);
-        // remove weight from the uint_probs
-        uint_probs[index] -= weight;
-        for (size_t jump = max_jump; true; jump >>= 1)
-        {
-            if (jump <= index)
-            {
-                index -= jump;
-                uint_probs[index] -= weight;
-            }
-            if (index == 0u)
-                break;
-        }
-        return ret_index;
-    };
-}
-template<typename W>
-auto _random_sample_prepare_linear(const W& w, const size_t x_length)
-{
-    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
-        WL_ERROR_RANDOM_WEIGHTS_TYPE);
-    if (!(x_length == w.dims()[0] && x_length >= 1u))
-        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
-    const size_t n = x_length;
-    if (n <= 1u)
-        throw std::logic_error(WL_ERROR_INTERNAL);
-    ndarray<double, 1u> pmf_vec(std::array<size_t, 1u>{n});
-    ndarray<double, 1u> cmf_vec(std::array<size_t, 1u>{n});
-    auto* const pmf = pmf_vec.data();
-    auto* const cmf = cmf_vec.data();
-    w.copy_to(pmf);
-    if (std::any_of(pmf, pmf + n, [](auto p) { return p < 0.; }))
-        throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
-    std::partial_sum(pmf, pmf + n, cmf);
-    return [cmf_vec = std::move(cmf_vec), n, last_index = n]() mutable
-    {
-        auto* const cmf = cmf_vec.data();
-        if (last_index < n)
-        { // if not the last element, update pmf and cmf
-            const auto diff = last_index == 0u ? cmf[0u] :
-                (cmf[last_index] - cmf[last_index - 1u]);
-            for (auto i = last_index; i < n; ++i)
-                cmf[i] -= diff;
-        }
-        if (cmf[n - 1u] <= 0.)
-            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_ZERO_WEIGHTS);
-        const auto rand = std::uniform_real_distribution<>(
-            0., cmf[n - 1u])(global_random_engine);
-        size_t index = size_t(std::lower_bound(cmf, cmf + n, rand) - cmf);
-        last_index = index;
-        return index;
-    };
-}
-template<typename W, typename X, typename Size>
-auto random_sample(const W& w, const X& x, varg_tag, const Size& size)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto x_length = x.dims()[0];
-    const auto outer_dims = utils::get_dims_array(size);
-    const auto outer_size = utils::size_of_dims(outer_dims);
-    if (size > x_length)
-        throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
-    // automatically select between binary and linear
-    if (outer_size > 5u && x_length > 35u)
-        return _random_choice_batch_impl(
-            _random_sample_prepare_binary(w, x_length), x, outer_dims);
-    else
-        return _random_choice_batch_impl(
-            _random_sample_prepare_linear(w, x_length), x, outer_dims);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename W, typename X>
-auto random_sample(const W& w, const X& x, varg_tag)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto x_length = x.dims()[0];
-    return random_sample(w, x, x_length);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Size>
-auto random_sample(const X& x, const Size& size)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto x_length = x.dims()[0];
-    const auto outer_dims = utils::get_dims_array(size);
-    const auto outer_size = utils::size_of_dims(outer_dims);
-    if (size > x_length)
-        throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
-    // automatically select between two methods
-    if (x_length == 1u && size == 1u)
-        return val(x);
-    else if (size <= 2u || 10 * size * size <= x_length)
-        return _random_choice_batch_impl(
-            _random_sample_prepare_short_uniform(x_length), x, outer_dims);
-    else
-        return _random_choice_batch_impl(
-            _random_sample_prepare_uniform(x_length), x, outer_dims);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X>
-auto random_sample(const X& x)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    const auto x_length = x.dims()[0];
-    return random_sample(x, x_length);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl
@@ -15892,6 +11145,5224 @@ auto matrix_q(X&& x)
 {
     WL_TRY_BEGIN()
     return boolean(array_rank_v<remove_cvref_t<X>> == 2u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+}
+namespace wl
+{
+namespace _to_string_impl
+{
+struct float_pair
+{
+    static constexpr int      mantissa_size = 64;
+    static constexpr int      fraction_size = 52;
+    static constexpr int      exponent_bias = 0x3ff + fraction_size;
+    static constexpr int      min_exponent  = -exponent_bias;
+    static constexpr uint64_t exponent_mask = 0x7ff0'0000'0000'0000u;
+    static constexpr uint64_t fraction_mask = 0x000f'ffff'ffff'ffffu;
+    static constexpr uint64_t hidden_bit    = 0x0010'0000'0000'0000u;
+    uint64_t mantissa = 0;
+    int      exponent = 0;
+    constexpr float_pair() = default;
+    constexpr float_pair(uint64_t mantissa, int exponent) :
+        mantissa{mantissa}, exponent{exponent}
+    {
+    }
+    float_pair(double d)
+    {
+        uint64_t ud;
+        std::memcpy(&ud, &d, sizeof(double));
+        auto biased_e = int(exponent_bits(ud));
+        auto fraction = fraction_bits(ud);
+        if (biased_e > 0)
+        {
+            mantissa = fraction + hidden_bit;
+            exponent = biased_e - exponent_bias;
+        }
+        else
+        {
+            mantissa = fraction;
+            exponent = min_exponent + 1;
+        }
+    }
+    float_pair operator-(const float_pair& other) const
+    {
+        assert(this->exponent == other.exponent);
+        assert(this->mantissa >= other.mantissa);
+        return {this->mantissa - other.mantissa, this->exponent};
+    }
+    float_pair operator*(const float_pair& other) const
+    {
+#if defined (__BMI2__)
+        uint64_t hi, lo;
+        lo = _mulx_u64(mantissa, other.mantissa, (unsigned long long*)(&hi));
+        return {hi + (lo >> 63u), exponent + other.exponent + 64};
+#else
+        static constexpr uint64_t mask_32 = 0xffff'ffffu;
+        uint64_t ll = (mantissa & mask_32) * (other.mantissa & mask_32);
+        uint64_t hl = (mantissa >> 32u)    * (other.mantissa & mask_32);
+        uint64_t lh = (mantissa & mask_32) * (other.mantissa >> 32u);
+        uint64_t hh = (mantissa >> 32u)    * (other.mantissa >> 32u);
+        uint64_t carry = ((ll >> 32u) + (hl & mask_32) + (lh & mask_32) +
+            (uint64_t(1) << 31u)) >> 32u;
+        return {hh + (hl >> 32u) + (lh >> 32u) + (carry >> 32u),
+            exponent + other.exponent + 64};
+#endif
+    }
+    float_pair& normalize(ptrdiff_t offset = 0)
+    {
+        size_t leading_zero = (mantissa & (hidden_bit << offset)) ?
+            (mantissa_size - fraction_size - 1 - offset) :
+            wl::utils::lzcnt_u64(mantissa);
+        mantissa <<= leading_zero;
+        exponent -= int(leading_zero);
+        return *this;
+    }
+    void normalize_boundaries(float_pair& minus, float_pair& plus) const
+    {
+        plus = float_pair((mantissa << 1u) + 1u, exponent - 1);
+        plus.normalize(1);
+        if (mantissa == hidden_bit)
+            minus = float_pair((mantissa << 2u) - 1u, exponent - 2);
+        else
+            minus = float_pair((mantissa << 1u) - 1u, exponent - 1);
+        minus.mantissa <<= minus.exponent - plus.exponent;
+        minus.exponent = plus.exponent;
+    }
+    static uint64_t exponent_bits(uint64_t ud)
+    {
+        return (ud & exponent_mask) >> fraction_size;
+    }
+    static uint64_t fraction_bits(uint64_t ud)
+    {
+        return ud & fraction_mask;
+    }
+};
+inline float_pair cached_power(int exponent_2, int& exponent_10)
+{
+    // 10^-348, 10^-340, ..., 10^340
+    // Table[{"0x"<>IntegerString[Round[10^p*2^#],16]<>"u",#}&@NestWhile[
+    //   #-1&,Round[68-N@Log2[10^p]],10^p*2^#>=2^64&],{p,-348,340,8}]
+    static constexpr float_pair cached_powers[] =
+    {
+        {0xfa8fd5a0081c0288u,-1220},{0xbaaee17fa23ebf76u,-1193},
+        {0x8b16fb203055ac76u,-1166},{0xcf42894a5dce35eau,-1140},
+        {0x9a6bb0aa55653b2du,-1113},{0xe61acf033d1a45dfu,-1087},
+        {0xab70fe17c79ac6cau,-1060},{0xff77b1fcbebcdc4fu,-1034},
+        {0xbe5691ef416bd60cu,-1007},{0x8dd01fad907ffc3cu,-980},
+        {0xd3515c2831559a83u,-954},{0x9d71ac8fada6c9b5u,-927},
+        {0xea9c227723ee8bcbu,-901},{0xaecc49914078536du,-874},
+        {0x823c12795db6ce57u,-847},{0xc21094364dfb5637u,-821},
+        {0x9096ea6f3848984fu,-794},{0xd77485cb25823ac7u,-768},
+        {0xa086cfcd97bf97f4u,-741},{0xef340a98172aace5u,-715},
+        {0xb23867fb2a35b28eu,-688},{0x84c8d4dfd2c63f3bu,-661},
+        {0xc5dd44271ad3cdbau,-635},{0x936b9fcebb25c996u,-608},
+        {0xdbac6c247d62a584u,-582},{0xa3ab66580d5fdaf6u,-555},
+        {0xf3e2f893dec3f126u,-529},{0xb5b5ada8aaff80b8u,-502},
+        {0x87625f056c7c4a8bu,-475},{0xc9bcff6034c13053u,-449},
+        {0x964e858c91ba2655u,-422},{0xdff9772470297ebdu,-396},
+        {0xa6dfbd9fb8e5b88fu,-369},{0xf8a95fcf88747d94u,-343},
+        {0xb94470938fa89bcfu,-316},{0x8a08f0f8bf0f156bu,-289},
+        {0xcdb02555653131b6u,-263},{0x993fe2c6d07b7facu,-236},
+        {0xe45c10c42a2b3b06u,-210},{0xaa242499697392d3u,-183},
+        {0xfd87b5f28300ca0eu,-157},{0xbce5086492111aebu,-130},
+        {0x8cbccc096f5088ccu,-103},{0xd1b71758e219652cu,-77},
+        {0x9c40000000000000u,-50},{0xe8d4a51000000000u,-24},
+        {0xad78ebc5ac620000u,3},{0x813f3978f8940984u,30},
+        {0xc097ce7bc90715b3u,56},{0x8f7e32ce7bea5c70u,83},
+        {0xd5d238a4abe98068u,109},{0x9f4f2726179a2245u,136},
+        {0xed63a231d4c4fb27u,162},{0xb0de65388cc8ada8u,189},
+        {0x83c7088e1aab65dbu,216},{0xc45d1df942711d9au,242},
+        {0x924d692ca61be758u,269},{0xda01ee641a708deau,295},
+        {0xa26da3999aef774au,322},{0xf209787bb47d6b85u,348},
+        {0xb454e4a179dd1877u,375},{0x865b86925b9bc5c2u,402},
+        {0xc83553c5c8965d3du,428},{0x952ab45cfa97a0b3u,455},
+        {0xde469fbd99a05fe3u,481},{0xa59bc234db398c25u,508},
+        {0xf6c69a72a3989f5cu,534},{0xb7dcbf5354e9beceu,561},
+        {0x88fcf317f22241e2u,588},{0xcc20ce9bd35c78a5u,614},
+        {0x98165af37b2153dfu,641},{0xe2a0b5dc971f303au,667},
+        {0xa8d9d1535ce3b396u,694},{0xfb9b7cd9a4a7443cu,720},
+        {0xbb764c4ca7a44410u,747},{0x8bab8eefb6409c1au,774},
+        {0xd01fef10a657842cu,800},{0x9b10a4e5e9913129u,827},
+        {0xe7109bfba19c0c9du,853},{0xac2820d9623bf429u,880},
+        {0x80444b5e7aa7cf85u,907},{0xbf21e44003acdd2du,933},
+        {0x8e679c2f5e44ff8fu,960},{0xd433179d9c8cb841u,986},
+        {0x9e19db92b4e31ba9u,1013},{0xeb96bf6ebadf77d9u,1039},
+        {0xaf87023b9bf0ee6bu,1066}
+    };
+    static_assert(sizeof(cached_powers) / sizeof(cached_powers[0]) == 87u);
+    constexpr double log10_2 = 0.301029995663981195;
+    const auto k = int(std::ceil(log10_2 * (-61 - exponent_2))) + 347;
+    const auto index = k / 8 + 1;
+    exponent_10 = -(-348 + 8 * index);
+    assert(index < sizeof(cached_powers) / sizeof(cached_powers[0]));
+    return cached_powers[index];
+}
+inline void grisu_round(char* buffer, int length, uint64_t delta,
+    uint64_t rest, uint64_t ten_kappa, uint64_t wp_w)
+{
+    while ((rest < wp_w) && (delta - rest >= ten_kappa) &&
+        ((rest + ten_kappa < wp_w) || (wp_w - rest > rest + ten_kappa - wp_w)))
+    {
+        buffer[length - 1]--;
+        rest += ten_kappa;
+    }
+}
+inline int count_decimal_digits(uint32_t n) {
+    if (n < 10)
+        return 1;
+    else if (n < 100)
+        return 2;
+    else if (n < 1000)
+        return 3;
+    else if (n < 10000)
+        return 4;
+    else if (n < 100000)
+        return 5;
+    else if (n < 1000000)
+        return 6;
+    else if (n < 10000000)
+        return 7;
+    else if (n < 100000000)
+        return 8;
+    else if (n < 1000000000)
+        return 9;
+    else
+        return 10;
+}
+inline void generate_digits(const float_pair& val, const float_pair& upper,
+    uint64_t mantissa_window, char* buffer, int& length, int& exponent_10)
+{
+    static constexpr uint64_t power_10[] =
+    {
+        1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
+        1000000000, 10000000000, 100000000000, 1000000000000, 10000000000000,
+        100000000000000
+    };
+    const auto upper_exponent = upper.exponent;
+    const auto mantissa_mask = (uint64_t(1) << -upper_exponent) - 1u;
+    const auto upper_window = upper - val;
+    auto integer_part = upper.mantissa >> -upper_exponent;
+    auto fraction_part = upper.mantissa & mantissa_mask;
+    auto exponent_10_diff = count_decimal_digits(uint32_t(integer_part));
+    while (exponent_10_diff > 0)
+    {
+        uint64_t d = 0;
+        switch (exponent_10_diff)
+        {
+#define WL_GENERATE_DIGITS_INTEGER_PART_CASE(i)     \
+        case i:                                     \
+            d = integer_part / power_10[i - 1];     \
+            integer_part %= power_10[i - 1];        \
+            break;
+            WL_GENERATE_DIGITS_INTEGER_PART_CASE(10)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(9)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(8)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(7)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(6)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(5)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(4)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(3)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(2)
+                WL_GENERATE_DIGITS_INTEGER_PART_CASE(1)
+#undef WL_GENERATE_DIGITS_INTEGER_PART_CASE
+        default: d = 0;
+        }
+        if (d || length)
+            buffer[length++] = char('0' + int(d));
+        --exponent_10_diff;
+        uint64_t new_mantissa = (integer_part << -upper_exponent) + fraction_part;
+        if (new_mantissa <= mantissa_window)
+        {
+            exponent_10 += exponent_10_diff;
+            grisu_round(buffer, length, mantissa_window, new_mantissa,
+                power_10[exponent_10_diff] << -upper_exponent,
+                upper_window.mantissa);
+            return;
+        }
+    }
+    for (;;)
+    {
+        fraction_part *= 10;
+        mantissa_window *= 10;
+        auto d = char(fraction_part >> -upper_exponent);
+        if (d || length)
+            buffer[length++] = '0' + d;
+        fraction_part &= mantissa_mask;
+        --exponent_10_diff;
+        if (fraction_part < mantissa_window)
+        {
+            exponent_10 += exponent_10_diff;
+            grisu_round(buffer, length, mantissa_window, fraction_part,
+                (uint64_t(1) << -upper_exponent),
+                upper_window.mantissa * power_10[-exponent_10_diff]);
+            return;
+        }
+    }
+}
+inline void grisu2(double value, char* buffer, int& length, int& exponent_10)
+{
+    float_pair v(value);
+    float_pair w_m, w_p;
+    v.normalize_boundaries(w_m, w_p);
+    const auto c_mk = cached_power(w_p.exponent, exponent_10);
+    v.normalize();
+    const auto W = v * c_mk;
+    auto Wp = w_p * c_mk;
+    auto Wm = w_m * c_mk;
+    ++Wm.mantissa;
+    --Wp.mantissa;
+    generate_digits(W, Wp, Wp.mantissa - Wm.mantissa, buffer, length,
+        exponent_10);
+}
+inline char* write_exponent(int exponent_10, char* buffer)
+{
+    if (exponent_10 < 0)
+    {
+        *buffer++ = '-';
+        exponent_10 = -exponent_10;
+    }
+    if (exponent_10 >= 100)
+    {
+        buffer[2] = char('0' + (exponent_10 % 10));
+        exponent_10 /= 10;
+        buffer[1] = char('0' + (exponent_10 % 10));
+        buffer[0] = char('0' + (exponent_10 / 10));
+        buffer += 3;
+    }
+    else if (exponent_10 >= 10)
+    {
+        *buffer++ = char('0' + (exponent_10 / 10));
+        *buffer++ = char('0' + (exponent_10 % 10));
+    }
+    else
+    {
+        *buffer++ = char('0' + exponent_10);
+    }
+    *buffer = '\0';
+    return buffer;
+}
+inline char* format(char* buffer0, int digits_length, int exponent_10)
+{
+    char* buffer = buffer0;
+    const auto scientific_e = digits_length + exponent_10 - 1;
+    const auto integral_length = std::max(0, scientific_e) + 1;
+    const auto fractional_length = std::max(0, -exponent_10);
+    const auto plain_length = integral_length + fractional_length + 1;
+    const auto scientific_length = digits_length + 2 +
+        (scientific_e >= 0 ? count_decimal_digits(uint32_t(scientific_e)) :
+            count_decimal_digits(uint32_t(-scientific_e)) + 1);
+    if (plain_length <= scientific_length)
+    {
+        if (exponent_10 >= 0)
+        {
+            std::memset(buffer + digits_length, '0', exponent_10);
+            buffer += digits_length + exponent_10;
+            *buffer++ = '.';
+        }
+        else if (scientific_e < 0)
+        {
+            std::memmove(&buffer[1 - scientific_e], &buffer[0], digits_length);
+            buffer[0] = '0';
+            buffer[1] = '.';
+            std::memset(&buffer[2], '0', -scientific_e - 1);
+            buffer += 1 - scientific_e + digits_length;
+        }
+        else
+        {
+            std::memmove(&buffer[scientific_e + 2], &buffer[scientific_e + 1],
+                digits_length - (scientific_e + 1));
+            buffer[scientific_e + 1] = '.';
+            buffer += digits_length + 1;
+        }
+        *buffer = '\0';
+        assert(buffer0 + plain_length == buffer);
+        return buffer;
+    }
+    else
+    {
+        std::memmove(&buffer[2], &buffer[1], size_t(digits_length) - 1);
+        buffer[1] = '.';
+        buffer[digits_length + 1] = 'e';
+        buffer = write_exponent(scientific_e, &buffer[digits_length + 2]);
+        assert(buffer0 + scientific_length == buffer);
+        return buffer;
+    }
+}
+constexpr size_t integer_buffer_size = 21u;
+constexpr size_t double_buffer_size = 25u;
+constexpr size_t complex_buffer_size = 2u * double_buffer_size + 2u;
+template<typename X>
+auto integer_to_string(char* const first, char* const last, const X& x)
+{
+    assert(first + integer_buffer_size <= last);
+    using Unsigned = std::make_unsigned_t<decltype(x + 0)>;
+    char* ptr = last;
+    if (x == X(0))
+    {
+        *--ptr = '0';
+    }
+    else
+    {
+        bool is_negative = false;
+        Unsigned ux = 0;
+        if constexpr (std::is_unsigned_v<X>)
+            ux = Unsigned(x);
+        else
+        {
+            is_negative = x < X(0);
+            ux = is_negative ? Unsigned(-x) : Unsigned(x);
+        }
+        do
+        {
+            *--ptr = char(Unsigned('0') + (ux % 10u));
+            ux /= 10u;
+        } while (ux != 0u);
+        if (!std::is_unsigned_v<X> && is_negative)
+            *--ptr = '-';
+    }
+    return string_view(ptr, last);
+}
+template<bool AlwaysPrintSign = false>
+auto double_to_string(char* const first, char* const last, double x)
+{
+    assert(first + double_buffer_size <= last);
+    char* ptr = first;
+    int fpclass = std::fpclassify(x);
+    int signbit = std::signbit(x);
+    switch (fpclass)
+    {
+    case FP_ZERO:
+        if (signbit)
+            *ptr++ = '-';
+        else if constexpr (AlwaysPrintSign)
+            *ptr++ = '+';
+        *ptr++ = '0';
+        *ptr++ = '.';
+        *ptr = '\0';
+        break;
+    case FP_INFINITE:
+        if (signbit)
+            *ptr++ = '-';
+        else if constexpr (AlwaysPrintSign)
+            *ptr++ = '+';
+        *ptr++ = 'i';
+        *ptr++ = 'n';
+        *ptr++ = 'f';
+        *ptr = '\0';
+        break;
+    case FP_NAN:
+        *ptr++ = 'n';
+        *ptr++ = 'a';
+        *ptr++ = 'n';
+        *ptr = '\0';
+        break;
+    default:
+        if (signbit)
+        {
+            *ptr++ = '-';
+            x = -x;
+        }
+        else if constexpr (AlwaysPrintSign)
+            *ptr++ = '+';
+        int length = 0;
+        int exponent_10 = 0;
+        grisu2(x, ptr, length, exponent_10);
+        ptr = format(ptr, length, exponent_10);
+    }
+    return string_view(first, ptr);
+}
+template<typename T>
+auto complex_to_string(char* const first, char* const last, complex<T> x)
+{
+    assert(first + complex_buffer_size <= last);
+    auto ptr = first;
+    ptr = (char*)double_to_string<false>(
+        ptr, last, double(x.real())).byte_end();
+    ptr = (char*)double_to_string<true>(
+        ptr, last, double(x.imag())).byte_end();
+    *ptr++ = '*';
+    *ptr++ = 'I';
+    *ptr = '\0';
+    return string_view(first, ptr);
+}
+}
+namespace _from_string_impl
+{
+inline bool string_to_double(const char* str, double& val)
+{
+    char* end = nullptr;
+    val = std::strtod(str, &end);
+    return (end > str) && (*end == '\0');
+}
+inline bool string_to_integer(const char* str, int64_t& val)
+{
+    char* end = nullptr;
+    val = std::strtoll(str, &end, 10);
+    return (end > str) && (*end == '\0');
+}
+}
+}
+#define PCRE2_STATIC 1
+#define PCRE2_CODE_UNIT_WIDTH 8
+/*************************************************
+*       Perl-Compatible Regular Expressions      *
+*************************************************/
+/* This is the public header file for the PCRE library, second API, to be
+#included by applications that call PCRE2 functions.
+           Copyright (c) 2016-2019 University of Cambridge
+-----------------------------------------------------------------------------
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the University of Cambridge nor the names of its
+      contributors may be used to endorse or promote products derived from
+      this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+-----------------------------------------------------------------------------
+*/
+#ifndef PCRE2_H_IDEMPOTENT_GUARD
+#define PCRE2_H_IDEMPOTENT_GUARD
+/* The current PCRE version information. */
+#define PCRE2_MAJOR           10
+#define PCRE2_MINOR           34
+#define PCRE2_PRERELEASE      
+#define PCRE2_DATE            2019-11-21
+/* When an application links to a PCRE DLL in Windows, the symbols that are
+imported have to be identified as such. When building PCRE2, the appropriate
+export setting is defined in pcre2_internal.h, which includes this file. So we
+don't change existing definitions of PCRE2_EXP_DECL. */
+#if defined(_WIN32) && !defined(PCRE2_STATIC)
+#  ifndef PCRE2_EXP_DECL
+#    define PCRE2_EXP_DECL  extern __declspec(dllimport)
+#  endif
+#endif
+/* By default, we use the standard "extern" declarations. */
+#ifndef PCRE2_EXP_DECL
+#  ifdef __cplusplus
+#    define PCRE2_EXP_DECL  extern "C"
+#  else
+#    define PCRE2_EXP_DECL  extern
+#  endif
+#endif
+/* When compiling with the MSVC compiler, it is sometimes necessary to include
+a "calling convention" before exported function names. (This is secondhand
+information; I know nothing about MSVC myself). For example, something like
+  void __cdecl function(....)
+might be needed. In order so make this easy, all the exported functions have
+PCRE2_CALL_CONVENTION just before their names. It is rarely needed; if not
+set, we ensure here that it has no effect. */
+#ifndef PCRE2_CALL_CONVENTION
+#define PCRE2_CALL_CONVENTION
+#endif
+/* Have to include limits.h, stdlib.h, and inttypes.h to ensure that size_t and
+uint8_t, UCHAR_MAX, etc are defined. Some systems that do have inttypes.h do
+not have stdint.h, which is why we use inttypes.h, which according to the C
+standard is a superset of stdint.h. If none of these headers are available,
+the relevant values must be provided by some other means. */
+/* Allow for C++ users compiling this directly. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+/* The following option bits can be passed to pcre2_compile(), pcre2_match(),
+or pcre2_dfa_match(). PCRE2_NO_UTF_CHECK affects only the function to which it
+is passed. Put these bits at the most significant end of the options word so
+others can be added next to them */
+#define PCRE2_ANCHORED            0x80000000u
+#define PCRE2_NO_UTF_CHECK        0x40000000u
+#define PCRE2_ENDANCHORED         0x20000000u
+/* The following option bits can be passed only to pcre2_compile(). However,
+they may affect compilation, JIT compilation, and/or interpretive execution.
+The following tags indicate which:
+C   alters what is compiled by pcre2_compile()
+J   alters what is compiled by pcre2_jit_compile()
+M   is inspected during pcre2_match() execution
+D   is inspected during pcre2_dfa_match() execution
+*/
+#define PCRE2_ALLOW_EMPTY_CLASS   0x00000001u  /* C       */
+#define PCRE2_ALT_BSUX            0x00000002u  /* C       */
+#define PCRE2_AUTO_CALLOUT        0x00000004u  /* C       */
+#define PCRE2_CASELESS            0x00000008u  /* C       */
+#define PCRE2_DOLLAR_ENDONLY      0x00000010u  /*   J M D */
+#define PCRE2_DOTALL              0x00000020u  /* C       */
+#define PCRE2_DUPNAMES            0x00000040u  /* C       */
+#define PCRE2_EXTENDED            0x00000080u  /* C       */
+#define PCRE2_FIRSTLINE           0x00000100u  /*   J M D */
+#define PCRE2_MATCH_UNSET_BACKREF 0x00000200u  /* C J M   */
+#define PCRE2_MULTILINE           0x00000400u  /* C       */
+#define PCRE2_NEVER_UCP           0x00000800u  /* C       */
+#define PCRE2_NEVER_UTF           0x00001000u  /* C       */
+#define PCRE2_NO_AUTO_CAPTURE     0x00002000u  /* C       */
+#define PCRE2_NO_AUTO_POSSESS     0x00004000u  /* C       */
+#define PCRE2_NO_DOTSTAR_ANCHOR   0x00008000u  /* C       */
+#define PCRE2_NO_START_OPTIMIZE   0x00010000u  /*   J M D */
+#define PCRE2_UCP                 0x00020000u  /* C J M D */
+#define PCRE2_UNGREEDY            0x00040000u  /* C       */
+#define PCRE2_UTF                 0x00080000u  /* C J M D */
+#define PCRE2_NEVER_BACKSLASH_C   0x00100000u  /* C       */
+#define PCRE2_ALT_CIRCUMFLEX      0x00200000u  /*   J M D */
+#define PCRE2_ALT_VERBNAMES       0x00400000u  /* C       */
+#define PCRE2_USE_OFFSET_LIMIT    0x00800000u  /*   J M D */
+#define PCRE2_EXTENDED_MORE       0x01000000u  /* C       */
+#define PCRE2_LITERAL             0x02000000u  /* C       */
+#define PCRE2_MATCH_INVALID_UTF   0x04000000u  /*   J M D */
+/* An additional compile options word is available in the compile context. */
+#define PCRE2_EXTRA_ALLOW_SURROGATE_ESCAPES  0x00000001u  /* C */
+#define PCRE2_EXTRA_BAD_ESCAPE_IS_LITERAL    0x00000002u  /* C */
+#define PCRE2_EXTRA_MATCH_WORD               0x00000004u  /* C */
+#define PCRE2_EXTRA_MATCH_LINE               0x00000008u  /* C */
+#define PCRE2_EXTRA_ESCAPED_CR_IS_LF         0x00000010u  /* C */
+#define PCRE2_EXTRA_ALT_BSUX                 0x00000020u  /* C */
+/* These are for pcre2_jit_compile(). */
+#define PCRE2_JIT_COMPLETE        0x00000001u  /* For full matching */
+#define PCRE2_JIT_PARTIAL_SOFT    0x00000002u
+#define PCRE2_JIT_PARTIAL_HARD    0x00000004u
+#define PCRE2_JIT_INVALID_UTF     0x00000100u
+/* These are for pcre2_match(), pcre2_dfa_match(), pcre2_jit_match(), and
+pcre2_substitute(). Some are allowed only for one of the functions, and in
+these cases it is noted below. Note that PCRE2_ANCHORED, PCRE2_ENDANCHORED and
+PCRE2_NO_UTF_CHECK can also be passed to these functions (though
+pcre2_jit_match() ignores the latter since it bypasses all sanity checks). */
+#define PCRE2_NOTBOL                      0x00000001u
+#define PCRE2_NOTEOL                      0x00000002u
+#define PCRE2_NOTEMPTY                    0x00000004u  /* ) These two must be kept */
+#define PCRE2_NOTEMPTY_ATSTART            0x00000008u  /* ) adjacent to each other. */
+#define PCRE2_PARTIAL_SOFT                0x00000010u
+#define PCRE2_PARTIAL_HARD                0x00000020u
+#define PCRE2_DFA_RESTART                 0x00000040u  /* pcre2_dfa_match() only */
+#define PCRE2_DFA_SHORTEST                0x00000080u  /* pcre2_dfa_match() only */
+#define PCRE2_SUBSTITUTE_GLOBAL           0x00000100u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_EXTENDED         0x00000200u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_UNSET_EMPTY      0x00000400u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_UNKNOWN_UNSET    0x00000800u  /* pcre2_substitute() only */
+#define PCRE2_SUBSTITUTE_OVERFLOW_LENGTH  0x00001000u  /* pcre2_substitute() only */
+#define PCRE2_NO_JIT                      0x00002000u  /* Not for pcre2_dfa_match() */
+#define PCRE2_COPY_MATCHED_SUBJECT        0x00004000u
+/* Options for pcre2_pattern_convert(). */
+#define PCRE2_CONVERT_UTF                    0x00000001u
+#define PCRE2_CONVERT_NO_UTF_CHECK           0x00000002u
+#define PCRE2_CONVERT_POSIX_BASIC            0x00000004u
+#define PCRE2_CONVERT_POSIX_EXTENDED         0x00000008u
+#define PCRE2_CONVERT_GLOB                   0x00000010u
+#define PCRE2_CONVERT_GLOB_NO_WILD_SEPARATOR 0x00000030u
+#define PCRE2_CONVERT_GLOB_NO_STARSTAR       0x00000050u
+/* Newline and \R settings, for use in compile contexts. The newline values
+must be kept in step with values set in config.h and both sets must all be
+greater than zero. */
+#define PCRE2_NEWLINE_CR          1
+#define PCRE2_NEWLINE_LF          2
+#define PCRE2_NEWLINE_CRLF        3
+#define PCRE2_NEWLINE_ANY         4
+#define PCRE2_NEWLINE_ANYCRLF     5
+#define PCRE2_NEWLINE_NUL         6
+#define PCRE2_BSR_UNICODE         1
+#define PCRE2_BSR_ANYCRLF         2
+/* Error codes for pcre2_compile(). Some of these are also used by
+pcre2_pattern_convert(). */
+#define PCRE2_ERROR_END_BACKSLASH                  101
+#define PCRE2_ERROR_END_BACKSLASH_C                102
+#define PCRE2_ERROR_UNKNOWN_ESCAPE                 103
+#define PCRE2_ERROR_QUANTIFIER_OUT_OF_ORDER        104
+#define PCRE2_ERROR_QUANTIFIER_TOO_BIG             105
+#define PCRE2_ERROR_MISSING_SQUARE_BRACKET         106
+#define PCRE2_ERROR_ESCAPE_INVALID_IN_CLASS        107
+#define PCRE2_ERROR_CLASS_RANGE_ORDER              108
+#define PCRE2_ERROR_QUANTIFIER_INVALID             109
+#define PCRE2_ERROR_INTERNAL_UNEXPECTED_REPEAT     110
+#define PCRE2_ERROR_INVALID_AFTER_PARENS_QUERY     111
+#define PCRE2_ERROR_POSIX_CLASS_NOT_IN_CLASS       112
+#define PCRE2_ERROR_POSIX_NO_SUPPORT_COLLATING     113
+#define PCRE2_ERROR_MISSING_CLOSING_PARENTHESIS    114
+#define PCRE2_ERROR_BAD_SUBPATTERN_REFERENCE       115
+#define PCRE2_ERROR_NULL_PATTERN                   116
+#define PCRE2_ERROR_BAD_OPTIONS                    117
+#define PCRE2_ERROR_MISSING_COMMENT_CLOSING        118
+#define PCRE2_ERROR_PARENTHESES_NEST_TOO_DEEP      119
+#define PCRE2_ERROR_PATTERN_TOO_LARGE              120
+#define PCRE2_ERROR_HEAP_FAILED                    121
+#define PCRE2_ERROR_UNMATCHED_CLOSING_PARENTHESIS  122
+#define PCRE2_ERROR_INTERNAL_CODE_OVERFLOW         123
+#define PCRE2_ERROR_MISSING_CONDITION_CLOSING      124
+#define PCRE2_ERROR_LOOKBEHIND_NOT_FIXED_LENGTH    125
+#define PCRE2_ERROR_ZERO_RELATIVE_REFERENCE        126
+#define PCRE2_ERROR_TOO_MANY_CONDITION_BRANCHES    127
+#define PCRE2_ERROR_CONDITION_ASSERTION_EXPECTED   128
+#define PCRE2_ERROR_BAD_RELATIVE_REFERENCE         129
+#define PCRE2_ERROR_UNKNOWN_POSIX_CLASS            130
+#define PCRE2_ERROR_INTERNAL_STUDY_ERROR           131
+#define PCRE2_ERROR_UNICODE_NOT_SUPPORTED          132
+#define PCRE2_ERROR_PARENTHESES_STACK_CHECK        133
+#define PCRE2_ERROR_CODE_POINT_TOO_BIG             134
+#define PCRE2_ERROR_LOOKBEHIND_TOO_COMPLICATED     135
+#define PCRE2_ERROR_LOOKBEHIND_INVALID_BACKSLASH_C 136
+#define PCRE2_ERROR_UNSUPPORTED_ESCAPE_SEQUENCE    137
+#define PCRE2_ERROR_CALLOUT_NUMBER_TOO_BIG         138
+#define PCRE2_ERROR_MISSING_CALLOUT_CLOSING        139
+#define PCRE2_ERROR_ESCAPE_INVALID_IN_VERB         140
+#define PCRE2_ERROR_UNRECOGNIZED_AFTER_QUERY_P     141
+#define PCRE2_ERROR_MISSING_NAME_TERMINATOR        142
+#define PCRE2_ERROR_DUPLICATE_SUBPATTERN_NAME      143
+#define PCRE2_ERROR_INVALID_SUBPATTERN_NAME        144
+#define PCRE2_ERROR_UNICODE_PROPERTIES_UNAVAILABLE 145
+#define PCRE2_ERROR_MALFORMED_UNICODE_PROPERTY     146
+#define PCRE2_ERROR_UNKNOWN_UNICODE_PROPERTY       147
+#define PCRE2_ERROR_SUBPATTERN_NAME_TOO_LONG       148
+#define PCRE2_ERROR_TOO_MANY_NAMED_SUBPATTERNS     149
+#define PCRE2_ERROR_CLASS_INVALID_RANGE            150
+#define PCRE2_ERROR_OCTAL_BYTE_TOO_BIG             151
+#define PCRE2_ERROR_INTERNAL_OVERRAN_WORKSPACE     152
+#define PCRE2_ERROR_INTERNAL_MISSING_SUBPATTERN    153
+#define PCRE2_ERROR_DEFINE_TOO_MANY_BRANCHES       154
+#define PCRE2_ERROR_BACKSLASH_O_MISSING_BRACE      155
+#define PCRE2_ERROR_INTERNAL_UNKNOWN_NEWLINE       156
+#define PCRE2_ERROR_BACKSLASH_G_SYNTAX             157
+#define PCRE2_ERROR_PARENS_QUERY_R_MISSING_CLOSING 158
+/* Error 159 is obsolete and should now never occur */
+#define PCRE2_ERROR_VERB_ARGUMENT_NOT_ALLOWED      159
+#define PCRE2_ERROR_VERB_UNKNOWN                   160
+#define PCRE2_ERROR_SUBPATTERN_NUMBER_TOO_BIG      161
+#define PCRE2_ERROR_SUBPATTERN_NAME_EXPECTED       162
+#define PCRE2_ERROR_INTERNAL_PARSED_OVERFLOW       163
+#define PCRE2_ERROR_INVALID_OCTAL                  164
+#define PCRE2_ERROR_SUBPATTERN_NAMES_MISMATCH      165
+#define PCRE2_ERROR_MARK_MISSING_ARGUMENT          166
+#define PCRE2_ERROR_INVALID_HEXADECIMAL            167
+#define PCRE2_ERROR_BACKSLASH_C_SYNTAX             168
+#define PCRE2_ERROR_BACKSLASH_K_SYNTAX             169
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_LOOKBEHINDS  170
+#define PCRE2_ERROR_BACKSLASH_N_IN_CLASS           171
+#define PCRE2_ERROR_CALLOUT_STRING_TOO_LONG        172
+#define PCRE2_ERROR_UNICODE_DISALLOWED_CODE_POINT  173
+#define PCRE2_ERROR_UTF_IS_DISABLED                174
+#define PCRE2_ERROR_UCP_IS_DISABLED                175
+#define PCRE2_ERROR_VERB_NAME_TOO_LONG             176
+#define PCRE2_ERROR_BACKSLASH_U_CODE_POINT_TOO_BIG 177
+#define PCRE2_ERROR_MISSING_OCTAL_OR_HEX_DIGITS    178
+#define PCRE2_ERROR_VERSION_CONDITION_SYNTAX       179
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_AUTO_POSSESS 180
+#define PCRE2_ERROR_CALLOUT_NO_STRING_DELIMITER    181
+#define PCRE2_ERROR_CALLOUT_BAD_STRING_DELIMITER   182
+#define PCRE2_ERROR_BACKSLASH_C_CALLER_DISABLED    183
+#define PCRE2_ERROR_QUERY_BARJX_NEST_TOO_DEEP      184
+#define PCRE2_ERROR_BACKSLASH_C_LIBRARY_DISABLED   185
+#define PCRE2_ERROR_PATTERN_TOO_COMPLICATED        186
+#define PCRE2_ERROR_LOOKBEHIND_TOO_LONG            187
+#define PCRE2_ERROR_PATTERN_STRING_TOO_LONG        188
+#define PCRE2_ERROR_INTERNAL_BAD_CODE              189
+#define PCRE2_ERROR_INTERNAL_BAD_CODE_IN_SKIP      190
+#define PCRE2_ERROR_NO_SURROGATES_IN_UTF16         191
+#define PCRE2_ERROR_BAD_LITERAL_OPTIONS            192
+#define PCRE2_ERROR_SUPPORTED_ONLY_IN_UNICODE      193
+#define PCRE2_ERROR_INVALID_HYPHEN_IN_OPTIONS      194
+#define PCRE2_ERROR_ALPHA_ASSERTION_UNKNOWN        195
+#define PCRE2_ERROR_SCRIPT_RUN_NOT_AVAILABLE       196
+#define PCRE2_ERROR_TOO_MANY_CAPTURES              197
+#define PCRE2_ERROR_CONDITION_ATOMIC_ASSERTION_EXPECTED  198
+/* "Expected" matching error codes: no match and partial match. */
+#define PCRE2_ERROR_NOMATCH          (-1)
+#define PCRE2_ERROR_PARTIAL          (-2)
+/* Error codes for UTF-8 validity checks */
+#define PCRE2_ERROR_UTF8_ERR1        (-3)
+#define PCRE2_ERROR_UTF8_ERR2        (-4)
+#define PCRE2_ERROR_UTF8_ERR3        (-5)
+#define PCRE2_ERROR_UTF8_ERR4        (-6)
+#define PCRE2_ERROR_UTF8_ERR5        (-7)
+#define PCRE2_ERROR_UTF8_ERR6        (-8)
+#define PCRE2_ERROR_UTF8_ERR7        (-9)
+#define PCRE2_ERROR_UTF8_ERR8       (-10)
+#define PCRE2_ERROR_UTF8_ERR9       (-11)
+#define PCRE2_ERROR_UTF8_ERR10      (-12)
+#define PCRE2_ERROR_UTF8_ERR11      (-13)
+#define PCRE2_ERROR_UTF8_ERR12      (-14)
+#define PCRE2_ERROR_UTF8_ERR13      (-15)
+#define PCRE2_ERROR_UTF8_ERR14      (-16)
+#define PCRE2_ERROR_UTF8_ERR15      (-17)
+#define PCRE2_ERROR_UTF8_ERR16      (-18)
+#define PCRE2_ERROR_UTF8_ERR17      (-19)
+#define PCRE2_ERROR_UTF8_ERR18      (-20)
+#define PCRE2_ERROR_UTF8_ERR19      (-21)
+#define PCRE2_ERROR_UTF8_ERR20      (-22)
+#define PCRE2_ERROR_UTF8_ERR21      (-23)
+/* Error codes for UTF-16 validity checks */
+#define PCRE2_ERROR_UTF16_ERR1      (-24)
+#define PCRE2_ERROR_UTF16_ERR2      (-25)
+#define PCRE2_ERROR_UTF16_ERR3      (-26)
+/* Error codes for UTF-32 validity checks */
+#define PCRE2_ERROR_UTF32_ERR1      (-27)
+#define PCRE2_ERROR_UTF32_ERR2      (-28)
+/* Miscellaneous error codes for pcre2[_dfa]_match(), substring extraction
+functions, context functions, and serializing functions. They are in numerical
+order. Originally they were in alphabetical order too, but now that PCRE2 is
+released, the numbers must not be changed. */
+#define PCRE2_ERROR_BADDATA           (-29)
+#define PCRE2_ERROR_MIXEDTABLES       (-30)  /* Name was changed */
+#define PCRE2_ERROR_BADMAGIC          (-31)
+#define PCRE2_ERROR_BADMODE           (-32)
+#define PCRE2_ERROR_BADOFFSET         (-33)
+#define PCRE2_ERROR_BADOPTION         (-34)
+#define PCRE2_ERROR_BADREPLACEMENT    (-35)
+#define PCRE2_ERROR_BADUTFOFFSET      (-36)
+#define PCRE2_ERROR_CALLOUT           (-37)  /* Never used by PCRE2 itself */
+#define PCRE2_ERROR_DFA_BADRESTART    (-38)
+#define PCRE2_ERROR_DFA_RECURSE       (-39)
+#define PCRE2_ERROR_DFA_UCOND         (-40)
+#define PCRE2_ERROR_DFA_UFUNC         (-41)
+#define PCRE2_ERROR_DFA_UITEM         (-42)
+#define PCRE2_ERROR_DFA_WSSIZE        (-43)
+#define PCRE2_ERROR_INTERNAL          (-44)
+#define PCRE2_ERROR_JIT_BADOPTION     (-45)
+#define PCRE2_ERROR_JIT_STACKLIMIT    (-46)
+#define PCRE2_ERROR_MATCHLIMIT        (-47)
+#define PCRE2_ERROR_NOMEMORY          (-48)
+#define PCRE2_ERROR_NOSUBSTRING       (-49)
+#define PCRE2_ERROR_NOUNIQUESUBSTRING (-50)
+#define PCRE2_ERROR_NULL              (-51)
+#define PCRE2_ERROR_RECURSELOOP       (-52)
+#define PCRE2_ERROR_DEPTHLIMIT        (-53)
+#define PCRE2_ERROR_RECURSIONLIMIT    (-53)  /* Obsolete synonym */
+#define PCRE2_ERROR_UNAVAILABLE       (-54)
+#define PCRE2_ERROR_UNSET             (-55)
+#define PCRE2_ERROR_BADOFFSETLIMIT    (-56)
+#define PCRE2_ERROR_BADREPESCAPE      (-57)
+#define PCRE2_ERROR_REPMISSINGBRACE   (-58)
+#define PCRE2_ERROR_BADSUBSTITUTION   (-59)
+#define PCRE2_ERROR_BADSUBSPATTERN    (-60)
+#define PCRE2_ERROR_TOOMANYREPLACE    (-61)
+#define PCRE2_ERROR_BADSERIALIZEDDATA (-62)
+#define PCRE2_ERROR_HEAPLIMIT         (-63)
+#define PCRE2_ERROR_CONVERT_SYNTAX    (-64)
+#define PCRE2_ERROR_INTERNAL_DUPMATCH (-65)
+#define PCRE2_ERROR_DFA_UINVALID_UTF  (-66)
+/* Request types for pcre2_pattern_info() */
+#define PCRE2_INFO_ALLOPTIONS            0
+#define PCRE2_INFO_ARGOPTIONS            1
+#define PCRE2_INFO_BACKREFMAX            2
+#define PCRE2_INFO_BSR                   3
+#define PCRE2_INFO_CAPTURECOUNT          4
+#define PCRE2_INFO_FIRSTCODEUNIT         5
+#define PCRE2_INFO_FIRSTCODETYPE         6
+#define PCRE2_INFO_FIRSTBITMAP           7
+#define PCRE2_INFO_HASCRORLF             8
+#define PCRE2_INFO_JCHANGED              9
+#define PCRE2_INFO_JITSIZE              10
+#define PCRE2_INFO_LASTCODEUNIT         11
+#define PCRE2_INFO_LASTCODETYPE         12
+#define PCRE2_INFO_MATCHEMPTY           13
+#define PCRE2_INFO_MATCHLIMIT           14
+#define PCRE2_INFO_MAXLOOKBEHIND        15
+#define PCRE2_INFO_MINLENGTH            16
+#define PCRE2_INFO_NAMECOUNT            17
+#define PCRE2_INFO_NAMEENTRYSIZE        18
+#define PCRE2_INFO_NAMETABLE            19
+#define PCRE2_INFO_NEWLINE              20
+#define PCRE2_INFO_DEPTHLIMIT           21
+#define PCRE2_INFO_RECURSIONLIMIT       21  /* Obsolete synonym */
+#define PCRE2_INFO_SIZE                 22
+#define PCRE2_INFO_HASBACKSLASHC        23
+#define PCRE2_INFO_FRAMESIZE            24
+#define PCRE2_INFO_HEAPLIMIT            25
+#define PCRE2_INFO_EXTRAOPTIONS         26
+/* Request types for pcre2_config(). */
+#define PCRE2_CONFIG_BSR                     0
+#define PCRE2_CONFIG_JIT                     1
+#define PCRE2_CONFIG_JITTARGET               2
+#define PCRE2_CONFIG_LINKSIZE                3
+#define PCRE2_CONFIG_MATCHLIMIT              4
+#define PCRE2_CONFIG_NEWLINE                 5
+#define PCRE2_CONFIG_PARENSLIMIT             6
+#define PCRE2_CONFIG_DEPTHLIMIT              7
+#define PCRE2_CONFIG_RECURSIONLIMIT          7  /* Obsolete synonym */
+#define PCRE2_CONFIG_STACKRECURSE            8  /* Obsolete */
+#define PCRE2_CONFIG_UNICODE                 9
+#define PCRE2_CONFIG_UNICODE_VERSION        10
+#define PCRE2_CONFIG_VERSION                11
+#define PCRE2_CONFIG_HEAPLIMIT              12
+#define PCRE2_CONFIG_NEVER_BACKSLASH_C      13
+#define PCRE2_CONFIG_COMPILED_WIDTHS        14
+/* Types for code units in patterns and subject strings. */
+typedef uint8_t  PCRE2_UCHAR8;
+typedef uint16_t PCRE2_UCHAR16;
+typedef uint32_t PCRE2_UCHAR32;
+typedef const PCRE2_UCHAR8  *PCRE2_SPTR8;
+typedef const PCRE2_UCHAR16 *PCRE2_SPTR16;
+typedef const PCRE2_UCHAR32 *PCRE2_SPTR32;
+/* The PCRE2_SIZE type is used for all string lengths and offsets in PCRE2,
+including pattern offsets for errors and subject offsets after a match. We
+define special values to indicate zero-terminated strings and unset offsets in
+the offset vector (ovector). */
+#define PCRE2_SIZE            size_t
+#define PCRE2_SIZE_MAX        SIZE_MAX
+#define PCRE2_ZERO_TERMINATED (~(PCRE2_SIZE)0)
+#define PCRE2_UNSET           (~(PCRE2_SIZE)0)
+/* Generic types for opaque structures and JIT callback functions. These
+declarations are defined in a macro that is expanded for each width later. */
+#define PCRE2_TYPES_LIST \
+struct pcre2_real_general_context; \
+typedef struct pcre2_real_general_context pcre2_general_context; \
+\
+struct pcre2_real_compile_context; \
+typedef struct pcre2_real_compile_context pcre2_compile_context; \
+\
+struct pcre2_real_match_context; \
+typedef struct pcre2_real_match_context pcre2_match_context; \
+\
+struct pcre2_real_convert_context; \
+typedef struct pcre2_real_convert_context pcre2_convert_context; \
+\
+struct pcre2_real_code; \
+typedef struct pcre2_real_code pcre2_code; \
+\
+struct pcre2_real_match_data; \
+typedef struct pcre2_real_match_data pcre2_match_data; \
+\
+struct pcre2_real_jit_stack; \
+typedef struct pcre2_real_jit_stack pcre2_jit_stack; \
+\
+typedef pcre2_jit_stack *(*pcre2_jit_callback)(void *);
+/* The structures for passing out data via callout functions. We use structures
+so that new fields can be added on the end in future versions, without changing
+the API of the function, thereby allowing old clients to work without
+modification. Define the generic versions in a macro; the width-specific
+versions are generated from this macro below. */
+/* Flags for the callout_flags field. These are cleared after a callout. */
+#define PCRE2_CALLOUT_STARTMATCH    0x00000001u  /* Set for each bumpalong */
+#define PCRE2_CALLOUT_BACKTRACK     0x00000002u  /* Set after a backtrack */
+#define PCRE2_STRUCTURE_LIST \
+typedef struct pcre2_callout_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  uint32_t      callout_number;    /* Number compiled into pattern */ \
+  uint32_t      capture_top;       /* Max current capture */ \
+  uint32_t      capture_last;      /* Most recently closed capture */ \
+  PCRE2_SIZE   *offset_vector;     /* The offset vector */ \
+  PCRE2_SPTR    mark;              /* Pointer to current mark or NULL */ \
+  PCRE2_SPTR    subject;           /* The subject being matched */ \
+  PCRE2_SIZE    subject_length;    /* The length of the subject */ \
+  PCRE2_SIZE    start_match;       /* Offset to start of this match attempt */ \
+  PCRE2_SIZE    current_position;  /* Where we currently are in the subject */ \
+  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
+  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
+  /* ------------------- Added for Version 1 -------------------------- */ \
+  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
+  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
+  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
+  /* ------------------- Added for Version 2 -------------------------- */ \
+  uint32_t      callout_flags;     /* See above for list */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_callout_block; \
+\
+typedef struct pcre2_callout_enumerate_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  PCRE2_SIZE    pattern_position;  /* Offset to next item in the pattern */ \
+  PCRE2_SIZE    next_item_length;  /* Length of next item in the pattern */ \
+  uint32_t      callout_number;    /* Number compiled into pattern */ \
+  PCRE2_SIZE    callout_string_offset; /* Offset to string within pattern */ \
+  PCRE2_SIZE    callout_string_length; /* Length of string compiled into pattern */ \
+  PCRE2_SPTR    callout_string;    /* String compiled into pattern */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_callout_enumerate_block; \
+\
+typedef struct pcre2_substitute_callout_block { \
+  uint32_t      version;           /* Identifies version of block */ \
+  /* ------------------------ Version 0 ------------------------------- */ \
+  PCRE2_SPTR    input;             /* Pointer to input subject string */ \
+  PCRE2_SPTR    output;            /* Pointer to output buffer */ \
+  PCRE2_SIZE    output_offsets[2]; /* Changed portion of the output */ \
+  PCRE2_SIZE   *ovector;           /* Pointer to current ovector */ \
+  uint32_t      oveccount;         /* Count of pairs set in ovector */ \
+  uint32_t      subscount;         /* Substitution number */ \
+  /* ------------------------------------------------------------------ */ \
+} pcre2_substitute_callout_block;
+/* List the generic forms of all other functions in macros, which will be
+expanded for each width below. Start with functions that give general
+information. */
+#define PCRE2_GENERAL_INFO_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION pcre2_config(uint32_t, void *);
+/* Functions for manipulating contexts. */
+#define PCRE2_GENERAL_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
+  *pcre2_general_context_copy(pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_general_context PCRE2_CALL_CONVENTION \
+  *pcre2_general_context_create(void *(*)(PCRE2_SIZE, void *), \
+    void (*)(void *, void *), void *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_general_context_free(pcre2_general_context *);
+#define PCRE2_COMPILE_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
+  *pcre2_compile_context_copy(pcre2_compile_context *); \
+PCRE2_EXP_DECL pcre2_compile_context PCRE2_CALL_CONVENTION \
+  *pcre2_compile_context_create(pcre2_general_context *);\
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_compile_context_free(pcre2_compile_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_bsr(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_character_tables(pcre2_compile_context *, const uint8_t *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_compile_extra_options(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_max_pattern_length(pcre2_compile_context *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_newline(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_parens_nest_limit(pcre2_compile_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_compile_recursion_guard(pcre2_compile_context *, \
+    int (*)(uint32_t, void *), void *);
+#define PCRE2_MATCH_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
+  *pcre2_match_context_copy(pcre2_match_context *); \
+PCRE2_EXP_DECL pcre2_match_context PCRE2_CALL_CONVENTION \
+  *pcre2_match_context_create(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_match_context_free(pcre2_match_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_callout(pcre2_match_context *, \
+    int (*)(pcre2_callout_block *, void *), void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_substitute_callout(pcre2_match_context *, \
+    int (*)(pcre2_substitute_callout_block *, void *), void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_depth_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_heap_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_match_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_offset_limit(pcre2_match_context *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_recursion_limit(pcre2_match_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_recursion_memory_management(pcre2_match_context *, \
+    void *(*)(PCRE2_SIZE, void *), void (*)(void *, void *), void *);
+#define PCRE2_CONVERT_CONTEXT_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
+  *pcre2_convert_context_copy(pcre2_convert_context *); \
+PCRE2_EXP_DECL pcre2_convert_context PCRE2_CALL_CONVENTION \
+  *pcre2_convert_context_create(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_convert_context_free(pcre2_convert_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_glob_escape(pcre2_convert_context *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_set_glob_separator(pcre2_convert_context *, uint32_t);
+/* Functions concerned with compiling a pattern to PCRE internal code. */
+#define PCRE2_COMPILE_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_compile(PCRE2_SPTR, PCRE2_SIZE, uint32_t, int *, PCRE2_SIZE *, \
+    pcre2_compile_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_code_free(pcre2_code *); \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_code_copy(const pcre2_code *); \
+PCRE2_EXP_DECL pcre2_code PCRE2_CALL_CONVENTION \
+  *pcre2_code_copy_with_tables(const pcre2_code *);
+/* Functions that give information about a compiled pattern. */
+#define PCRE2_PATTERN_INFO_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_pattern_info(const pcre2_code *, uint32_t, void *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_callout_enumerate(const pcre2_code *, \
+    int (*)(pcre2_callout_enumerate_block *, void *), void *);
+/* Functions for running a match and inspecting the result. */
+#define PCRE2_MATCH_FUNCTIONS \
+PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
+  *pcre2_match_data_create(uint32_t, pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_match_data PCRE2_CALL_CONVENTION \
+  *pcre2_match_data_create_from_pattern(const pcre2_code *, \
+    pcre2_general_context *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_dfa_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *, int *, PCRE2_SIZE); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_match_data_free(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SPTR PCRE2_CALL_CONVENTION \
+  pcre2_get_mark(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  pcre2_get_match_data_size(pcre2_match_data *); \
+PCRE2_EXP_DECL uint32_t PCRE2_CALL_CONVENTION \
+  pcre2_get_ovector_count(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  *pcre2_get_ovector_pointer(pcre2_match_data *); \
+PCRE2_EXP_DECL PCRE2_SIZE PCRE2_CALL_CONVENTION \
+  pcre2_get_startchar(pcre2_match_data *);
+/* Convenience functions for handling matched substrings. */
+#define PCRE2_SUBSTRING_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_copy_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR *, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_copy_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR *, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_substring_free(PCRE2_UCHAR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_get_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_UCHAR **, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_get_bynumber(pcre2_match_data *, uint32_t, PCRE2_UCHAR **, \
+    PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_length_byname(pcre2_match_data *, PCRE2_SPTR, PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_length_bynumber(pcre2_match_data *, uint32_t, PCRE2_SIZE *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_nametable_scan(const pcre2_code *, PCRE2_SPTR, PCRE2_SPTR *, \
+    PCRE2_SPTR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_number_from_name(const pcre2_code *, PCRE2_SPTR); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_substring_list_free(PCRE2_SPTR *); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substring_list_get(pcre2_match_data *, PCRE2_UCHAR ***, PCRE2_SIZE **);
+/* Functions for serializing / deserializing compiled patterns. */
+#define PCRE2_SERIALIZE_FUNCTIONS \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_encode(const pcre2_code **, int32_t, uint8_t **, \
+    PCRE2_SIZE *, pcre2_general_context *); \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_decode(pcre2_code **, int32_t, const uint8_t *, \
+    pcre2_general_context *); \
+PCRE2_EXP_DECL int32_t PCRE2_CALL_CONVENTION \
+  pcre2_serialize_get_number_of_codes(const uint8_t *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_serialize_free(uint8_t *);
+/* Convenience function for match + substitute. */
+#define PCRE2_SUBSTITUTE_FUNCTION \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_substitute(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *, PCRE2_SPTR, \
+    PCRE2_SIZE, PCRE2_UCHAR *, PCRE2_SIZE *);
+/* Functions for converting pattern source strings. */
+#define PCRE2_CONVERT_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_pattern_convert(PCRE2_SPTR, PCRE2_SIZE, uint32_t, PCRE2_UCHAR **, \
+    PCRE2_SIZE *, pcre2_convert_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_converted_pattern_free(PCRE2_UCHAR *);
+/* Functions for JIT processing */
+#define PCRE2_JIT_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_jit_compile(pcre2_code *, uint32_t); \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_jit_match(const pcre2_code *, PCRE2_SPTR, PCRE2_SIZE, PCRE2_SIZE, \
+    uint32_t, pcre2_match_data *, pcre2_match_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_free_unused_memory(pcre2_general_context *); \
+PCRE2_EXP_DECL pcre2_jit_stack PCRE2_CALL_CONVENTION \
+  *pcre2_jit_stack_create(PCRE2_SIZE, PCRE2_SIZE, pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_stack_assign(pcre2_match_context *, pcre2_jit_callback, void *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_jit_stack_free(pcre2_jit_stack *);
+/* Other miscellaneous functions. */
+#define PCRE2_OTHER_FUNCTIONS \
+PCRE2_EXP_DECL int PCRE2_CALL_CONVENTION \
+  pcre2_get_error_message(int, PCRE2_UCHAR *, PCRE2_SIZE); \
+PCRE2_EXP_DECL const uint8_t PCRE2_CALL_CONVENTION \
+  *pcre2_maketables(pcre2_general_context *); \
+PCRE2_EXP_DECL void PCRE2_CALL_CONVENTION \
+  pcre2_maketables_free(pcre2_general_context *, const uint8_t *);
+/* Define macros that generate width-specific names from generic versions. The
+three-level macro scheme is necessary to get the macros expanded when we want
+them to be. First we get the width from PCRE2_LOCAL_WIDTH, which is used for
+generating three versions of everything below. After that, PCRE2_SUFFIX will be
+re-defined to use PCRE2_CODE_UNIT_WIDTH, for use when macros such as
+pcre2_compile are called by application code. */
+#define PCRE2_JOIN(a,b) a ## b
+#define PCRE2_GLUE(a,b) PCRE2_JOIN(a,b)
+#define PCRE2_SUFFIX(a) PCRE2_GLUE(a,PCRE2_LOCAL_WIDTH)
+/* Data types */
+#define PCRE2_UCHAR                 PCRE2_SUFFIX(PCRE2_UCHAR)
+#define PCRE2_SPTR                  PCRE2_SUFFIX(PCRE2_SPTR)
+#define pcre2_code                  PCRE2_SUFFIX(pcre2_code_)
+#define pcre2_jit_callback          PCRE2_SUFFIX(pcre2_jit_callback_)
+#define pcre2_jit_stack             PCRE2_SUFFIX(pcre2_jit_stack_)
+#define pcre2_real_code             PCRE2_SUFFIX(pcre2_real_code_)
+#define pcre2_real_general_context  PCRE2_SUFFIX(pcre2_real_general_context_)
+#define pcre2_real_compile_context  PCRE2_SUFFIX(pcre2_real_compile_context_)
+#define pcre2_real_convert_context  PCRE2_SUFFIX(pcre2_real_convert_context_)
+#define pcre2_real_match_context    PCRE2_SUFFIX(pcre2_real_match_context_)
+#define pcre2_real_jit_stack        PCRE2_SUFFIX(pcre2_real_jit_stack_)
+#define pcre2_real_match_data       PCRE2_SUFFIX(pcre2_real_match_data_)
+/* Data blocks */
+#define pcre2_callout_block            PCRE2_SUFFIX(pcre2_callout_block_)
+#define pcre2_callout_enumerate_block  PCRE2_SUFFIX(pcre2_callout_enumerate_block_)
+#define pcre2_substitute_callout_block PCRE2_SUFFIX(pcre2_substitute_callout_block_)
+#define pcre2_general_context          PCRE2_SUFFIX(pcre2_general_context_)
+#define pcre2_compile_context          PCRE2_SUFFIX(pcre2_compile_context_)
+#define pcre2_convert_context          PCRE2_SUFFIX(pcre2_convert_context_)
+#define pcre2_match_context            PCRE2_SUFFIX(pcre2_match_context_)
+#define pcre2_match_data               PCRE2_SUFFIX(pcre2_match_data_)
+/* Functions: the complete list in alphabetical order */
+#define pcre2_callout_enumerate               PCRE2_SUFFIX(pcre2_callout_enumerate_)
+#define pcre2_code_copy                       PCRE2_SUFFIX(pcre2_code_copy_)
+#define pcre2_code_copy_with_tables           PCRE2_SUFFIX(pcre2_code_copy_with_tables_)
+#define pcre2_code_free                       PCRE2_SUFFIX(pcre2_code_free_)
+#define pcre2_compile                         PCRE2_SUFFIX(pcre2_compile_)
+#define pcre2_compile_context_copy            PCRE2_SUFFIX(pcre2_compile_context_copy_)
+#define pcre2_compile_context_create          PCRE2_SUFFIX(pcre2_compile_context_create_)
+#define pcre2_compile_context_free            PCRE2_SUFFIX(pcre2_compile_context_free_)
+#define pcre2_config                          PCRE2_SUFFIX(pcre2_config_)
+#define pcre2_convert_context_copy            PCRE2_SUFFIX(pcre2_convert_context_copy_)
+#define pcre2_convert_context_create          PCRE2_SUFFIX(pcre2_convert_context_create_)
+#define pcre2_convert_context_free            PCRE2_SUFFIX(pcre2_convert_context_free_)
+#define pcre2_converted_pattern_free          PCRE2_SUFFIX(pcre2_converted_pattern_free_)
+#define pcre2_dfa_match                       PCRE2_SUFFIX(pcre2_dfa_match_)
+#define pcre2_general_context_copy            PCRE2_SUFFIX(pcre2_general_context_copy_)
+#define pcre2_general_context_create          PCRE2_SUFFIX(pcre2_general_context_create_)
+#define pcre2_general_context_free            PCRE2_SUFFIX(pcre2_general_context_free_)
+#define pcre2_get_error_message               PCRE2_SUFFIX(pcre2_get_error_message_)
+#define pcre2_get_mark                        PCRE2_SUFFIX(pcre2_get_mark_)
+#define pcre2_get_match_data_size             PCRE2_SUFFIX(pcre2_get_match_data_size_)
+#define pcre2_get_ovector_pointer             PCRE2_SUFFIX(pcre2_get_ovector_pointer_)
+#define pcre2_get_ovector_count               PCRE2_SUFFIX(pcre2_get_ovector_count_)
+#define pcre2_get_startchar                   PCRE2_SUFFIX(pcre2_get_startchar_)
+#define pcre2_jit_compile                     PCRE2_SUFFIX(pcre2_jit_compile_)
+#define pcre2_jit_match                       PCRE2_SUFFIX(pcre2_jit_match_)
+#define pcre2_jit_free_unused_memory          PCRE2_SUFFIX(pcre2_jit_free_unused_memory_)
+#define pcre2_jit_stack_assign                PCRE2_SUFFIX(pcre2_jit_stack_assign_)
+#define pcre2_jit_stack_create                PCRE2_SUFFIX(pcre2_jit_stack_create_)
+#define pcre2_jit_stack_free                  PCRE2_SUFFIX(pcre2_jit_stack_free_)
+#define pcre2_maketables                      PCRE2_SUFFIX(pcre2_maketables_)
+#define pcre2_maketables_free                 PCRE2_SUFFIX(pcre2_maketables_free_)
+#define pcre2_match                           PCRE2_SUFFIX(pcre2_match_)
+#define pcre2_match_context_copy              PCRE2_SUFFIX(pcre2_match_context_copy_)
+#define pcre2_match_context_create            PCRE2_SUFFIX(pcre2_match_context_create_)
+#define pcre2_match_context_free              PCRE2_SUFFIX(pcre2_match_context_free_)
+#define pcre2_match_data_create               PCRE2_SUFFIX(pcre2_match_data_create_)
+#define pcre2_match_data_create_from_pattern  PCRE2_SUFFIX(pcre2_match_data_create_from_pattern_)
+#define pcre2_match_data_free                 PCRE2_SUFFIX(pcre2_match_data_free_)
+#define pcre2_pattern_convert                 PCRE2_SUFFIX(pcre2_pattern_convert_)
+#define pcre2_pattern_info                    PCRE2_SUFFIX(pcre2_pattern_info_)
+#define pcre2_serialize_decode                PCRE2_SUFFIX(pcre2_serialize_decode_)
+#define pcre2_serialize_encode                PCRE2_SUFFIX(pcre2_serialize_encode_)
+#define pcre2_serialize_free                  PCRE2_SUFFIX(pcre2_serialize_free_)
+#define pcre2_serialize_get_number_of_codes   PCRE2_SUFFIX(pcre2_serialize_get_number_of_codes_)
+#define pcre2_set_bsr                         PCRE2_SUFFIX(pcre2_set_bsr_)
+#define pcre2_set_callout                     PCRE2_SUFFIX(pcre2_set_callout_)
+#define pcre2_set_character_tables            PCRE2_SUFFIX(pcre2_set_character_tables_)
+#define pcre2_set_compile_extra_options       PCRE2_SUFFIX(pcre2_set_compile_extra_options_)
+#define pcre2_set_compile_recursion_guard     PCRE2_SUFFIX(pcre2_set_compile_recursion_guard_)
+#define pcre2_set_depth_limit                 PCRE2_SUFFIX(pcre2_set_depth_limit_)
+#define pcre2_set_glob_escape                 PCRE2_SUFFIX(pcre2_set_glob_escape_)
+#define pcre2_set_glob_separator              PCRE2_SUFFIX(pcre2_set_glob_separator_)
+#define pcre2_set_heap_limit                  PCRE2_SUFFIX(pcre2_set_heap_limit_)
+#define pcre2_set_match_limit                 PCRE2_SUFFIX(pcre2_set_match_limit_)
+#define pcre2_set_max_pattern_length          PCRE2_SUFFIX(pcre2_set_max_pattern_length_)
+#define pcre2_set_newline                     PCRE2_SUFFIX(pcre2_set_newline_)
+#define pcre2_set_parens_nest_limit           PCRE2_SUFFIX(pcre2_set_parens_nest_limit_)
+#define pcre2_set_offset_limit                PCRE2_SUFFIX(pcre2_set_offset_limit_)
+#define pcre2_set_substitute_callout          PCRE2_SUFFIX(pcre2_set_substitute_callout_)
+#define pcre2_substitute                      PCRE2_SUFFIX(pcre2_substitute_)
+#define pcre2_substring_copy_byname           PCRE2_SUFFIX(pcre2_substring_copy_byname_)
+#define pcre2_substring_copy_bynumber         PCRE2_SUFFIX(pcre2_substring_copy_bynumber_)
+#define pcre2_substring_free                  PCRE2_SUFFIX(pcre2_substring_free_)
+#define pcre2_substring_get_byname            PCRE2_SUFFIX(pcre2_substring_get_byname_)
+#define pcre2_substring_get_bynumber          PCRE2_SUFFIX(pcre2_substring_get_bynumber_)
+#define pcre2_substring_length_byname         PCRE2_SUFFIX(pcre2_substring_length_byname_)
+#define pcre2_substring_length_bynumber       PCRE2_SUFFIX(pcre2_substring_length_bynumber_)
+#define pcre2_substring_list_get              PCRE2_SUFFIX(pcre2_substring_list_get_)
+#define pcre2_substring_list_free             PCRE2_SUFFIX(pcre2_substring_list_free_)
+#define pcre2_substring_nametable_scan        PCRE2_SUFFIX(pcre2_substring_nametable_scan_)
+#define pcre2_substring_number_from_name      PCRE2_SUFFIX(pcre2_substring_number_from_name_)
+/* Keep this old function name for backwards compatibility */
+#define pcre2_set_recursion_limit PCRE2_SUFFIX(pcre2_set_recursion_limit_)
+/* Keep this obsolete function for backwards compatibility: it is now a noop. */
+#define pcre2_set_recursion_memory_management PCRE2_SUFFIX(pcre2_set_recursion_memory_management_)
+/* Now generate all three sets of width-specific structures and function
+prototypes. */
+#define PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS \
+PCRE2_TYPES_LIST \
+PCRE2_STRUCTURE_LIST \
+PCRE2_GENERAL_INFO_FUNCTIONS \
+PCRE2_GENERAL_CONTEXT_FUNCTIONS \
+PCRE2_COMPILE_CONTEXT_FUNCTIONS \
+PCRE2_CONVERT_CONTEXT_FUNCTIONS \
+PCRE2_CONVERT_FUNCTIONS \
+PCRE2_MATCH_CONTEXT_FUNCTIONS \
+PCRE2_COMPILE_FUNCTIONS \
+PCRE2_PATTERN_INFO_FUNCTIONS \
+PCRE2_MATCH_FUNCTIONS \
+PCRE2_SUBSTRING_FUNCTIONS \
+PCRE2_SERIALIZE_FUNCTIONS \
+PCRE2_SUBSTITUTE_FUNCTION \
+PCRE2_JIT_FUNCTIONS \
+PCRE2_OTHER_FUNCTIONS
+#define PCRE2_LOCAL_WIDTH 8
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+#define PCRE2_LOCAL_WIDTH 16
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+#define PCRE2_LOCAL_WIDTH 32
+PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+#undef PCRE2_LOCAL_WIDTH
+/* Undefine the list macros; they are no longer needed. */
+#undef PCRE2_TYPES_LIST
+#undef PCRE2_STRUCTURE_LIST
+#undef PCRE2_GENERAL_INFO_FUNCTIONS
+#undef PCRE2_GENERAL_CONTEXT_FUNCTIONS
+#undef PCRE2_COMPILE_CONTEXT_FUNCTIONS
+#undef PCRE2_CONVERT_CONTEXT_FUNCTIONS
+#undef PCRE2_MATCH_CONTEXT_FUNCTIONS
+#undef PCRE2_COMPILE_FUNCTIONS
+#undef PCRE2_PATTERN_INFO_FUNCTIONS
+#undef PCRE2_MATCH_FUNCTIONS
+#undef PCRE2_SUBSTRING_FUNCTIONS
+#undef PCRE2_SERIALIZE_FUNCTIONS
+#undef PCRE2_SUBSTITUTE_FUNCTION
+#undef PCRE2_JIT_FUNCTIONS
+#undef PCRE2_OTHER_FUNCTIONS
+#undef PCRE2_TYPES_STRUCTURES_AND_FUNCTIONS
+/* PCRE2_CODE_UNIT_WIDTH must be defined. If it is 8, 16, or 32, redefine
+PCRE2_SUFFIX to use it. If it is 0, undefine the other macros and make
+PCRE2_SUFFIX a no-op. Otherwise, generate an error. */
+#undef PCRE2_SUFFIX
+#ifndef PCRE2_CODE_UNIT_WIDTH
+#error PCRE2_CODE_UNIT_WIDTH must be defined before including pcre2.h.
+#error Use 8, 16, or 32; or 0 for a multi-width application.
+#else  /* PCRE2_CODE_UNIT_WIDTH is defined */
+#if PCRE2_CODE_UNIT_WIDTH == 8 || \
+    PCRE2_CODE_UNIT_WIDTH == 16 || \
+    PCRE2_CODE_UNIT_WIDTH == 32
+#define PCRE2_SUFFIX(a) PCRE2_GLUE(a, PCRE2_CODE_UNIT_WIDTH)
+#elif PCRE2_CODE_UNIT_WIDTH == 0
+#undef PCRE2_JOIN
+#undef PCRE2_GLUE
+#define PCRE2_SUFFIX(a) a
+#else
+#error PCRE2_CODE_UNIT_WIDTH must be 0, 8, 16, or 32.
+#endif
+#endif  /* PCRE2_CODE_UNIT_WIDTH is defined */
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif
+#endif  /* PCRE2_H_IDEMPOTENT_GUARD */
+/* End of pcre2.h */
+namespace pcre2
+{
+using regex_t = std::shared_ptr<const pcre2_code_8>;
+using match_data_dtor_t = std::integral_constant<
+    decltype(&pcre2_match_data_free_8), &pcre2_match_data_free_8>;
+using match_data_t = std::unique_ptr<
+    pcre2_match_data_8, match_data_dtor_t>;
+using match_context_dtor_t = std::integral_constant<
+    decltype(&pcre2_match_context_free_8), &pcre2_match_context_free_8>;
+using match_context_t = std::unique_ptr<
+    pcre2_match_context_8, match_context_dtor_t>;
+template<typename String>
+regex_t new_regex(const String& pattern)
+{
+    static_assert(wl::is_string_view_v<String>, "");
+    int error = 0;
+    PCRE2_SIZE pos = 0;
+    pcre2_code_8* regex_ptr = pcre2_compile_8((PCRE2_SPTR8)pattern.c_str(),
+        pattern.byte_size(), 0, &error, &pos, nullptr);
+    if (!regex_ptr)
+    {
+        constexpr PCRE2_SIZE buffer_size = 256;
+        PCRE2_UCHAR buffer[buffer_size];
+        pcre2_get_error_message_8(error, buffer, buffer_size);
+        throw std::logic_error((const char*)buffer);
+    }
+    return {regex_ptr, &pcre2_code_free_8};
+}
+template<typename C, typename P>
+struct _regex_search_state
+{
+    const wl::strexp::compiled_pattern<C, P>& pattern_;
+    uint32_t capture_count_ = 0;
+    const PCRE2_SPTR8 text_data_;
+    const size_t text_size_;
+    size_t start_pos_ = 0;
+    match_data_t match_{};
+    PCRE2_SIZE* match_ptr_ = nullptr;
+    _regex_search_state(const wl::strexp::compiled_pattern<C, P>& pattern,
+        PCRE2_SPTR8 text_data, size_t text_size) :
+        pattern_{pattern}, text_data_{text_data}, text_size_{text_size}
+    {
+        *pattern_.conditions_ptr = &pattern_.conditions;
+        pcre2_pattern_info_8(pattern_.regex_ptr.get(),
+            PCRE2_INFO_CAPTURECOUNT, &capture_count_);
+        match_.reset(pcre2_match_data_create_8(capture_count_ + 1u, nullptr));
+        match_ptr_ = pcre2_get_ovector_pointer_8(match_.get());
+        match_ptr_[0] = PCRE2_SIZE(-1);
+        match_ptr_[1] = PCRE2_SIZE(0);
+    }
+    wl::string_view prefix() const
+    {
+        return {text_data_ + start_pos_, text_data_ + match_ptr_[0u]};
+    }
+    auto capture_count() const
+    {
+        return size_t(capture_count_);
+    }
+    size_t match_begin_idx() const
+    {
+        return size_t(match_ptr_[0u]);
+    }
+    size_t match_end_idx() const
+    {
+        return size_t(match_ptr_[1u]);
+    }
+    wl::string_view match() const
+    {
+        return {text_data_ + match_ptr_[0u], text_data_ + match_ptr_[1u]};
+    }
+    wl::string_view match(size_t i) const
+    {
+        assert(i <= capture_count_);
+        return {text_data_ + match_ptr_[2u * i],
+            text_data_ + match_ptr_[2u * i + 1u]};
+    }
+    bool find_next(bool overlap = false, uint32_t options = 0u)
+    {
+        WL_THROW_IF_ABORT()
+        start_pos_ = overlap ? match_ptr_[0] + PCRE2_SIZE(1) : match_ptr_[1];
+        auto match_start_pos = start_pos_;
+        if (start_pos_ == match_ptr_[0]) // causes indefinite loop
+            ++match_start_pos;
+        if (match_start_pos > text_size_)
+            return false;
+        auto result = pcre2_match_8(pattern_.regex_ptr.get(),
+            text_data_, text_size_, match_start_pos, options, match_.get(),
+            pattern_.match_context_ptr.get());
+        return result >= 0;
+    }
+};
+template<typename C, typename P, typename CharT>
+auto regex_search(const wl::strexp::compiled_pattern<C, P>& pattern,
+    const CharT* text_data, size_t text_size)
+{
+    return _regex_search_state<C, P>(pattern, (PCRE2_SPTR8)text_data,
+        text_size);
+}
+template<typename PatternIdList>
+struct callout_matches_t
+{
+    PCRE2_SPTR text_data;
+    const PCRE2_SIZE* offset_vector;
+    const size_t capture_top;
+    template<int64_t I>
+    wl::string_view operator[](wl::const_int<I> id) const
+    {
+        if constexpr (I > 0)
+        { // Condition
+            constexpr auto group_idx = PatternIdList::find(id);
+            assert(group_idx < capture_top);
+            return {text_data + offset_vector[2u * group_idx],
+                text_data + offset_vector[2u * group_idx + 1u]};
+        }
+        else
+        { // PatternTest
+            return {text_data + offset_vector[2u * capture_top - 2u],
+                text_data + offset_vector[2u * capture_top - 1u]};
+        }
+    }
+};
+template<typename PL, typename CL, size_t... Is>
+auto callout_evaluate(size_t number, const callout_matches_t<PL>& matches,
+    const CL& conditions, std::index_sequence<Is...>)
+{
+    assert(number < CL::size);
+    return ((number != Is || conditions.template get<Is>()(matches)) && ...);
+}
+template<typename PatternIdList, typename ConditionList>
+int callout_function(pcre2_callout_block_8* block_ptr,
+    void* condition_list_ptr)
+{
+    WL_THROW_IF_ABORT()
+    auto matches = callout_matches_t<PatternIdList>{block_ptr->subject,
+        block_ptr->offset_vector, block_ptr->capture_top};
+    const ConditionList& condition_list =
+        **(const ConditionList**)condition_list_ptr;
+    bool pass = callout_evaluate(
+        block_ptr->callout_number, matches, condition_list,
+        std::make_index_sequence<ConditionList::size>{});
+    return pass ? 0 : 1;
+}
+}
+namespace wl
+{
+template<typename X>
+auto string_length(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_type_v<X>, WL_ERROR_STRING_TYPE_ONLY);
+    auto pure = [](const auto& str)
+    {
+        return int64_t(str.size());
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any>
+auto _integer_to_string(const Any& any, const size_t min_length = 0)
+{
+    if constexpr (array_rank_v<Any> == 0u)
+    {
+        if constexpr (is_integral_v<Any>)
+        {
+            if (any == Any(0))
+                return string("0");
+            constexpr size_t buffer_size = 24;
+            utf8::char_t buffer[buffer_size];
+            auto ptr = buffer + buffer_size;
+            size_t length = 0;
+            auto value = any;
+            while (value || length < min_length)
+            {
+                auto rem = value % Any(10);
+                value = value / Any(10);
+                if constexpr (std::is_unsigned_v<Any>)
+                    *--ptr = utf8::char_t('0' + rem);
+                else
+                    *--ptr = utf8::char_t('0' + (rem < 0 ? -rem : rem));
+                ++length;
+            }
+            if (any < Any(0))
+                *--ptr = '-';
+            return string(ptr, buffer_size - size_t(ptr - buffer));
+        }
+        else
+        {
+            assert(false);
+            return string();
+        }
+    }
+    else
+    {
+        assert(false);
+        return string();
+    }
+}
+template<typename Arg>
+auto _string_join_attributes_by_args_impl(
+    size_t& byte_size, bool& ascii_only, const Arg& arg)
+{
+    if constexpr (is_argument_pack_v<Arg>)
+    {
+        for (size_t i = 0; i < arg.size(); ++i)
+        {
+            byte_size += arg.get(i).byte_size();
+            if (ascii_only)
+                ascii_only = arg.get(i).ascii_only();
+        }
+        return byte_size;
+    }
+    else if constexpr (array_rank_v<Arg> >= 1u)
+    {
+        static_assert(is_string_v<value_type_t<Arg>>, WL_ERROR_STRING_ONLY);
+        arg.for_each([&](const auto& x)
+            {
+                byte_size += x.byte_size();
+                if (ascii_only)
+                    ascii_only = x.ascii_only();
+            });
+        return byte_size;
+    }
+    else
+    {
+        static_assert(is_string_view_v<Arg>, WL_ERROR_STRING_ONLY);
+        byte_size += arg.byte_size();
+        if (ascii_only)
+            ascii_only = arg.ascii_only();
+    }
+}
+template<typename... Args>
+auto _string_join_attributes_by_args(const Args&... args)
+{
+    size_t total_size = 0u;
+    bool ascii_only = true;
+    [[maybe_unused]] const auto& _1 = (
+        _string_join_attributes_by_args_impl(
+            total_size, ascii_only, args),
+        ..., 0);
+    return std::pair(total_size, ascii_only);
+}
+template<typename Char, typename Arg>
+void _string_join_copy_by_args_impl(Char*& str, const Arg& arg)
+{
+    if constexpr (is_argument_pack_v<Arg>)
+    {
+        for (size_t i = 0; i < arg.size(); ++i)
+            _string_join_copy_by_args_impl(str, arg.get(i));
+    }
+    else if constexpr (array_rank_v<Arg> >= 1u)
+    {
+        arg.for_each([&](const auto& x)
+            { _string_join_copy_by_args_impl(str, x); });
+    }
+    else
+    {
+        const size_t byte_size = arg.byte_size();
+        utils::restrict_copy_n(arg.byte_data(), byte_size, str);
+        str += byte_size;
+    }
+}
+template<typename Char, typename... Args>
+auto _string_join_copy_by_args(Char*& str, const Args&... args)
+{
+    [[maybe_unused]] const auto& _1 = (
+        _string_join_copy_by_args_impl(str, args), ..., 0);
+}
+template<typename... Args>
+auto string_join(const Args&... args)
+{
+    WL_TRY_BEGIN()
+    auto [total_size, ascii_only] = _string_join_attributes_by_args(args...);
+    auto ret = string(total_size, ascii_only);
+    auto ret_data = ret.byte_data();
+    WL_THROW_IF_ABORT()
+    _string_join_copy_by_args(ret_data, args...);
+    assert(ret.check_validity());
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Spec>
+auto _string_take_impl_ascii_only()
+{
+    return string();
+}
+template<typename Iter, typename Offset>
+Iter _string_take_find_offset(const Iter& begin, const Iter& end,
+    const Offset offset, const bool adjust_end)
+{
+    if (std::is_unsigned_v<Offset> || offset > 0)
+    {
+        auto ret = begin;
+        ret.apply_offset(offset - ptrdiff_t(!adjust_end), end);
+        if (ret.get_pointer() > end.get_pointer())
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        return ret;
+    }
+    else if (offset < 0)
+    {
+        auto ret = end;
+        ret.apply_offset(offset + ptrdiff_t(adjust_end), begin);
+        if (ret.get_pointer() < begin.get_pointer())
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        return ret;
+    }
+    else
+    {
+        throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        return begin;
+    }
+}
+template<typename Iter>
+auto _string_take_impl_unicode_1arg(const Iter& begin, const Iter& end,
+    ptrdiff_t offset)
+{
+    if (offset > 0)
+    {
+        const auto mid = _string_take_find_offset(begin, end, offset, true);
+        return string_view(begin, mid, size_t(offset));
+    }
+    else
+    {
+        const auto mid = _string_take_find_offset(begin, end, offset, false);
+        return string_view(mid, end, size_t(-offset));
+    }
+}
+template<typename Iter>
+auto _string_take_impl_unicode_2args(const Iter& begin, const Iter& end,
+    ptrdiff_t offset, ptrdiff_t string_size)
+{
+    if (string_size <= 0)
+        return string_view(begin, begin, size_t(0));
+    const auto mid1 = _string_take_find_offset(
+        begin, end, offset, false);
+    const auto mid2 = _string_take_find_offset(
+        mid1, end, size_t(string_size), true);
+    const auto byte_size = size_t(mid2.byte_difference(mid1));
+    return string_view(mid1, mid2, size_t(string_size));
+}
+template<typename String, typename Spec>
+auto _string_take_impl_unicode(const String& str, const Spec& spec,
+    ptrdiff_t total_size = -1)
+{
+    const auto begin = str.begin();
+    const auto end = str.end();
+    if constexpr (is_integral_v<Spec>)
+    {
+        if (spec == Spec(0))
+            return string_view(begin, begin, size_t(0));
+        else
+            return _string_take_impl_unicode_1arg(
+                begin, end, ptrdiff_t(spec));
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        std::array<ptrdiff_t, 2u> offsets{};
+        spec.copy_to(offsets.data());
+        if (spec_size == 1u)
+        {
+            if (offsets[0] == 0)
+                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+            return _string_take_impl_unicode_2args(
+                begin, end, offsets[0], 1u);
+        }
+        else if (spec_size == 2u)
+        {
+            if (offsets[0] == 0 || offsets[1] == 0)
+                throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+            if (offsets[0] * offsets[1] < 0)
+            {
+                if (total_size < 0)
+                    total_size = str.size();
+                if (offsets[0] < 0)
+                    offsets[0] += ptrdiff_t(total_size + 1u);
+                else
+                    offsets[1] += ptrdiff_t(total_size + 1u);
+            }
+            return _string_take_impl_unicode_2args(
+                begin, end, offsets[0], offsets[1] - offsets[0] + 1u);
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+        }
+    }
+    else if constexpr (array_rank_v<Spec> == 2u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto& valspec = allows<view_category::Simple>(spec);
+        const auto ret_size = valspec.dims()[0];
+        const auto spec_size = valspec.dims()[1];
+        const auto spec_data = valspec.data();
+        ndarray<string, 1u> ret(std::array<size_t, 1u>{ret_size});
+        auto ret_data = ret.data();
+        if (spec_size == 1u)
+        {
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = string(_string_take_impl_unicode(str,
+                    wl::list(spec_data[i])));
+        }
+        else if (spec_size == 2u)
+        {
+            if constexpr (std::is_signed_v<value_type_t<Spec>>)
+            {
+                if ((total_size < 0) && std::any_of(
+                    spec_data, spec_data + 2u * ret_size,
+                    [](auto i) { return i < 0; }))
+                {
+                    total_size = str.size();
+                }
+            }
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = string(_string_take_impl_unicode(str,
+                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u]),
+                    total_size));
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+        }
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
+}
+template<typename String, typename Spec>
+auto _string_take_impl_ascii(const String& str, const Spec& spec)
+{
+    const auto begin = str.byte_begin();
+    const auto end = str.byte_end();
+    const auto total_size = str.byte_size();
+    if constexpr (is_integral_v<Spec>)
+    {
+        if (spec == Spec(0))
+            return string_view(begin, begin, size_t(0));
+        else if (size_t(wl::abs(spec)) > total_size)
+            throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+        else if (spec > Spec(0))
+            return string_view(begin, begin + ptrdiff_t(spec), size_t(spec));
+        else
+            return string_view(end + ptrdiff_t(spec), end,
+                size_t(-ptrdiff_t(spec)));
+    }
+    else if constexpr (array_rank_v<Spec> == 1u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto spec_size = spec.size();
+        std::array<ptrdiff_t, 2u> offsets{};
+        spec.copy_to(offsets.data());
+        if (spec_size == 1u)
+        {
+            if (offsets[0] == 0 || size_t(wl::abs(offsets[0])) > total_size)
+                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+            auto substr_begin = (offsets[0] > 0) ?
+                (begin + offsets[0] - 1) : (end + offsets[0]);
+            return string_view(substr_begin, substr_begin + 1, size_t(1));
+        }
+        else if (spec_size == 2u)
+        {
+            if (offsets[0] == 0 || offsets[1] == 0)
+                throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+            if (offsets[0] < 0)
+                offsets[0] += ptrdiff_t(total_size + 1u);
+            if (offsets[1] < 0)
+                offsets[1] += ptrdiff_t(total_size + 1u);
+            if (offsets[0] > offsets[1])
+                return string_view(begin, begin, size_t(0));
+            if (size_t(offsets[0]) > total_size ||
+                size_t(offsets[1]) > total_size)
+                throw std::logic_error(WL_ERROR_OUT_OF_RANGE);
+            return string_view(begin + offsets[0] - 1,
+                begin + offsets[1], size_t(offsets[1] - offsets[0] + 1));
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+        }
+    }
+    else if constexpr (array_rank_v<Spec> == 2u &&
+        is_integral_v<value_type_t<Spec>>)
+    {
+        const auto& valspec = allows<view_category::Simple>(spec);
+        const auto ret_size = valspec.dims()[0];
+        const auto spec_size = valspec.dims()[1];
+        const auto spec_data = valspec.data();
+        ndarray<string, 1u> ret(std::array<size_t, 1u>{ret_size});
+        auto ret_data = ret.data();
+        if (spec_size == 1u)
+        {
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = string(_string_take_impl_ascii(str,
+                    wl::list(spec_data[i])));
+        }
+        else if (spec_size == 2u)
+        {
+            for (size_t i = 0; i < ret_size; ++i)
+                ret_data[i] = string(_string_take_impl_ascii(str,
+                    wl::list(spec_data[2u * i], spec_data[2u * i + 1u])));
+        }
+        else
+        {
+            throw std::logic_error(WL_ERROR_STRING_TAKE_SPEC_LIST_LENGTH);
+        }
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<Spec>, WL_ERROR_TAKE_SPEC_TYPE);
+    }
+}
+template<typename String, typename Spec>
+auto string_take(String&& str, const Spec& spec)
+{
+    WL_TRY_BEGIN()
+    using StringT = remove_cvref_t<String>;
+    static_assert(is_string_view_v<StringT>, WL_ERROR_STRING_ONLY);
+    WL_THROW_IF_ABORT()
+    if constexpr (array_rank_v<Spec> <= 1u)
+    {
+        auto view = u8string_view{};
+        if (str.ascii_only())
+            view = _string_take_impl_ascii(str, spec);
+        else
+            view = _string_take_impl_unicode(str, spec);
+        if constexpr (is_string_v<StringT> && std::is_rvalue_reference_v<String&&>)
+        { // must return a string
+            return string(view);
+        }
+        else
+        { // can return a string view
+            return view;
+        }
+    }
+    else
+    {
+        if (str.ascii_only())
+            return _string_take_impl_ascii(str, spec);
+        else
+            return _string_take_impl_unicode(str, spec);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<int64_t Id, int64_t... List>
+struct _pattern_id_list_find_impl;
+template<int64_t Id, int64_t First, int64_t... Rest>
+struct _pattern_id_list_find_impl<Id, First, Rest...>
+{
+    static constexpr auto next =
+        _pattern_id_list_find_impl<Id, Rest...>::value;
+    static constexpr auto value =
+        (next == -1) ? int64_t(-1) : next + 1;
+};
+template<int64_t Id, int64_t... Rest>
+struct _pattern_id_list_find_impl<Id, Id, Rest...>
+{
+    static constexpr auto value = int64_t(1);
+};
+template<int64_t Id>
+struct _pattern_id_list_find_impl<Id>
+{
+    static constexpr auto value = int64_t(-1);
+};
+template<int64_t Start, int64_t... List>
+struct _pattern_id_list_max;
+template<int64_t Start, int64_t First, int64_t... Rest>
+struct _pattern_id_list_max<Start, First, Rest...> :
+    _pattern_id_list_max<std::max(Start, First), Rest...> {};
+template<int64_t Final>
+struct _pattern_id_list_max<Final>
+{
+    static constexpr auto value = Final;
+};
+template<int64_t... Ids>
+struct _pattern_id_list
+{
+    static constexpr auto size = sizeof...(Ids);
+    template<int64_t Id>
+    static constexpr auto find(const_int<Id>)
+    {
+        return _pattern_id_list_find_impl<Id, Ids...>::value;
+    }
+    template<int64_t Id>
+    static constexpr auto append(const_int<Id>)
+    {
+        return _pattern_id_list<Ids..., Id>{};
+    }
+};
+template<typename... Conditions>
+struct _pattern_condition_list
+{
+    static constexpr auto size = sizeof...(Conditions);
+    std::tuple<Conditions...> conditions_;
+    template<typename Condition, size_t... Is>
+    auto append_impl(Condition&& condition, std::index_sequence<Is...>) &&
+    {
+        return _pattern_condition_list<Conditions..., Condition>{
+            std::make_tuple(std::get<Is>(std::move(conditions_))...,
+                std::move(condition))};
+    }
+    
+    template<typename Condition>
+    auto append(Condition condition) &&
+    {
+        return std::move(*this).append_impl(std::move(condition),
+            std::make_index_sequence<size>{});
+    }
+    template<size_t I>
+    auto get() const -> const auto&
+    {
+        return std::get<I>(conditions_);
+    }
+};
+namespace strexp
+{
+template<typename ConditionList, typename PatternIdList_>
+struct compilation_state
+{
+    using PatternIdList = PatternIdList_;
+    ConditionList conditions;
+    template<int64_t Id>
+    auto append_id(const_int<Id>) &&
+    {
+        using NewList = decltype(PatternIdList::append(const_int<Id>{}));
+        return compilation_state<ConditionList, NewList>{std::move(conditions)};
+    }
+    template<typename Condition>
+    auto append_condition(Condition condition) &&
+    {
+        auto new_conditions =
+            std::move(conditions).append(std::move(condition));
+        return compilation_state<decltype(new_conditions), PatternIdList>{
+            std::move(new_conditions)};
+    }
+};
+template<typename ConditionList, typename PatternIdList_>
+struct compiled_pattern
+{
+    pcre2::regex_t regex_ptr;
+    pcre2::match_context_t match_context_ptr;
+    const ConditionList conditions;
+    std::unique_ptr<const ConditionList*> conditions_ptr;
+    const string regex_text;
+    using PatternIdList = PatternIdList_;
+    compiled_pattern(pcre2::regex_t in_regex_ptr,
+        ConditionList&& in_conditions, string&& in_regex_text) :
+        regex_ptr{in_regex_ptr},
+        match_context_ptr{pcre2_match_context_create_8(nullptr)},
+        conditions{std::move(in_conditions)},
+        conditions_ptr{new (const ConditionList*){nullptr}},
+        regex_text{std::move(in_regex_text)}
+    {
+        set_callout();
+    }
+    compiled_pattern(pcre2::regex_t in_regex_ptr) :
+        regex_ptr{in_regex_ptr},
+        match_context_ptr{pcre2_match_context_create_8(nullptr)},
+        conditions{},
+        conditions_ptr{new (const ConditionList*){nullptr}},
+        regex_text{""}
+    {
+        set_callout();
+    }
+    void set_callout()
+    {
+        pcre2_set_callout_8(match_context_ptr.get(),
+            &pcre2::callout_function<PatternIdList, ConditionList>,
+            conditions_ptr.get());
+    }
+};
+template<typename FormatIdList_>
+struct compiled_format
+{
+    using FormatIdList = FormatIdList_;
+    const string text;
+};
+template<typename Pattern, typename Format>
+struct compiled_rule
+{
+    const Pattern pattern;
+    const Format format;
+};
+template<typename T>
+struct _is_compiled_pattern : std::false_type {};
+template<typename C, typename P>
+struct _is_compiled_pattern<compiled_pattern<C, P>> : std::true_type {};
+template<typename P, typename R>
+struct _is_compiled_pattern<compiled_rule<P, R>> : std::true_type {};
+template<typename T>
+constexpr auto _is_compiled_pattern_v = _is_compiled_pattern<T>::value;
+enum tag_t
+{
+    WithinGroup = 0,
+    Alternation,
+    Concatenation,
+    MatchShortest,
+    Repetition,
+    Grouping,
+    CharacterSet,
+    Exception
+};
+template<int64_t Id, typename Pattern, typename State>
+auto compile(_named_pattern<Id, Pattern> p, string& str, State s, tag_t tag)
+{
+    constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
+    if constexpr (group_idx < 0 || Id < 0)
+    {
+        // group does not exist; capture a new group
+        // negative id means that the group is used for PatternTest
+        str.join("(");
+        auto s1 = std::move(s).append_id(const_int<Id>{});
+        auto s2 = compile(std::move(p.pattern), str, std::move(s1),
+            tag == MatchShortest ? MatchShortest : WithinGroup);
+        str.join(")");
+        return std::move(s2);
+    }
+    else
+    { // group already exists; refer to that group
+        str.join("\\g{").join(_integer_to_string(group_idx)).join("}");
+        return std::move(s);
+    }
+}
+template<typename... Head, typename State>
+auto compile(_pattern_blank<Head...>, string& str, State s, tag_t)
+{
+    str.join(".");
+    return std::move(s);
+}
+template<typename... Head, typename State>
+auto compile(_pattern_blank_sequence<Head...>, string& str, State s, tag_t tag)
+{
+    if (tag == MatchShortest)
+        str.join(".+?");
+    else if (tag < Repetition)
+        str.join(".+");
+    else
+        str.join("(?:.+)");
+    return std::move(s);
+}
+template<typename... Head, typename State>
+auto compile(_pattern_blank_null_sequence<Head...>, string& str, State s,
+    tag_t tag)
+{
+    if (tag == MatchShortest)
+        str.join(".*?");
+    else if (tag < Repetition)
+        str.join(".*");
+    else
+        str.join("(?:.*)");
+    return std::move(s);
+}
+template<size_t I = 0u, typename... Patterns, typename State>
+auto compile_alternatives(_pattern_alternatives<Patterns...> p, string& str,
+    State s, tag_t tag)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        auto&& pattern = std::move(p).template get<I>();
+        auto s1 = compile(std::move(pattern), str, std::move(s), tag);
+        if ((I + 1u < sizeof...(Patterns)) && tag == Alternation)
+            str.join("|");
+        auto s2 = compile_alternatives<I + 1u>(std::move(p), str,
+            std::move(s1), tag);
+        return std::move(s2);
+    }
+    else
+    {
+        return std::move(s);
+    }
+}
+template<typename String>
+auto is_single_character(const String& s)
+{
+    return (s.byte_size() == 1u) || ((s.byte_size() <= 4u) && (s.size() == 1u));
+}
+template<size_t I = 0u, typename... Patterns>
+auto compile_use_bracket_impl(
+    const _pattern_alternatives<Patterns...>& patterns)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        const auto& p = patterns.template get<I>();
+        using PT = remove_cvref_t<decltype(p)>;
+        bool pass = false;
+        if constexpr (is_string_view_v<remove_cvref_t<decltype(p)>>)
+            pass = is_single_character(p);
+        else
+            pass = std::is_same_v<PT, _whitespace_character_type> ||
+                std::is_same_v<PT, _word_character_type> ||
+                std::is_same_v<PT, _letter_character_type> ||
+                std::is_same_v<PT, _digit_character_type> ||
+                std::is_same_v<PT, _hexadecimal_character_type> ||
+                std::is_same_v<PT, _punctuation_character_type>;
+        return pass && compile_use_bracket_impl<I + 1u>(patterns);
+    }
+    else
+    {
+        return true;
+    }
+}
+template<typename... Patterns>
+auto compile_use_bracket(const _pattern_alternatives<Patterns...>& p)
+{
+    return compile_use_bracket_impl<0u>(p);
+}
+template<typename Any>
+auto compile_use_bracket(const Any& any)
+{
+    if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
+        return bool(all_true(any, [](const string& s)
+            { return boolean(is_single_character(s)); }));
+    else
+        return false;
+}
+template<typename... Patterns, typename State>
+auto compile(_pattern_alternatives<Patterns...> p, string& str, State s,
+    tag_t tag)
+{
+    auto use_bracket = compile_use_bracket(p);
+    if (tag == Exception && !use_bracket)
+        throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+    if (tag == Exception)
+        str.join("[^");
+    else if (use_bracket)
+        str.join("[");
+    else if (tag >= Alternation)
+        str.join("(?:");
+    auto s1 = compile_alternatives(std::move(p), str, std::move(s),
+        use_bracket ? CharacterSet : Alternation);
+    if (use_bracket)
+        str.join("]");
+    else if (tag >= Alternation)
+        str.join(")");
+    return std::move(s1);
+}
+template<typename Pattern, typename State>
+auto compile(_pattern_repeated<Pattern> p, string& str, State s, tag_t tag)
+{
+    if (p.min == 0u)
+        str.join("(?:");
+    auto s1 = compile(p.pattern, str, std::move(s),
+        p.min == 0u ? WithinGroup : Concatenation);
+    if (p.min == 0u)
+    {
+        str.join(")?");
+        if (tag == MatchShortest)
+            str.join("?");
+    }
+    auto s2 = compile(std::move(p).pattern, str, std::move(s1), Repetition);
+    if (p.max_is_infinity())
+        str.join("*");
+    else
+    {
+        if (p.min >= 2u)
+            str.join("{").join(_integer_to_string(p.min - 1u)).join(",");
+        else
+            str.join("{0,");
+        str.join(_integer_to_string(p.max - 1u)).join("}");
+    }
+    if (tag == MatchShortest)
+        str.join("?");
+    return std::move(s2);
+}
+template<typename Pattern, typename State>
+auto compile(_pattern_longest<Pattern> p, string& str, State s, tag_t tag)
+{
+    return compile(std::move(p.pattern), str, std::move(s), tag);
+}
+template<typename Pattern, typename State>
+auto compile(_pattern_shortest<Pattern> p, string& str, State s, tag_t tag)
+{
+    return compile(std::move(p.pattern), str, std::move(s), MatchShortest);
+}
+template<typename Pattern, typename Condition, typename State>
+auto compile(_condition<Pattern, Condition> p, string& str, State s, tag_t tag)
+{
+    auto s1 = std::move(s).append_condition(std::move(p.condition));
+    if (tag > Concatenation)
+        str.join("(?:");
+    auto s2 = compile(std::move(p.pattern), str, std::move(s1), Concatenation);
+    str.join("(?C");
+    str.join(_integer_to_string(decltype(s.conditions)::size));
+    str.join(")");
+    if (tag > Concatenation)
+        str.join(")");
+    return std::move(s2);
+}
+template<size_t I, typename... Patterns, typename State>
+auto compile_impl(_string_expression<Patterns...>&& p, string& str, State s)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        auto s2 = compile(std::move(p).template get<I>(), str, std::move(s),
+            Concatenation);
+        return compile_impl<I + 1u>(std::move(p), str, std::move(s2));
+    }
+    else
+    {
+        return std::move(s);
+    }
+}
+template<typename... Patterns, typename State>
+auto compile(_string_expression<Patterns...> p, string& str, State s,
+    tag_t tag)
+{
+    if (tag > Concatenation)
+        str.join("(?:");
+    auto s1 = compile_impl<0u>(std::move(p), str, std::move(s));
+    if (tag > Concatenation)
+        str.join(")");
+    return std::move(s1);
+}
+inline void compile_impl(const utf8::char_t* begin, const utf8::char_t* end,
+    string& str, tag_t tag)
+{
+    static const bool esc_table[256] ={
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,1,0,0,0,1,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    if (begin == end)
+    {
+        if (tag > WithinGroup)
+            str.join("(?:)");
+    }
+    else
+    {
+        if (tag > Concatenation && tag != CharacterSet)
+            str.join("(?:");
+        for (; begin < end; ++begin)
+        {
+            if (esc_table[*begin])
+                str.append<false, false>('\\');
+            str.append<false, false>(*begin);
+        }
+        str.place_null_character();
+        if (tag > Concatenation && tag != CharacterSet)
+            str.join(")");
+    }
+}
+template<typename State>
+auto compile(const ndarray<string, 1u>& patterns, string& str, State s,
+    tag_t tag)
+{
+    auto use_bracket = compile_use_bracket(patterns);
+    auto begin = patterns.begin();
+    auto end = patterns.end();
+    if (use_bracket)
+        str.append('[');
+    else if (tag >= Alternation)
+        str.join("(?:");
+    for (; begin != end; ++begin)
+    {
+        compile_impl(begin->byte_begin(), begin->byte_end(), str, Alternation);
+        if (!use_bracket)
+            str.append('|');
+    }
+    if (use_bracket)
+        str.append(']');
+    else if (tag >= Alternation)
+        str.join(")");
+    return std::move(s);
+}
+template<typename Any, typename State>
+auto compile(_pattern_except<Any> p, string& str, State s, tag_t)
+{
+    if constexpr (is_string_view_v<Any>)
+    {
+        if (!is_single_character(p.pattern))
+            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+        str.join("[^");
+        str.join(p.pattern);
+        str.join("]");
+    }
+    else if constexpr (array_rank_v<Any> == 1u && is_string_type_v<Any>)
+    {
+        if (!compile_use_bracket(p.pattern))
+            throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+        auto begin = p.pattern.begin();
+        auto end = p.pattern.end();
+        str.join("[^");
+        for (; begin != end; ++begin)
+            str.join(*begin);
+        str.join("]");
+    }
+    else if constexpr (std::is_same_v<Any, _word_character_type>)
+        str.join("[^[:alnum:]]");
+    else if constexpr (std::is_same_v<Any, _letter_character_type>)
+        str.join("[^[:alpha:]]");
+    else if constexpr (std::is_same_v<Any, _digit_character_type>)
+        str.join("\\D");
+    else if constexpr (std::is_same_v<Any, _whitespace_character_type>)
+        str.join("\\S");
+    else if constexpr (std::is_same_v<Any, _word_boundary_type>)
+        str.join("\\B");
+    else if constexpr (std::is_same_v<Any, _hexadecimal_character_type>)
+        str.join("[^[:xdigit:]]");
+    else if constexpr (std::is_same_v<Any, _punctuation_character_type>)
+        str.join("[^[:punct:]]");
+    else if constexpr (std::is_same_v<Any, _start_of_line_type>)
+        str.join("(?!^)");
+    else if constexpr (std::is_same_v<Any, _end_of_line_type>)
+        str.join("(?!$)");
+    else if constexpr (std::is_same_v<Any, _start_of_string_type>)
+        str.join("(?!\\A)");
+    else if constexpr (std::is_same_v<Any, _end_of_string_type>)
+        str.join("(?!\\z)");
+    else
+        static_assert(always_false_v<Any>, WL_ERROR_STRING_EXCEPT);
+    return std::move(s);
+}
+template<typename... Patterns, typename State>
+auto compile(_pattern_except<_pattern_alternatives<Patterns...>> p,
+    string& str, State s, tag_t)
+{
+    if (!compile_use_bracket(p.pattern))
+        throw std::logic_error(WL_ERROR_STRING_EXCEPT);
+    str.join("[^");
+    auto s2 = compile_alternatives(std::move(p.pattern), str, std::move(s),
+        CharacterSet);
+    str.join("]");
+    return std::move(s2);
+}
+template<typename Any, typename State>
+auto compile(Any&& any, string& str, State s, tag_t tag)
+{
+    using AT = remove_cvref_t<Any>;
+    if constexpr (is_string_view_v<AT>)
+    {
+        compile_impl(any.byte_begin(), any.byte_end(), str, tag);
+        return std::move(s);
+    }
+    else if constexpr (array_rank_v<AT> == 1u)
+    {
+        static_assert(is_string_v<value_type_t<AT>>, WL_ERROR_NOT_A_PATTERN);
+        const auto& valany = allows<view_category::Array>(
+            std::forward<decltype(any)>(any));
+        return compile(valany, str, std::move(s), tag);
+    }
+    else
+    {
+        static_assert(is_pattern_v<AT>, WL_ERROR_NOT_A_PATTERN);
+        if constexpr (std::is_same_v<AT, _whitespace_type>)
+        {
+            if (tag > Concatenation)
+                str.join("(?:\\s+)");
+            else
+                str.join("\\s+");
+        }
+        else if constexpr (std::is_same_v<AT, _number_string_type>)
+            str.join("(?:(?:\\+|-)?(?:\\d+(?:\\.\\d*)?|\\.\\d+))");
+        else if constexpr (std::is_same_v<AT, _word_character_type>)
+        {
+            if (tag == CharacterSet)
+                str.join("[:alnum:]");
+            else
+                str.join("[[:alnum:]]");
+        }
+        else if constexpr (std::is_same_v<AT, _letter_character_type>)
+        {
+            if (tag == CharacterSet)
+                str.join("[:alpha:]");
+            else
+                str.join("[[:alpha:]]");
+        }
+        else if constexpr (std::is_same_v<AT, _digit_character_type>)
+            str.join("\\d");
+        else if constexpr (std::is_same_v<AT, _whitespace_character_type>)
+            str.join("\\s");
+        else if constexpr (std::is_same_v<AT, _hexadecimal_character_type>)
+        {
+            if (tag == CharacterSet)
+                str.join("[:xdigit:]");
+            else
+                str.join("[[:xdigit:]]");
+        }
+        else if constexpr (std::is_same_v<AT, _punctuation_character_type>)
+        {
+            if (tag == CharacterSet)
+                str.join("[:punct:]");
+            else
+                str.join("[[:punct:]]");
+        }
+        else if constexpr (std::is_same_v<AT, _word_boundary_type>)
+            str.join("\\b");
+        else if constexpr (std::is_same_v<AT, _start_of_line_type>)
+            str.join("^");
+        else if constexpr (std::is_same_v<AT, _end_of_line_type>)
+            str.join("$");
+        else if constexpr (std::is_same_v<AT, _start_of_string_type>)
+            str.join("\\A");
+        else if constexpr (std::is_same_v<AT, _end_of_string_type>)
+            str.join("\\z");
+        else
+            static_assert(always_false_v<Any>, WL_ERROR_INTERNAL);
+        return std::move(s);
+    }
+}
+template<size_t I, typename... Patterns, typename State, typename FormatIdList>
+auto format_compile_impl(_string_expression<Patterns...>&& p,
+    string& str, const State& s, FormatIdList f)
+{
+    if constexpr (I < sizeof...(Patterns))
+    {
+        auto f1 = format_compile(std::move(p).template get<I>(), str, s,
+            std::move(f));
+        return format_compile_impl<I + 1u>(std::move(p), str, s,
+            std::move(f1));
+    }
+    else
+    {
+        return std::move(f);
+    }
+}
+template<typename... Patterns, typename State, typename FormatIdList>
+auto format_compile(_string_expression<Patterns...>&& p, string& str,
+    const State& s, FormatIdList f)
+{
+    return format_compile_impl<0u>(std::move(p), str, s, std::move(f));
+}
+template<int64_t Id, typename State, typename FormatIdList>
+auto format_compile(_named_replacement<Id>, string& str, const State&,
+    FormatIdList)
+{
+    constexpr auto group_idx = State::PatternIdList::find(const_int<Id>{});
+    static_assert(0u < group_idx && group_idx <= 99u, WL_ERROR_INTERNAL);
+    str.append('$');
+    str.join(_integer_to_string(group_idx, 2u));
+    return FormatIdList::append(const_int<group_idx>{});
+}
+inline void format_compile_impl(const utf8::char_t* begin,
+    const utf8::char_t* end, string& str)
+{
+    WL_THROW_IF_ABORT()
+    for (; begin < end; ++begin)
+    {
+        if (*begin == utf8::char_t('$'))
+            str.append('$');
+        str.append(*begin);
+    }
+    str.place_null_character();
+}
+template<typename State, typename FormatIdList>
+auto format_compile(const string& s, string& str, const State&,
+    FormatIdList)
+{
+    format_compile_impl(s.byte_begin(), s.byte_end(), str);
+    return FormatIdList{};
+}
+template<typename State, typename FormatIdList>
+auto format_compile(const string_view& s, string& str, const State&,
+    FormatIdList)
+{
+    format_compile_impl(s.byte_begin(), s.byte_end(), str);
+    return FormatIdList{};
+}
+template<typename Any, typename State, typename FormatIdList>
+auto _string_replacement_compile(
+    Any&& any, string& str, const State&, FormatIdList f)
+{
+    using AT = remove_cvref_t<Any>;
+    if constexpr (is_string_view_v<AT>)
+    {
+        format_compile_impl(any.byte_begin(), any.byte_end(), str);
+        return std::move(f);
+    }
+    else
+    {
+        static_assert(always_false_v<Any>, WL_ERROR_NOT_A_REPLACEMENT);
+        return std::move(f);
+    }
+}
+template<typename Expression>
+auto compile(Expression e)
+{
+    auto str = string("(?ms)");
+    using InitialState = compilation_state<
+        _pattern_condition_list<>, _pattern_id_list<>>;
+    auto s1 = compile(std::move(e), str, InitialState{}, WithinGroup);
+    using CP = compiled_pattern<
+        decltype(s1.conditions), typename decltype(s1)::PatternIdList>;
+    try
+    {
+        WL_THROW_IF_ABORT()
+        return CP{pcre2::new_regex(str), std::move(s1.conditions),
+            std::move(str)};
+    }
+    catch (const std::logic_error& regex_error)
+    {
+        throw std::logic_error(std::string(WL_ERROR_INTERNAL) +
+            WL_ERROR_REGEX + regex_error.what());
+    }
+}
+template<typename C, typename P>
+auto compile(compiled_pattern<C, P>&& pattern)
+{
+    return std::move(pattern);
+}
+template<typename C, typename P>
+const auto& compile(const compiled_pattern<C, P>& pattern)
+{
+    return pattern;
+}
+template<typename P, typename R>
+auto compile(compiled_rule<P, R>&& rule)
+{
+    return std::move(rule);
+}
+template<typename P, typename R>
+const auto& compile(const compiled_rule<P, R>& rule)
+{
+    return rule;
+}
+template<typename Left, typename Right>
+auto compile(_pattern_rule<Left, Right> rule)
+{
+    auto cp = compile(std::move(rule.left));
+    auto s = compilation_state<
+        _pattern_condition_list<>, typename decltype(cp)::PatternIdList>{};
+    auto format = string();
+    auto f = format_compile(std::move(rule.right), format, s,
+        _pattern_id_list<>{});
+    auto replacement = compiled_format<decltype(f)>{format};
+    return compiled_rule<decltype(cp), decltype(replacement)>{
+        std::move(cp), std::move(replacement)};
+}
+template<typename State>
+inline void format_text(const State& state, const string& format, string& ret)
+{
+    auto begin = format.byte_begin();
+    auto end = format.byte_end();
+    while (begin != end)
+    {
+        if (*begin != '$')
+        {
+            ret.template append<false>(*begin++);
+        }
+        else if (++begin == end)
+        {
+            ret.template append<false>('$');
+        }
+        else if (*begin == '$')
+        {
+            ret.template append<false>('$');
+            ++begin;
+        }
+        else if (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'))
+        {
+            auto group_idx = size_t(*begin++ - utf8::char_t('0'));
+            const bool is_two_digit = begin != end &&
+                (utf8::char_t('0') <= *begin && *begin <= utf8::char_t('9'));
+            if (is_two_digit)
+                group_idx = group_idx * 10u +
+                size_t(*begin++ - utf8::char_t('0'));
+            if (group_idx <= state.capture_count())
+            {
+                const auto& view = state.match(group_idx);
+                ret.template append<false>(view.byte_data(), view.byte_size());
+            }
+        }
+        else
+        {
+            ret.template append<false>('$');
+            ret.template append<false>(*begin++);
+        }
+    }
+    ret.place_null_character();
+}
+}
+template<typename String>
+auto regular_expression(const String& str)
+{
+    WL_TRY_BEGIN()
+    using CP = strexp::compiled_pattern<
+        _pattern_condition_list<>, _pattern_id_list<>>;
+    try
+    {
+        WL_THROW_IF_ABORT()
+        return CP{pcre2::new_regex(str)};
+    }
+    catch (const std::logic_error& regex_error)
+    {
+        throw std::logic_error(
+            std::string(WL_ERROR_REGEX) + regex_error.what());
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename CharT>
+boolean _string_equal(const CharT* a_begin, const CharT* a_end,
+    const CharT* b_begin, const CharT* b_end)
+{
+    if ((a_end - a_begin) != (b_end - b_begin))
+        return const_false;
+    for (; a_begin < a_end; ++a_begin, ++b_begin)
+    {
+        if (*a_begin != *b_begin)
+            return const_false;
+    }
+    return const_true;
+}
+inline boolean operator==(const string& a, const string& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
+inline boolean operator==(const string& a, const string_view& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
+inline boolean operator==(const string_view& a, const string& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
+inline boolean operator==(const string_view& a, const string_view& b)
+{
+    return _string_equal(a.byte_begin(), a.byte_end(),
+        b.byte_begin(), b.byte_end());
+}
+template<typename C, typename P>
+auto _pattern_convert_impl(const strexp::compiled_pattern<C, P>& pattern)
+{
+    return pattern.regex_text;
+}
+template<typename P, typename R>
+auto _pattern_convert_impl(const strexp::compiled_rule<P, R>& rule)
+{
+    auto ret = _pattern_convert_impl(rule.pattern);
+    ret.join(" -> ");
+    ret.join(rule.format.text);
+    return ret;
+}
+template<typename Any>
+auto _pattern_convert(Any&& any)
+{
+    WL_TRY_BEGIN()
+    return _pattern_convert_impl(strexp::compile(
+        std::forward<decltype(any)>(any)));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+#define WL_DEFINE_STRING_PRED_FUNCTION_IMPL(name, anchors)                  \
+template<bool Overlaps = false, typename String, typename C, typename P>    \
+auto _string_##name##_q_impl(String&& str,                                  \
+    const strexp::compiled_pattern<C, P>& pattern)                          \
+{                                                                           \
+    static_assert(is_string_view_v<remove_cvref_t<String>>,                 \
+        WL_ERROR_STRING_FUNCTION_STRING);                                   \
+    auto search = pcre2::regex_search(pattern, str.c_str(),                 \
+        str.byte_size());                                                   \
+    return boolean(search.find_next(false, anchors));                       \
+}
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(match, PCRE2_ANCHORED | PCRE2_ENDANCHORED)
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(starts, PCRE2_ANCHORED)
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(ends, PCRE2_ENDANCHORED)
+WL_DEFINE_STRING_PRED_FUNCTION_IMPL(contains, 0)
+template<bool Overlaps = false, typename String, typename C, typename P>
+auto _string_free_q_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
+{
+    return !_string_contains_q_impl(std::forward<decltype(str)>(str), pattern);
+}
+template<bool Overlaps, typename String, typename C, typename P>
+auto _string_count_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    int64_t num_matches = 0;
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    while (search.find_next(Overlaps))
+    {
+        ++num_matches;
+    }
+    return num_matches;
+}
+template<bool Overlaps, typename String, typename P, typename R>
+auto _string_cases_impl(String&& str,
+    const strexp::compiled_rule<P, R>& rule)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
+    while (search.find_next(Overlaps))
+    {
+        auto str = string();
+        strexp::format_text(search, rule.format.text, str);
+        ret.append(std::move(str));
+    }
+    return ret;
+}
+template<bool Overlaps, typename String, typename C, typename P>
+auto _string_cases_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    while (search.find_next(Overlaps))
+    {
+        ret.append(string(search.match()));
+    }
+    return ret;
+}
+template<bool Overlaps = false, typename String, typename P, typename R>
+auto _string_replace_impl(String&& str,
+    const strexp::compiled_rule<P, R>& rule)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    string ret;
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
+    while (search.find_next())
+    {
+        ret.join<false>(search.prefix());
+        strexp::format_text(search, rule.format.text, ret);
+    }
+    ret.join<false>(
+        string_view{search.prefix().byte_begin(), str.byte_end()});
+    ret.place_null_character();
+    return ret;
+}
+template<bool Overlaps = false, typename String, typename C, typename P>
+auto _string_split_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    while (search.find_next())
+    {
+        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
+            ret.append(string(search.prefix()));
+    }
+    const auto& prefix = string_view{
+        search.prefix().byte_begin(), str.byte_end()};
+    if (prefix.byte_size() > 0u)
+        ret.append(string(prefix));
+    return ret;
+}
+template<bool Overlaps = false, typename String, typename P, typename R>
+auto _string_split_impl(String&& str,
+    const strexp::compiled_rule<P, R>& rule)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<string, 1u> ret;
+    auto search = pcre2::regex_search(
+        rule.pattern, str.c_str(), str.byte_size());
+    while (search.find_next())
+    {
+        if (ret.size() > 0u || search.prefix().byte_size() > 0u)
+            ret.append(string(search.prefix()));
+        auto replaced = string();
+        strexp::format_text(search, rule.format.text, replaced);
+        ret.append(std::move(replaced));
+    }
+    const auto& prefix = string_view{
+        search.prefix().byte_begin(), str.byte_end()};
+    if (prefix.byte_size() > 0u)
+        ret.append(string(prefix));
+    return ret;
+}
+template<bool Overlaps, typename String, typename C, typename P>
+auto _string_position_impl(String&& str,
+    const strexp::compiled_pattern<C, P>& pattern)
+{
+    static_assert(is_string_view_v<remove_cvref_t<String>>,
+        WL_ERROR_STRING_FUNCTION_STRING);
+    ndarray<int64_t, 1u> ret;
+    size_t ret_size = 0u;
+    auto search = pcre2::regex_search(pattern, str.c_str(), str.byte_size());
+    while (search.find_next(Overlaps))
+    {
+        ret.uninitialized_resize(std::array<size_t, 1u>{ret_size + 2u});
+        auto* insert_ptr = ret.data() + ret_size;
+        insert_ptr[0] = int64_t(search.match_begin_idx() + 1u);
+        insert_ptr[1] = int64_t(search.match_end_idx());
+        ret_size += 2u;
+    }
+    return ndarray<int64_t, 2u>(std::array<size_t, 2u>{ret_size / 2u, 2u},
+        std::move(ret).data_vector());
+}
+#define WL_DEFINE_STRING_FUNCTION(name, ret_type, takes_list, can_overlap,  \
+    overlap_default)                                                        \
+template<bool Overlaps = overlap_default, typename String, typename Any>    \
+auto name(String&& str, Any&& any)                                          \
+{                                                                           \
+    WL_TRY_BEGIN()                                                          \
+    static_assert(can_overlap || !Overlaps, WL_ERROR_INTERNAL);             \
+    using ST = remove_cvref_t<String>;                                      \
+    const auto& pattern = strexp::compile(std::forward<decltype(any)>(any));\
+    if constexpr (is_string_view_v<ST>)                                     \
+    {                                                                       \
+        return _##name##_impl<Overlaps>(str, pattern);                      \
+    }                                                                       \
+    else if constexpr (takes_list)                                          \
+    {                                                                       \
+        static_assert(is_string_type_v<ST> && array_rank_v<ST> == 1u,       \
+            WL_ERROR_STRING_TYPE_ONLY);                                     \
+        if constexpr (is_movable_v<String> &&                               \
+            std::is_same_v<ret_type, string>)                               \
+        {                                                                   \
+            str.for_each([&](string& s)                                     \
+                { s =  _##name##_impl<Overlaps>(s, pattern); });            \
+            return std::move(str);                                          \
+        }                                                                   \
+        else                                                                \
+        {                                                                   \
+            ndarray<ret_type, 1u> ret(std::array<size_t, 1u>{str.size()});  \
+            str.for_each([&](const string& s, ret_type& c)                  \
+                { c = _##name##_impl<Overlaps>(s, pattern); }, ret.data()); \
+            return ret;                                                     \
+        }                                                                   \
+    }                                                                       \
+    else                                                                    \
+    {                                                                       \
+        static_assert(always_false_v<String>, WL_ERROR_STRING_ONLY);        \
+    }                                                                       \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
+}
+WL_DEFINE_STRING_FUNCTION(string_count, int64_t, true, true, false)
+WL_DEFINE_STRING_FUNCTION(string_match_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_contains_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_free_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_starts_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_ends_q, boolean, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_replace, string, true, false, false)
+WL_DEFINE_STRING_FUNCTION(string_cases, int, false, true, false)
+WL_DEFINE_STRING_FUNCTION(string_split, int, false, false, false)
+WL_DEFINE_STRING_FUNCTION(string_position, int, false, true, true)
+template<typename String>
+auto string_split(String&& str)
+{
+    WL_TRY_BEGIN()
+    static auto whitespace = strexp::compile(const_whitespace);
+    return string_split(std::forward<decltype(str)>(str), whitespace);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+#define WL_DEFINE_CHAR_TYPE_FUNCTION(name, crit)                    \
+template<typename String>                                           \
+auto name(const String& str)                                        \
+{                                                                   \
+    using namespace utf8;                                           \
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);  \
+    auto begin = str.byte_begin();                                  \
+    auto end = str.byte_end();                                      \
+    for (; begin != end; ++begin)                                   \
+    {                                                               \
+        const auto ch = *begin;                                     \
+        if (!(crit))                                                \
+            return const_false;                                     \
+    }                                                               \
+    return const_true;                                              \
+}
+WL_DEFINE_CHAR_TYPE_FUNCTION(digit_q, '0'_c <= ch && ch <= '9'_c)
+WL_DEFINE_CHAR_TYPE_FUNCTION(letter_q,
+    ('a'_c <= ch && ch <= 'z'_c) || ('A'_c <= ch && ch <= 'Z'_c))
+WL_DEFINE_CHAR_TYPE_FUNCTION(lower_case_q, 'a'_c <= ch && ch <= 'z'_c)
+WL_DEFINE_CHAR_TYPE_FUNCTION(upper_case_q, 'A'_c <= ch && ch <= 'Z'_c)
+WL_DEFINE_CHAR_TYPE_FUNCTION(printable_ascii_q, ' '_c <= ch && ch <= '~'_c)
+template<typename String>
+auto characters(const String& s)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
+    const auto size = s.size();
+    ndarray<string, 1u> ret(std::array<size_t, 1u>{size});
+    auto ret_data = ret.data();
+    if (size == s.byte_size())
+    { // ascii only
+        auto s_begin = s.byte_data();
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i,
+                ++ret_data, ++s_begin)
+            {
+                *ret_data = string(s_begin, 1u, true);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    else
+    { // not ascii only
+        auto s_begin = s.begin();
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
+            {
+                size_t num_bytes = s_begin.num_bytes();
+                *ret_data = string(s_begin.get_pointer(), num_bytes,
+                    num_bytes == 1u);
+                s_begin.apply_pointer_offset(num_bytes);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto _character_range_impl(const X& x)
+{
+    static_assert(is_string_view_v<X> || is_integral_v<X>,
+        WL_ERROR_CHARACTER_RANGE);
+    if constexpr (is_string_view_v<X>)
+    {
+        if (!strexp::is_single_character(x))
+            throw std::logic_error(WL_ERROR_CHARACTER_RANGE);
+        return *x.begin();
+    }
+    else
+    {
+        if (uint64_t(x) > uint64_t(utf8::max_code_point))
+            throw std::logic_error(WL_ERROR_INVALID_CODEPOINT);
+        return utf8::char21_t(x);
+    }
+}
+template<typename X, typename Y>
+auto character_range(const X& x, const Y& y)
+{
+    WL_TRY_BEGIN()
+    utf8::char21_t first_point = _character_range_impl(x);
+    utf8::char21_t last_point = _character_range_impl(y);
+    if (first_point > last_point)
+        return ndarray<string, 1u>{};
+    else
+    {
+        const auto size = size_t(last_point - first_point + 1u);
+        ndarray<string, 1u> ret(std::array<size_t, 1u>{size});
+        auto ret_data = ret.data();
+        if (utf8::is_ascii(last_point))
+        {
+            WL_THROW_IF_ABORT()
+            for (; first_point <= last_point; ++first_point, ++ret_data)
+            {
+                const auto ch = utf8::char_t(first_point);
+                *ret_data = string(&ch, 1u, true);
+            }
+        }
+        else
+        {
+            WL_THROW_IF_ABORT()
+            for (; first_point <= utf8::max_ascii_code_point;
+                ++first_point, ++ret_data)
+            {
+                const auto ch = utf8::char_t(first_point);
+                *ret_data = string(&ch, 1u, true);
+            }
+            WL_CHECK_ABORT_LOOP_BEGIN(last_point - first_point + 1u)
+                for (auto i = _loop_begin; i < _loop_end; ++i, ++ret_data)
+                {
+                    auto [num_bytes, units] = 
+                        utf8::from_code_point(first_point + i);
+                    *ret_data = string(units.data(), num_bytes, false);
+                }
+            WL_CHECK_ABORT_LOOP_END()
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Ret = int64_t, typename String>
+auto to_character_code(const String& s)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
+    static_assert(is_integral_v<Ret> &&
+        (std::numeric_limits<Ret>::max() >= 255), WL_ERROR_BAD_RETURN);
+    const auto size = s.size();
+    ndarray<Ret, 1u> ret(std::array<size_t, 1u>{size});
+    auto ret_data = ret.data();
+    if (size == s.byte_size())
+    { // ascii only
+        auto s_begin = s.byte_data();
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i,
+                ++ret_data, ++s_begin)
+            {
+                *ret_data = int64_t(*s_begin);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    else
+    { // not ascii only
+        auto s_begin = s.begin();
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i,
+                ++ret_data, ++s_begin)
+            {
+                *ret_data = int64_t(*s_begin);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+    }
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto from_character_code(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> <= 1u, WL_ERROR_FROM_CHARACTER_CODE_ARG);
+    if constexpr (array_rank_v<X> == 0u)
+    {
+        static_assert(is_integral_v<X>, WL_ERROR_FROM_CHARACTER_CODE_ARG);
+        const auto [num_bytes, units] =
+            utf8::from_code_point(utf8::char21_t(x));
+        return string(units.data(), num_bytes, num_bytes == 1u);
+    }
+    else
+    {
+        static_assert(is_integral_v<value_type_t<X>>,
+            WL_ERROR_FROM_CHARACTER_CODE_ARG);
+        const auto& valx = allows<view_category::Simple>(x);
+        const auto size = valx.size();
+        auto x_begin = valx.begin();
+        bool ascii_only = true;
+        auto ret = string();
+        ret.set_capacity(size);
+        WL_CHECK_ABORT_LOOP_BEGIN(size)
+            for (auto i = _loop_begin; i < _loop_end; ++i, ++x_begin)
+            {
+                auto [num_bytes, units] = utf8::from_code_point(*x_begin);
+                if (ascii_only)
+                    ascii_only = (num_bytes == 1u);
+                ret.template append<false>(units.data(), num_bytes);
+            }
+        WL_CHECK_ABORT_LOOP_END()
+        ret.place_null_character();
+        ret.set_ascii_only(ascii_only);
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Y>
+int64_t _order_string(const X& x, const Y& y)
+{
+    static_assert(is_string_view_v<X> && is_string_view_v<Y>,
+        WL_ERROR_OPERAND_TYPE);
+    if (x.ascii_only() && y.ascii_only())
+    {
+        auto x_begin = x.byte_begin();
+        auto x_end = x.byte_end();
+        auto y_begin = y.byte_begin();
+        auto y_end = y.byte_end();
+        for (; true; ++x_begin, ++y_begin)
+        {
+            if (x_begin == x_end)
+                return (y_begin == y_end) ? 0 : 1;
+            else if (y_begin == y_end)
+                return -1;
+            else if (*x_begin < *y_begin)
+                return 1;
+            else if (*x_begin > *y_begin)
+                return -1;
+        }
+    }
+    else
+    {
+        auto x_begin = x.begin();
+        auto x_end = x.end();
+        auto y_begin = y.begin();
+        auto y_end = y.end();
+        for (; true; ++x_begin, ++y_begin)
+        {
+            if (x_begin == x_end)
+                return (y_begin == y_end) ? 0 : 1;
+            else if (y_begin == y_end)
+                return -1;
+            else if (*x_begin < *y_begin)
+                return 1;
+            else if (*x_begin > *y_begin)
+                return -1;
+        }
+    }
+}
+int64_t _order_scalar(const string& x, const string& y)
+{
+    return _order_string(x, y);
+}
+int64_t _order_scalar(const string& x, const string_view& y)
+{
+    return _order_string(x, y);
+}
+int64_t _order_scalar(const string_view& x, const string& y)
+{
+    return _order_string(x, y);
+}
+int64_t _order_scalar(const string_view& x, const string_view& y)
+{
+    return _order_string(x, y);
+}
+struct _string_riffle_delimiter
+{
+    std::array<string, 3u> dels_{};
+    bool triple_ = false;
+    _string_riffle_delimiter() = default;
+    _string_riffle_delimiter(const string& str) :
+        dels_{string(), str, string()}, triple_{false}
+    {
+    }
+    _string_riffle_delimiter(const string_view& str) :
+        dels_{string(), string(str), string()}, triple_{false}
+    {
+    }
+    template<typename X>
+    _string_riffle_delimiter(const X& x) : triple_{true}
+    {
+        static_assert(array_rank_v<X> == 1u && is_string_v<value_type_t<X>>,
+            WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES);
+        if (x.size() != 3u)
+            throw std::logic_error(WL_ERROR_STRING_RIFFLE_DELIMITER_TYPES);
+        x.copy_to(dels_.data());
+    }
+    bool triple() const
+    {
+        return triple_;
+    }
+    const string& left() const
+    {
+        return dels_[0];
+    }
+    const string& separator() const
+    {
+        return dels_[1];
+    }
+    const string& right() const
+    {
+        return dels_[2];
+    }
+    size_t extra_byte_size(size_t num_string) const
+    {
+        size_t size = triple_ ? left().byte_size() + right().byte_size() : 0u;
+        return (num_string < 2u) ? size :
+            size + (num_string - 1u) * separator().byte_size();
+    }
+};
+template<typename X, size_t XR, size_t ND>
+auto _string_riffle_get_byte_size(const X& x,
+    const std::array<size_t, XR>& x_dims,
+    const std::array<_string_riffle_delimiter, ND>& del_array)
+{
+    size_t string_size = 0u;
+    x.for_each([&](const string& s) { string_size += s.byte_size(); });
+    size_t delimiter_size = 0u;
+    for (auto i = int64_t(XR) - 1; i >= 0; --i)
+    {
+        delimiter_size *= x_dims[i];
+        if constexpr (ND == 0u)
+            delimiter_size += (x_dims[i] > 2u) ? x_dims[i] - 1u : 0u;
+        else
+            delimiter_size += del_array[i].extra_byte_size(x_dims[i]);
+    }
+    return string_size + delimiter_size;
+}
+constexpr char newline_delimiter[] = "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+static_assert(MaximumArrayRank == 16u, WL_ERROR_INTERNAL);
+template<size_t I, size_t XR, size_t ND>
+void _string_riffle_impl(
+    const string*& x_ptr, const std::array<size_t, XR>& x_dims,
+    const std::array<_string_riffle_delimiter, ND>& del_array, string& ret)
+{
+    if constexpr (ND != 0u)
+        if (del_array[I].triple())
+            ret.template join<false>(del_array[I].left());
+    if constexpr (I + 1u == XR)
+    {
+        auto size = x_dims[XR - 1u];
+        if (size > 0u)
+        {
+            ret.join<false>(*x_ptr++);
+            WL_CHECK_ABORT_LOOP_BEGIN(size - 1u)
+                for (auto i = _loop_begin; i < _loop_end; ++i, ++x_ptr)
+                {
+                    if constexpr (ND != 0u)
+                        ret.template join<false>(
+                            del_array[XR - 1u].separator());
+                    else
+                        ret.template join<false>(" ");
+                    ret.join<false>(*x_ptr);
+                }
+            WL_CHECK_ABORT_LOOP_END()
+        }
+    }
+    else
+    {
+        const auto size = x_dims[I];
+        if (size > 0u)
+        {
+            _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
+            for (size_t i = 1u; i < size; ++i)
+            {
+                if constexpr (ND != 0u)
+                    ret.template join<false>(del_array[I].separator());
+                else
+                    ret.template append<false>(
+                    (const utf8::char_t*)newline_delimiter, XR - I - 1u);
+                _string_riffle_impl<I + 1u>(x_ptr, x_dims, del_array, ret);
+            }
+        }
+    }
+    if constexpr (ND != 0u)
+        if (del_array[I].triple())
+            ret.template join<false>(del_array[I].right());
+    if (I == 0u)
+        ret.place_null_character();
+}
+template<typename X, typename... Dels>
+auto string_riffle(const X& x, const Dels&... dels)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto num_dels = sizeof...(Dels);
+    static_assert(num_dels == 0u || num_dels == XR,
+        WL_ERROR_STRING_RIFFLE_DELIMITERS);
+    static_assert(XR >= 1u && is_string_v<value_type_t<X>>,
+        WL_ERROR_STRING_RIFFLE_STRINGS);
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto x_dims = valx.dims();
+    auto x_data = valx.data();
+    std::array<_string_riffle_delimiter, num_dels> del_array{dels...};
+    const auto ret_byte_size = _string_riffle_get_byte_size(
+        valx, x_dims, del_array);
+    auto ret = string();
+    ret.set_capacity(ret_byte_size);
+    _string_riffle_impl<0u>(x_data, x_dims, del_array, ret);
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, size_t N>
+auto _to_string_scalar_impl(const X& x, char (&buffer)[N])
+{
+    WL_THROW_IF_ABORT()
+    static_assert(array_rank_v<X> == 0u, WL_ERROR_INTERNAL);
+    if constexpr (is_integral_v<X>)
+    {
+        static_assert(N >= _to_string_impl::integer_buffer_size,
+            WL_ERROR_INTERNAL);
+        return _to_string_impl::integer_to_string(buffer, buffer + N, x);
+    }
+    else if constexpr (is_real_v<X>)
+    {
+        static_assert(N >= _to_string_impl::double_buffer_size,
+            WL_ERROR_INTERNAL);
+        return _to_string_impl::double_to_string(buffer, buffer + N, x);
+    }
+    else if constexpr (is_complex_v<X>)
+    {
+        static_assert(N >= _to_string_impl::complex_buffer_size,
+            WL_ERROR_INTERNAL);
+        return _to_string_impl::complex_to_string(buffer, buffer + N, x);
+    }
+    else if constexpr (is_string_view_v<X>)
+    {
+        return string_view(x.byte_begin(), x.byte_end());
+    }
+    else
+    {
+        static_assert(always_false_v<X>, WL_ERROR_TO_STRING_UNKNOWN);
+    }
+}
+template<size_t I, typename XV, size_t XR, size_t N>
+auto _to_string_array_impl(const XV*& x_ptr,
+    const std::array<size_t, XR>& x_dims, string& ret, char(&buffer)[N])
+{
+    ret.template join<false>("{");
+    if constexpr (I + 1u == XR)
+    {
+        auto size = x_dims[XR - 1u];
+        if (size > 0u)
+        {
+            ret.join<false>(_to_string_scalar_impl(*x_ptr++, buffer));
+            for (size_t i = 1u; i < size; ++i, ++x_ptr)
+            {
+                ret.template join<false>(", ");
+                ret.join<false>(_to_string_scalar_impl(*x_ptr, buffer));
+            }
+        }
+    }
+    else
+    {
+        auto size = x_dims[I];
+        _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
+        for (size_t i = 1u; i < size; ++i)
+        {
+            ret.template join<false>(", ");
+            _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
+        }
+    }
+    ret.template join<false>("}");
+    if (I == 0u)
+        ret.place_null_character();
+}
+template<typename X>
+auto to_string(const X& x)
+{
+    WL_TRY_BEGIN()
+    char buffer[64];
+    if constexpr (array_rank_v<X> == 0u)
+    {
+        return string(_to_string_scalar_impl(x, buffer));
+    }
+    else
+    {
+        auto ret = string();
+        const auto& valx = allows<view_category::Simple>(x);
+        const auto x_dims = valx.dims();
+        auto x_data = valx.data();
+        _to_string_array_impl<0u>(x_data, x_dims, ret, buffer);
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+}
+namespace wl
+{
+#if defined(WL_USE_MATHLINK)
+template<typename X>
+auto print(const X& x);
+template<typename X>
+auto echo(X&& x);
+#else
+template<typename X>
+auto print(const X& x)
+{
+    std::cout << to_string(x)._ascii_string() << std::endl;
+    return const_null;
+}
+template<typename X>
+auto echo(X&& x)
+{
+    std::cout << to_string(x)._ascii_string() << std::endl;
+    return std::forward<decltype(x)>(x);
+}
+#endif
+template<typename Function>
+auto echo_function(Function f)
+{
+    return [=](auto&& x)
+    {
+        const auto& xref = x;
+        echo(f(x));
+        return std::forward<decltype(x)>(x);
+    };
+}
+#ifdef _WIN32
+#  define WL_GETCWD _wgetcwd
+#  define WL_PATH_CHAR_TYPE wchar_t
+struct _codecvt_wchar_t:
+    std::codecvt<char16_t, char, std::mbstate_t>
+{
+    template<typename... Args>
+    _codecvt_wchar_t(Args&& ...args) :
+        std::codecvt<char16_t, char, std::mbstate_t>(
+            std::forward<Args>(args)...)
+    {
+    }
+    ~_codecvt_wchar_t()
+    {
+    }
+};
+inline std::wstring _from_u8path(const char* u8path)
+{
+    static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
+    const auto ospath = conv.from_bytes(u8path);
+    return std::wstring((const wchar_t*)ospath.c_str());
+}
+inline wl::string _to_u8path(const WL_PATH_CHAR_TYPE* ospath)
+{
+    static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
+    const auto u8path = conv.to_bytes((const char16_t*)ospath);
+    return wl::string(u8path.c_str());
+}
+#else
+#  define WL_GETCWD getcwd
+#  define WL_PATH_CHAR_TYPE char
+inline std::string _from_u8path(const char* u8path)
+{
+    return std::string(u8path);
+}
+inline wl::string _to_u8path(const WL_PATH_CHAR_TYPE* ospath)
+{
+    return wl::string(ospath);
+}
+inline std::string _working_directory()
+{
+    char buffer[FILENAME_MAX];
+    if (getcwd(buffer, FILENAME_MAX))
+        return std::string(buffer);
+    else
+        throw std::logic_error(WL_ERROR_GETCWD);
+}
+#endif
+#define WL_PATH_STRING_TYPE std::basic_string<WL_PATH_CHAR_TYPE>
+inline WL_PATH_STRING_TYPE _get_working_directory()
+{
+    size_t buffer_size = 256;
+    WL_PATH_CHAR_TYPE* buffer;
+    for (;;)
+    {
+        buffer = (WL_PATH_CHAR_TYPE*)std::malloc(
+            buffer_size * sizeof(WL_PATH_CHAR_TYPE));
+        if (!buffer)
+            throw std::bad_alloc();
+        if (WL_GETCWD(buffer, int(buffer_size)))
+        {
+            auto ret = WL_PATH_STRING_TYPE(buffer);
+            free(buffer);
+            return ret;
+        }
+        else
+        {
+            free(buffer);
+            if (errno == ERANGE) // buffer is too small
+                buffer_size *= 2;
+            else
+                throw std::logic_error(WL_ERROR_GETCWD);
+        }
+    }
+}
+inline auto directory()
+{
+    WL_TRY_BEGIN()
+    WL_THROW_IF_ABORT()
+    auto cwd = _get_working_directory();
+    return _to_u8path(cwd.c_str());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+namespace stream_separator
+{
+enum : int { None = 0, Field, Line, EOS };
+struct separator_table
+{
+    static constexpr size_t table_size = 128u;
+    const std::array<uint8_t, table_size> table_;
+    template<size_t NL, size_t NF, size_t... Is>
+    constexpr separator_table(const char (&line_seps)[NL],
+        const char (&field_seps)[NF], std::index_sequence<Is...>) :
+        table_{(uint8_t(char(Is) == '\0' ? EOS :
+            matches_any(char(Is), line_seps) ? Line :
+            matches_any(char(Is), field_seps) ? Field : None))...}
+    {
+    }
+    template<size_t N, size_t... Is>
+    static constexpr bool _matches_any_impl(const char ch,
+        const char (&seps)[N], std::index_sequence<Is...>)
+    {
+        return ((ch == seps[Is]) || ...);
+    }
+    template<size_t N>
+    static constexpr bool matches_any(const char ch, const char (&seps)[N])
+    {
+        static_assert(N >= 1u, WL_ERROR_INTERNAL);
+        return _matches_any_impl(ch, seps, std::make_index_sequence<N - 1u>{});
+    }
+    template<typename CharT>
+    constexpr bool is_separator(CharT ch, const int sep_class) const
+    {
+        const auto uch = std::make_unsigned_t<CharT>(ch);
+        return (uch < unsigned(table_size)) && table_[uch] >= sep_class;
+    }
+};
+template<size_t NL, size_t NF>
+constexpr auto make_table(const char(&line_seps)[NL],
+    const char(&field_seps)[NF])
+{
+    return separator_table(line_seps, field_seps,
+        std::make_index_sequence<separator_table::table_size>{});
+}
+constexpr auto default_table = make_table("\n\r", " \t");
+constexpr auto tsv_table = make_table("\n\r", "\t");
+constexpr auto csv_table = make_table("\n\r", ",");
+}
+template<stream_direction Direction>
+struct file_stream
+{
+    using separator_table = stream_separator::separator_table;
+    static constexpr auto is_input  = (Direction == stream_direction::In);
+    static constexpr auto is_output = (Direction == stream_direction::Out);
+    using stream_t = std::conditional_t<is_input,
+        std::ifstream, std::ofstream>;
+    static constexpr size_t chunk_size = 1048576u;
+    const string path_;
+    mutable stream_t stream_;
+    template<typename String>
+    file_stream(const String& path, bool binary, bool append = false) :
+        path_{path}, stream_{}
+    {
+        int mode = 0;
+        if (binary) mode |= std::ios_base::binary;
+        if (append) mode |= std::ios_base::app;
+        auto ospath = _from_u8path(path.c_str());
+        stream_.open(ospath, mode);
+        if (stream_.fail())
+            throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
+    }
+    ~file_stream()
+    {
+        close();
+    }
+    file_stream(const file_stream&) = delete;
+    file_stream(file_stream&&) = default;
+    file_stream& operator=(const file_stream&) = delete;
+    file_stream& operator=(file_stream&&) = default;
+    void close()
+    {
+        if (!stream_.is_open())
+            throw std::logic_error(WL_ERROR_STREAM_ALREADY_CLOSED);
+        stream_.close();
+    }
+    bool binary() const
+    {
+        return stream_.openmode & std::ios_base::binary;
+    }
+    string path() const
+    {
+        if (stream_.is_open())
+            return path_;
+        else
+            return string();
+    }
+    template<typename Pos>
+    void seek(const Pos& pos)
+    {
+        static_assert(is_integral_v<Pos>, WL_ERROR_INTERNAL);
+        static_assert(is_input, WL_ERROR_STREAM_SEEK_ON_OUTPUT);
+        stream_.clear();
+        if (pos >= Pos(0))
+            stream_.seekg(pos, std::ios_base::beg);
+        else
+            stream_.seekg(int64_t(pos), std::ios_base::end);
+        stream_.peek();
+        if (!stream_.good())
+            throw std::logic_error(WL_ERROR_STREAM_SEEK_FAILED);
+    }
+    auto tell() const
+    {
+        if constexpr (is_input)
+            return stream_.tellg() - std::streampos(0);
+        else
+            return stream_.tellp() - std::streampos(0);
+    }
+    size_t remaining_size() const
+    {
+        if (test_eof())
+            return 0u;
+        else
+        {
+            const auto cur_pos = stream_.tellg();
+            const auto end_pos = stream_.seekg(0, std::ios_base::end).tellg();
+            stream_.seekg(cur_pos);
+            return size_t(end_pos - cur_pos);
+        }
+    }
+    // Get the entire file as a string
+    auto read_string()
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        auto ret_size = remaining_size();
+        auto ret = string(ret_size);
+        auto ret_data = (char*)ret.byte_begin();
+        for (;;)
+        {
+            WL_THROW_IF_ABORT()
+            if (ret_size <= chunk_size)
+            {
+                stream_.read(ret_data, ret_size);
+                break;
+            }
+            else
+            {
+                stream_.read(ret_data, chunk_size);
+                ret_size -= chunk_size;
+                ret_data += chunk_size;
+            }
+        }
+        if (!ret.check_validity())
+            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+        stream_.test_eof();
+        return ret;
+    }
+    
+    template<typename CharT>
+    size_t get_until(CharT* str, size_t max_count,
+        const separator_table& sep_table, const int sep_class, char& sep_found)
+    {
+        using traits = std::char_traits<char>;
+        using sentry_t = typename decltype(stream_)::sentry;
+        const sentry_t sentry(stream_, true);
+        if (!sentry || max_count == 0u)
+            return 0u;
+        size_t count = 0u;
+        auto* rdbuf = stream_.rdbuf();
+        for (auto meta = rdbuf->sgetc();; meta = rdbuf->snextc())
+        {
+            const auto meta_char = traits::to_char_type(meta);
+            if (traits::eq_int_type(traits::eof(), meta))
+            {
+                stream_.setstate(std::ios_base::eofbit);
+                break;
+            }
+            else if (sep_table.is_separator(meta, sep_class))
+            {
+                sep_found = meta_char;
+                rdbuf->sbumpc();
+                break;
+            }
+            else if (count >= max_count)
+            {
+                return max_count + 1;
+            }
+            else
+            {
+                ++count;
+                *str++ = CharT(meta_char);
+            }
+        }
+        *str = '\0';
+        return count;
+    }
+    // Get the next line/field as a string
+    // EOF: returns empty string, sep_found = '\0'
+    auto read(const separator_table& sep_table, const int sep_class,
+        char& sep_found)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        if (test_eof())
+        {
+            sep_found = '\0';
+            return string();
+        }
+        auto ret = string(size_t(0)); // is_ascii = Unknown
+        for (;;)
+        {
+            const auto ret_capacity = ret.capacity();
+            const auto max_count = ret_capacity - ret.byte_size();
+            const auto count = get_until(ret.byte_end(), max_count,
+                sep_table, sep_class, sep_found);
+            if (count > max_count)
+            { // buffer is too small
+                ret.uninitialized_resize(ret.byte_size() + max_count);
+                ret.set_capacity(2 * ret_capacity);
+            }
+            else
+            {
+                ret.uninitialized_resize(ret.byte_size() + count);
+                break;
+            }
+        }
+        if (!ret.check_validity())
+            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+        return ret;
+    }
+    // Get the next byte in the stream as a char
+    // EOF: returns '\0'
+    char read_byte()
+    {
+        using traits = std::char_traits<char>;
+        auto ch = stream_.get();
+        return traits::eq_int_type(traits::eof(), ch) ?
+            '\0' : traits::to_char_type(ch);
+    }
+    // Get the next character as a string
+    // EOF: returns empty string
+    auto read_character()
+    {
+        using traits = std::char_traits<char>;
+        utf8::char_t buffer[4];
+        auto leading = stream_.get();
+        if (traits::eq_int_type(traits::eof(), leading))
+            return string();
+        buffer[0] = utf8::char_t(leading);
+        if (!utf8::string_iterator::_is_valid_codepoint_leading(buffer[0]))
+            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+        const auto num_bytes =
+            utf8::string_iterator::_num_bytes_by_leading(buffer[0]);
+        for (size_t i = 1; i < num_bytes; ++i)
+        {
+            auto trailing = stream_.get();
+            if (traits::eq_int_type(traits::eof(), trailing))
+                throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+            buffer[i] = utf8::char_t(trailing);
+        }
+        auto ret = string(&buffer[0], num_bytes);
+        if (!ret.check_validity())
+            throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
+        return ret;
+    }
+    // Read the next number from the stream
+    // EOF: returns false
+    template<typename Val>
+    bool read_number(const separator_table& sep_table, char& sep_found,
+        Val& val)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        for (;;)
+        {
+            sep_found = read_byte();
+            if (sep_found == '\0')
+            {
+                return false;
+            }
+            if (!sep_table.is_separator(sep_found, stream_separator::Field))
+            {
+                stream_.clear();
+                stream_.unget();
+                break;
+            }
+        }
+        auto str = read(sep_table, stream_separator::Field, sep_found);
+        assert(str.byte_size() > 0);
+        if constexpr (std::is_same_v<Val, double>)
+        {
+            if (!_from_string_impl::string_to_double(str.c_str(), val))
+                throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
+        }
+        else if constexpr (std::is_same_v<Val, int64_t>)
+        {
+            if (!_from_string_impl::string_to_integer(str.c_str(), val))
+                throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
+        }
+        else
+        {
+            static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
+        }
+        return true;
+    }
+    template<typename Val>
+    bool binary_read(Val& val)
+    {
+        if constexpr (is_real_v<Val> || is_complex_v<Val>)
+        {
+            stream_.read((char*)(&val), sizeof(Val));
+            return (stream_.gcount() == sizeof(Val));
+        }
+        if constexpr (is_string_v<Val>)
+        {
+            char sep_found;
+            return read(stream_separator::default_table,
+                stream_separator::EOS, sep_found);
+        }
+        else
+        {
+            static_assert(always_false_v<Val>, WL_ERROR_INTERNAL);
+        }
+    }
+    template<typename Val>
+    auto binary_read(Val, int64_t count)
+    {
+        static_assert(is_real_v<Val> || is_complex_v<Val>, WL_ERROR_INTERNAL);
+        ndarray<Val, 1u> ret;
+        size_t ret_size = (count == const_int_infinity) ?
+            (remaining_size() / sizeof(Val)) :
+            (count > 0) ? size_t(count) : 0u;
+        if (ret_size == 0u)
+            return ret;
+        ret.uninitialized_resize(std::array<size_t, 1u>{ret_size});
+        stream_.read((char*)(ret.data()), ret_size * sizeof(Val));
+        if (stream_.gcount() != ret_size * sizeof(Val))
+            throw std::logic_error(WL_ERROR_STREAM_READ);
+        return ret;
+    }
+    template<typename CharT, size_t N>
+    void write(const CharT* begin, size_t count, const char (&end_chars)[N])
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        stream_.write((const char*)begin, count);
+        if (N >= 2u)
+            stream_.write(end_chars, N - 1u);
+        if (!stream_.good())
+            throw std::logic_error(WL_ERROR_STREAM_WRITE);
+    }
+    template<typename CharT>
+    void write(const CharT* begin, size_t count)
+    {
+        write(begin, count, "");
+    }
+    template<typename Val>
+    void binary_write(const Val* begin, size_t count)
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        stream_.write((const char*)begin, count * sizeof(Val));
+        if (!stream_.good())
+            throw std::logic_error(WL_ERROR_STREAM_WRITE);
+    }
+    bool eof() const
+    {
+        return stream_.eof();
+    }
+    bool fail() const
+    {
+        return stream_.fail();
+    }
+    bool test_eof() const
+    {
+        stream_.clear();
+        stream_.peek();
+        return stream_.eof();
+    }
+};
+template<bool Binary = false, typename String>
+auto open_read(const String& path)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
+    return input_file_stream(path, Binary);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<bool Binary = false, typename String>
+auto open_write(const String& path)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
+    return output_file_stream(path, Binary);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<bool Binary = false, typename String>
+auto open_append(const String& path)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
+    return output_file_stream(path, Binary, true);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Stream>
+auto close(const Stream& stream)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
+    const auto path = stream.path();
+    stream.close();
+    return path;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<bool Binary = false, typename Any>
+auto _as_input_file_stream(Any& any) -> decltype(auto)
+{
+    if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
+    {
+        if (Binary != any.binary())
+            throw std::logic_error(WL_ERROR_STREAM_BINARINESS);
+        return any;
+    }
+    else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
+    {
+        return open_read<Binary>(any);
+    }
+    else
+    {
+        static_assert(always_false_v<Any>, WL_ERROR_FILE_STREAM_OR_PATH_ONLY);
+        return 0;
+    }
+}
+template<bool Binary = false, typename Any>
+auto _as_output_file_stream(Any& any) -> decltype(auto)
+{
+    if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
+    {
+        if (Binary != any.binary())
+            throw std::logic_error(WL_ERROR_STREAM_BINARINESS);
+        return any;
+    }
+    else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
+    {
+        return open_write<Binary>(any);
+    }
+    else
+    {
+        static_assert(always_false_v<Any>, WL_ERROR_FILE_STREAM_OR_PATH_ONLY);
+        return 0;
+    }
+}
+template<typename Stream>
+auto stream_position(const Stream& stream)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
+    return int64_t(stream.tell());
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Stream, typename Pos>
+auto set_stream_position(Stream& stream, const Pos& pos)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_file_stream_v<Stream>, WL_ERROR_FILE_STREAM_ONLY);
+    static_assert(is_integral_v<Pos>, WL_ERROR_STREAM_POSITION_INTEGRAL);
+    return int64_t(stream.seek(pos));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any>
+auto read_string(Any& any)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_input_file_stream(any);
+    return stream.read_string();
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename ReadType>
+auto read(Any& any, ReadType)
+{
+    WL_TRY_BEGIN()
+    using namespace stream_separator;
+    auto& stream = _as_input_file_stream(any);
+    char sep_found = '\0';
+    if constexpr (std::is_same_v<ReadType, byte_type>)
+    {
+        return int64_t(stream.read_byte());
+    }
+    else if constexpr (std::is_same_v<ReadType, character_type>)
+    {
+        return stream.read_character();
+    }
+    else if constexpr (std::is_same_v<ReadType, word_type> ||
+        std::is_same_v<ReadType, string_type>)
+    {
+        for (;;)
+        {
+            auto str = stream.read(default_table,
+                std::is_same_v<ReadType, word_type> ? Field : Line, sep_found);
+            if ((str.byte_size() > 0u) || (sep_found == '\0'))
+                return str;
+        }
+    }
+    else if constexpr (std::is_same_v<ReadType, real_type> ||
+        std::is_same_v<ReadType, integer_type>)
+    {
+        using Ret = std::conditional_t<
+            std::is_same_v<ReadType, real_type>, double, int64_t>;
+        Ret ret;
+        if (!stream.read_number(default_table, sep_found, ret))
+            throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<ReadType>, WL_ERROR_READ_UNKNOWN_TYPE);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any>
+auto read_line(Any& any)
+{
+    WL_TRY_BEGIN()
+    return read(any, const_string);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename ReadType, typename Count>
+auto read_list(Any& any, ReadType, const Count& in_count)
+{
+    WL_TRY_BEGIN()
+    using namespace stream_separator;
+    static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
+    const auto count = int64_t(std::max(Count(0), in_count));
+    auto& stream = _as_input_file_stream(any);
+    char ignored = '\0';
+    if constexpr (std::is_same_v<ReadType, byte_type>)
+    {
+        ndarray<utf8::char_t, 1u> ret;
+        for (int64_t i = 0; i < count; ++i)
+        {
+            auto ch = utf8::char_t(stream.read_byte());
+            if (ch == 0)
+                break;
+            ret.append(ch);
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, character_type>)
+    {
+        ndarray<string, 1u> ret;
+        for (int64_t i = 0; i < count; ++i)
+        {
+            auto ch = stream.read_character();
+            if (ch.byte_size() == 0u)
+                break;
+            ret.append(std::move(ch));
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, word_type> ||
+        std::is_same_v<ReadType, string_type>)
+    {
+        ndarray<string, 1u> ret;
+        char sep_found = '\0';
+        for (int64_t i = 0; i < count; ++i)
+        {
+            auto str = stream.read(default_table,
+                std::is_same_v<ReadType, word_type> ? Field : Line, sep_found);
+            if (sep_found == '\0')
+                break;
+            ret.append(std::move(str));
+        }
+        return ret;
+    }
+    else if constexpr (std::is_same_v<ReadType, real_type> ||
+        std::is_same_v<ReadType, integer_type>)
+    {
+        using Elem = std::conditional_t<
+            std::is_same_v<ReadType, real_type>, double, int64_t>;
+        ndarray<Elem, 1u> ret;
+        char sep_found = '\0';
+        for (int64_t i = 0; i < count; ++i)
+        {
+            Elem elem;
+            if (!stream.read_number(default_table, Field, sep_found, elem))
+            { // EOF
+                break;
+            }
+            ret.append(elem);
+        }
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<ReadType>, WL_ERROR_READ_UNKNOWN_TYPE);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename ReadType>
+auto read_list(Any& any, ReadType)
+{
+    return read_list(any, ReadType{}, const_int_infinity);
+}
+template<typename Val>
+auto _write_impl(output_file_stream& stream, const Val& val)
+{
+    if constexpr (is_string_view_v<Val>)
+        stream.write(val.byte_begin(), val.byte_size(), "\n");
+    else
+        write(stream, to_string(val));
+    return 0;
+}
+template<typename Val>
+auto _write_string_impl(output_file_stream& stream, const Val& val)
+{
+    static_assert(is_string_view_v<Val>, WL_ERROR_WRITE_STRING_ONLY);
+    stream.write(val.byte_begin(), val.byte_size());
+    return 0;
+}
+template<typename Val>
+auto _write_line_impl(output_file_stream& stream, const Val& val)
+{
+    static_assert(is_string_view_v<Val>, WL_ERROR_WRITE_STRING_ONLY);
+    stream.write(val.byte_begin(), val.byte_size(), "\n");
+    return 0;
+}
+template<typename Any, typename... Vals>
+auto write(Any& any, const Vals&... vals)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream(any);
+    [[maybe_unused]] const auto& _1 = (_write_impl(stream, vals), ...);
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename... Vals>
+auto write_string(Any& any, const Vals&... vals)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream(any);
+    [[maybe_unused]] const auto& _1 = (_write_string_impl(stream, vals), ...);
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename... Vals>
+auto write_line(Any& any, const Vals&... vals)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream(any);
+    [[maybe_unused]] const auto& _1 = (_write_line_impl(stream, vals), ...);
+    return const_null;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename ReadType>
+auto binary_read(Any& any, ReadType)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_input_file_stream<true>(any);
+    if constexpr (is_real_v<ReadType> || is_complex_v<ReadType>)
+    {
+        ReadType val;
+        if (!stream.binary_read(val))
+            throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_BINARY);
+        return val;
+    }
+    else if constexpr (is_string_v<ReadType>)
+    {
+        static_assert(always_false_v<ReadType>,
+            WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    }
+    else
+    {
+        static_assert(always_false_v<ReadType>,
+            WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename ReadType, typename Count>
+auto binary_read_list(Any& any, ReadType, const Count& in_count)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
+    const auto count = int64_t(std::max(Count(0), in_count));
+    auto& stream = _as_input_file_stream<true>(any);
+    static_assert(is_real_v<ReadType> || is_complex_v<ReadType>,
+        WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    return stream.binary_read(ReadType{}, count);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename ReadType>
+auto binary_read_list(Any& any, ReadType)
+{
+    WL_TRY_BEGIN()
+    return binary_read_list(any, ReadType{}, const_int_infinity);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename X, typename WriteType>
+void binary_write(Any& any, const X& x, WriteType)
+{
+    WL_TRY_BEGIN()
+    auto& stream = _as_output_file_stream<true>(any);
+    static_assert(is_real_v<WriteType> || is_complex_v<WriteType>,
+        WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
+    constexpr auto XR = array_rank_v<X>;
+    if constexpr (XR ==  0u)
+    {
+        const auto& val = cast<WriteType>(x);
+        stream.binary_write(&val, 1u);
+    }
+    else
+    {
+        const auto& val = cast<ndarray<WriteType, XR>>(x);
+        stream.binary_write(val.data(), val.size());
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Any, typename X>
+void binary_write(Any& any, const X& x)
+{
+    WL_TRY_BEGIN()
+    if constexpr (array_rank_v<X> == 0u)
+        binary_write(any, x, X{});
+    else
+        binary_write(any, x, value_type_t<X>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+}
+namespace wl
+{
+struct random_engine
+{
+    using _base_engine_t = WL_BASE_RANDOM_ENGINE;
+    static_assert(uint64_t(_base_engine_t::max()) -
+        uint64_t(_base_engine_t::min()) == uint64_t(-1),
+        "64-bit random engine is required.");
+    static constexpr size_t bits_width = 64u;
+    using result_type = uint64_t;
+    _base_engine_t base_engine_{};
+    uint64_t active_bits_{};
+    uint64_t reserved_bits_{};
+    size_t n_bits_active_{};
+    random_engine()
+    {
+        update_all_bits();
+    }
+    static constexpr auto max()
+    {
+        return _base_engine_t::max();
+    }
+    static constexpr auto min()
+    {
+        return _base_engine_t::min();
+    }
+    WL_INLINE auto base_engine_get_bits()
+    {
+        return uint64_t(base_engine_());
+    }
+    auto get_bits(size_t n)
+    {
+        if (n >= 64u)
+            return base_engine_get_bits();
+        else if (n > 32u)
+            return base_engine_get_bits() >> (64u - n);
+        uint64_t ret = active_bits_ >> (bits_width - n);
+        if (n <= n_bits_active_)
+        {
+            active_bits_ <<= n;
+            n_bits_active_ -= n;
+        }
+        else
+        {
+            size_t n_bits_short = n - n_bits_active_;
+            ret |= reserved_bits_ >> (bits_width - n_bits_short);
+            active_bits_ = reserved_bits_ << n_bits_short;
+            n_bits_active_ = (bits_width - n_bits_short);
+            reserved_bits_ = base_engine_get_bits();
+        }
+        return ret;
+    }
+    void update_all_bits()
+    {
+        active_bits_ = base_engine_get_bits();
+        reserved_bits_ = base_engine_get_bits();
+        n_bits_active_ = bits_width;
+    }
+    template<typename Any>
+    void seed(Any&& any)
+    {
+        base_engine_.seed(std::forward<decltype(any)>(any));
+        update_all_bits();
+    }
+    WL_INLINE auto operator()()
+    {
+        return base_engine_get_bits();
+    }
+};
+extern random_engine global_random_engine;
+namespace distribution
+{
+template<typename T>
+void adjust_bounds(T& min, T& max)
+{
+    if (min > max)
+        std::swap(min, max);
+}
+template<typename T>
+void adjust_bounds(complex<T>& min, complex<T>& max)
+{
+    auto min_real = min.real();
+    auto min_imag = min.imag();
+    auto max_real = max.real();
+    auto max_imag = max.imag();
+    adjust_bounds(min_real, max_real);
+    adjust_bounds(min_imag, max_imag);
+    min = complex<T>(min_real, min_imag);
+    max = complex<T>(max_real, max_imag);
+}
+template<typename T, bool Multiple = false>
+struct uniform
+{
+    static_assert(is_real_v<T>, WL_ERROR_INTERNAL);
+    using value_type = T;
+    static constexpr size_t rank = 0;
+    T min_;
+    T max_;
+    uint64_t range_{};
+    size_t n_bits_{};
+    uniform(T a, T b) : min_{a}, max_{b}
+    {
+        adjust_bounds(min_, max_);
+        if constexpr (is_integral_v<T> && Multiple)
+        {
+            const auto diff = uint64_t(max_) - uint64_t(min_);
+            n_bits_ = size_t(64u - utils::lzcnt_u64(diff));
+            range_ = diff + 1u; // could be zero
+        }
+    }
+    T generate_int()
+    {
+        if (range_ == 0u)
+            return T(global_random_engine());
+        if constexpr (Multiple)
+        {
+            for (;;)
+            {
+                uint64_t rand = global_random_engine.get_bits(n_bits_);
+                if (rand <= uint64_t(range_ - 1u))
+                    return T(rand + std::make_unsigned_t<T>(min_));
+            }
+        }
+        else
+        {
+            for (;;)
+            {
+                uint64_t rand = global_random_engine();
+                uint64_t mask = uint64_t(-1);
+                if (rand / range_ < mask / range_ ||
+                    mask % range_ == (range_ - 1u)) {
+                    return T((rand % range_) + std::make_unsigned_t<T>(min_));
+                }
+            }
+        }
+    }
+    void generate(T* res)
+    {
+        if constexpr (is_integral_v<T>)
+            *res = generate_int();
+        else
+            *res = std::uniform_real_distribution<T>(
+                min_, max_)(global_random_engine);
+    }
+};
+template<typename T, bool Multiple>
+struct uniform<complex<T>, Multiple>
+{
+    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
+    using value_type = complex<T>;
+    static constexpr size_t rank = 0;
+    complex<T> min_;
+    complex<T> max_;
+    uniform(const complex<T>& a, const complex<T>& b) : min_{a}, max_{b}
+    {
+        adjust_bounds(min_, max_);
+    }
+    void generate(complex<T>* res)
+    {
+        using dist_type = std::uniform_real_distribution<T>;
+        auto re_dist = dist_type(min_.real(), max_.real());
+        auto im_dist = dist_type(min_.imag(), max_.imag());
+        *res = complex<T>(re_dist(global_random_engine),
+            im_dist(global_random_engine));
+    }
+};
+template<typename T>
+struct multi_uniform
+{
+    static_assert(is_arithmetic_v<T>, WL_ERROR_INTERNAL);
+    using value_type = T;
+    static constexpr size_t rank = 1;
+    ndarray<T, 2u> bounds_;
+    multi_uniform(const ndarray<T, 2u>& bounds) : bounds_(bounds)
+    {
+        _initialize();
+    }
+    multi_uniform(ndarray<T, 2u>&& bounds) : bounds_(std::move(bounds))
+    {
+        _initialize();
+    }
+    void _initialize()
+    {
+        if (!(bounds_.dims()[0] >= 1u && bounds_.dims()[1] == 2u))
+            throw std::logic_error(WL_ERROR_INTERNAL);
+        const auto length = bounds_.dims()[0];
+        auto iter = bounds_.data();
+        for (size_t i = 0; i < length; ++i, iter += 2)
+            adjust_bounds(iter[0], iter[1]);
+    }
+    size_t length() const
+    {
+        return bounds_.dims()[0];
+    }
+    void _single_generate(T* res, T* bounds)
+    {
+        if constexpr (is_complex_v<T>)
+        {
+            using dist_type = std::uniform_real_distribution<T>;
+            auto re_dist = dist_type(bounds[0].real(), bounds[1].real());
+            auto im_dist = dist_type(bounds[0].imag(), bounds[1].imag());
+            res->real() = re_dist(global_random_engine);
+            res->imag() = im_dist(global_random_engine);
+        }
+        else
+        {
+            using dist_type = std::conditional_t<is_integral_v<T>,
+                std::uniform_int_distribution<T>,
+                std::uniform_real_distribution<T>>;
+            auto dist = dist_type(bounds[0], bounds[1]);
+            *res = dist(global_random_engine);
+        }
+    }
+    void generate(T* res)
+    {
+        const auto length = this->length();
+        auto bounds_ptr = bounds_.data();
+        for (size_t i = 0; i < length; ++i, ++res, bounds_ptr += 2)
+            _single_generate(res, bounds_ptr);
+    }
+};
+template<typename T>
+struct default_multi_uniform
+{
+    static_assert(is_float_v<T>, WL_ERROR_INTERNAL);
+    using value_type = T;
+    static constexpr size_t rank = 1;
+    size_t length_;
+    default_multi_uniform(size_t length) : length_{length}
+    {
+        if (!(length >= 1u))
+            throw std::logic_error(WL_ERROR_INTERNAL);
+    }
+    size_t length() const
+    {
+        return length_;
+    }
+    void generate(T* res)
+    {
+        for (size_t i = 0; i < length_; ++i, ++res)
+        {
+            auto dist = std::uniform_real_distribution<T>();
+            *res = dist(global_random_engine);
+        }
+    }
+};
+template<typename RT, template<typename> typename Dist, typename... Params>
+struct scalar_distribution
+{
+    using value_type = RT;
+    static constexpr size_t rank = 0;
+    Dist<RT> dist_;
+    scalar_distribution(const Params&... params) : dist_(params...)
+    {
+    }
+    void generate(RT* res)
+    {
+        *res = dist_(global_random_engine);
+    }
+};
+#define WL_DEFINE_DISTRIBUTION_TYPE(name, stdname)          \
+template<typename ReturnType, typename... Params>           \
+using name = scalar_distribution<                           \
+    ReturnType, std::stdname##_distribution, Params...>;
+WL_DEFINE_DISTRIBUTION_TYPE(log_normal, lognormal)
+WL_DEFINE_DISTRIBUTION_TYPE(normal, normal)
+WL_DEFINE_DISTRIBUTION_TYPE(chi_square, chi_squared)
+WL_DEFINE_DISTRIBUTION_TYPE(cauchy, cauchy)
+WL_DEFINE_DISTRIBUTION_TYPE(student_t_nu, student_t)
+WL_DEFINE_DISTRIBUTION_TYPE(f_ratio, fisher_f)
+WL_DEFINE_DISTRIBUTION_TYPE(exponential, exponential)
+WL_DEFINE_DISTRIBUTION_TYPE(poisson, poisson)
+WL_DEFINE_DISTRIBUTION_TYPE(gamma, gamma)
+WL_DEFINE_DISTRIBUTION_TYPE(weibull, weibull)
+WL_DEFINE_DISTRIBUTION_TYPE(extreme_value, extreme_value)
+WL_DEFINE_DISTRIBUTION_TYPE(geometric, geometric)
+WL_DEFINE_DISTRIBUTION_TYPE(binomial, binomial)
+WL_DEFINE_DISTRIBUTION_TYPE(negative_binomial, negative_binomial)
+template<typename RT, typename Mu, typename Sigma, typename Nu>
+struct student_t
+{
+    using value_type = RT;
+    static constexpr size_t rank = 0;
+    RT mu_;
+    RT sigma_;
+    std::student_t_distribution<RT> dist_;
+    student_t(const Mu& mu, const Sigma& sigma, const Nu& nu) :
+        mu_{RT(mu)}, sigma_{RT(sigma)}, dist_(nu)
+    {
+    }
+    void generate(RT* res)
+    {
+        *res = dist_(global_random_engine) * sigma_ + mu_;
+    }
+};
+template<typename RT, typename P>
+struct bernoulli
+{
+    using value_type = RT;
+    static constexpr size_t rank = 0;
+    double p_;
+    bernoulli(const P& p) : p_{double(p)}
+    {
+    }
+    void generate(RT* res)
+    {
+        double rand = std::uniform_real_distribution<>()(global_random_engine);
+        *res = RT(rand < double(p_));
+    }
+};
+}
+inline auto uniform_distribution()
+{
+    return distribution::uniform<double>(0., 1.);
+}
+template<typename X>
+auto uniform_distribution(const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR <= 2u, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+    
+    if constexpr (XR == 0u)
+    {
+        static_assert(is_integral_v<X>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+        if (x <= X(0))
+            throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
+        return distribution::default_multi_uniform<double>(x);
+    }
+    else
+    {
+        using XV = value_type_t<X>;
+        static_assert(is_arithmetic_v<XV>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+        using RV = promote_integral_t<XV>;
+        if constexpr (XR == 1u)
+        {
+            if (x.dims()[0] != 2u)
+                throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
+            std::array<RV, 2u> bounds;
+            x.copy_to(bounds.data());
+            return distribution::uniform<RV>(bounds[0], bounds[1]);
+        }
+        else // XR == 2u
+        {
+            static_assert(is_arithmetic_v<XV>, WL_ERROR_UNIFORM_BOUNDS_SPEC);
+            if (!(x.dims()[0] >= 1u && x.dims()[1] == 2u))
+                throw std::logic_error(WL_ERROR_UNIFORM_BOUNDS_SPEC);
+            auto bounds = cast<ndarray<RV, 2u>>(x);
+            return distribution::multi_uniform<RV>(bounds);
+        }
+    }
+}
+template<typename Nu>
+auto chi_square_distribution(const Nu& nu)
+{
+    static_assert(is_real_v<Nu>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(nu > Nu(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::chi_square<promote_integral_t<Nu>, Nu>(nu);
+}
+template<typename Mean, typename Dev>
+auto normal_distribution(const Mean& mean, const Dev& dev)
+{
+    static_assert(all_is_real_v<Mean, Dev>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Mean, Dev>>;
+    if (!(dev > Dev(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::normal<P, Mean, Dev>(mean, dev);
+}
+inline auto normal_distribution()
+{
+    return normal_distribution(0., 1.);
+}
+template<typename Mean, typename Dev>
+auto log_normal_distribution(const Mean& mean, const Dev& dev)
+{
+    static_assert(all_is_real_v<Mean, Dev>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Mean, Dev>>;
+    if (!(dev > Dev(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::log_normal<P, Mean, Dev>(mean, dev);
+}
+template<typename A, typename B>
+auto cauchy_distribution(const A& a, const B& b)
+{
+    static_assert(all_is_real_v<A, B>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<A, B>>;
+    if (!(b > B(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::cauchy<P, A, B>(a, b);
+}
+inline auto cauchy_distribution()
+{
+    return cauchy_distribution(0., 1.);
+}
+template<typename Mean, typename Scale, typename Nu>
+auto student_t_distribution(const Mean& mean, const Scale& scale, const Nu& nu)
+{
+    static_assert(all_is_real_v<Mean, Scale, Nu>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Mean, Scale, Nu>>;
+    if (!(scale > Scale(0) && nu > Nu(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::student_t<P, Mean, Scale, Nu>(mean, scale, nu);
+}
+template<typename Nu>
+auto student_t_distribution(const Nu& nu)
+{
+    static_assert(is_real_v<Nu>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(nu > Nu(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::student_t_nu<promote_integral_t<Nu>, Nu>(nu);
+}
+template<typename N, typename M>
+auto f_ratio_distribution(const N& n, const M& m)
+{
+    static_assert(all_is_real_v<N, M>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<N, M>>;
+    if (!(n > N(0) && m > M(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::f_ratio<P, N, M>(n, m);
+}
+template<typename Mean>
+auto poisson_distribution(const Mean& mean)
+{
+    static_assert(is_real_v<Mean>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(mean > Mean(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::poisson<int64_t, Mean>(mean);
+}
+template<typename Lambda>
+auto exponential_distribution(const Lambda& lambda)
+{
+    static_assert(is_real_v<Lambda>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(lambda > Lambda(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::exponential<
+        promote_integral_t<Lambda>, Lambda>(lambda);
+}
+template<typename Ret = int64_t, typename P>
+auto bernoulli_distribution(const P& p)
+{
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
+    if (!(P(0) <= p && p <= P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::bernoulli<Ret, P>(p);
+}
+template<typename Alpha, typename Beta>
+auto gamma_distribution(const Alpha& alpha, const Beta& beta)
+{
+    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
+    if (!(alpha > Alpha(0) && beta > Beta(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::gamma<P, Alpha, Beta>(alpha, beta);
+}
+template<typename Alpha, typename Beta>
+auto weibull_distribution(const Alpha& alpha, const Beta& beta)
+{
+    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
+    if (!(alpha > Alpha(0) && beta > Beta(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::weibull<P, Alpha, Beta>(alpha, beta);
+}
+template<typename Alpha, typename Beta>
+auto extreme_value_distribution(const Alpha& alpha, const Beta& beta)
+{
+    static_assert(all_is_real_v<Alpha, Beta>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<common_type_t<Alpha, Beta>>;
+    if (!(beta > Beta(0)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::extreme_value<P, Alpha, Beta>(alpha, beta);
+}
+inline auto extreme_value_distribution()
+{
+    return extreme_value_distribution(0., 1.);
+}
+template<typename P>
+auto geometric_distribution(const P& p)
+{
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(P(0) < p && p < P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::geometric<int64_t, P>(p);
+}
+template<typename N, typename P>
+auto binomial_distribution(const N& n, const P& p)
+{
+    static_assert(is_integral_v<N>, WL_ERROR_INTEGRAL_TYPE_ARG);
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(n >= N(0) && P(0) <= p && p <= P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::binomial<N, N, P>(n, p);
+}
+template<typename N, typename P>
+auto negative_binomial_distribution(const N& n, const P& p)
+{
+    static_assert(is_integral_v<N>, WL_ERROR_INTEGRAL_TYPE_ARG);
+    static_assert(is_real_v<P>, WL_ERROR_REAL_TYPE_ARG);
+    if (!(n > N(0) && P(0) < p && p <= P(1)))
+        throw std::logic_error(WL_ERROR_DIST_PARAMETER_DOMAIN);
+    return distribution::negative_binomial<N, N, P>(n, p);
+}
+template<typename Dist, typename... Dims>
+auto _random_variate_impl(Dist dist, const Dims&... dims)
+{
+    using T = typename Dist::value_type;
+    constexpr size_t R1 = Dist::rank;
+    constexpr size_t R2 = sizeof...(dims);
+    static_assert(R1 <= 1u, WL_ERROR_INTERNAL);
+    if constexpr (R2 == 0u)
+    {
+        if constexpr (R1 == 0u)
+        {
+            T ret;
+            dist.generate(&ret);
+            return ret;
+        }
+        else
+        {
+            ndarray<T, 1u> ret(std::array<size_t, 1u>{dist.length()});
+            dist.generate(ret.data());
+            return ret;
+        }
+    }
+    else
+    {
+        if constexpr (R1 == 0u)
+        {
+            wl::ndarray<T, R2> ret(utils::get_dims_array(dims...));
+            auto iter = ret.data();
+            WL_CHECK_ABORT_LOOP_BEGIN(ret.size())
+                for (auto i = _loop_zero; i < _loop_size; ++i, ++iter)
+                    dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_END()
+            return ret;
+        }
+        else
+        {
+            const auto length = dist.length();
+            wl::ndarray<T, R2 + 1u> ret(
+                utils::get_dims_array(dims..., length));
+            const auto outer_size = utils::size_of_dims<R2>(ret.dims().data());
+            auto iter = ret.data();
+            WL_CHECK_ABORT_LOOP_BEGIN(outer_size)
+                for (auto i = _loop_zero; i < _loop_size; ++i, iter += length)
+                    dist.generate(iter);
+            WL_CHECK_ABORT_LOOP_END()
+            return ret;
+        }
+    }
+}
+template<typename Dist, typename... Dims>
+auto random_variate(Dist dist, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Min, typename Max, typename... Dims>
+auto random_integer(const Min& min, const Max& max, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(all_is_integral_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
+    using T = common_type_t<Min, Max>;
+    auto dist = distribution::uniform<T, true>(T(min), T(max));
+    return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Max, typename... Dims>
+auto random_integer(const Max& max, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_integral_v<Max>, WL_ERROR_RANDOM_BOUNDS);
+    return random_integer(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Min, typename Max, typename... Dims>
+auto random_real(const Min& min, const Max& max, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(all_is_real_v<Min, Max>, WL_ERROR_RANDOM_BOUNDS);
+    using P = promote_integral_t<common_type_t<Min, Max>>;
+    auto dist = distribution::uniform<P>(min, max);
+    return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Max, typename... Dims>
+auto random_real(const Max& max, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_real_v<Max>, WL_ERROR_RANDOM_BOUNDS);
+    return random_real(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Min, typename Max, typename... Dims>
+auto random_complex(const Min& min, const Max& max, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_arithmetic_v<Min> && is_arithmetic_v<Max>,
+        WL_ERROR_RANDOM_BOUNDS);
+    using C = common_type_t<value_type_t<Min>, value_type_t<Max>>;
+    using T = std::conditional_t<std::is_same_v<C, float>,
+        complex<float>, complex<double>>;
+    auto dist = distribution::uniform<T>(cast<T>(min), cast<T>(max));
+    return _random_variate_impl(dist, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Max, typename... Dims>
+auto random_complex(const Max& max, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_arithmetic_v<Max>, WL_ERROR_RANDOM_BOUNDS);
+    return random_complex(Max{}, max, varg_tag{}, dims...);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename Random, typename X, size_t OuterRank>
+auto _random_choice_batch_impl(Random&& random, const X& x,
+    const std::array<size_t, OuterRank>& outer_dims)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<X>;
+    const auto& valx = allows<view_category::Regular>(x);
+    const auto x_iter = valx.begin();
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if constexpr (XR == 1u)
+    {
+        ndarray<XV, OuterRank> ret(outer_dims);
+        auto ret_iter = ret.data();
+        for (size_t i = 0; i < outer_size; ++i, ++ret_iter)
+            *ret_iter = *(x_iter + random());
+        return ret;
+    }
+    else
+    {
+        auto item_dims = utils::dims_take<2u, XR>(x.dims());
+        auto item_size = utils::size_of_dims(item_dims);
+        ndarray<XV, OuterRank + XR - 1u> ret(
+            utils::dims_join(outer_dims, item_dims));
+        auto base_iter = ret.data();
+        for (size_t i = 0u; i < outer_size; ++i, base_iter += item_size)
+            utils::restrict_copy_n(
+                x_iter + item_size * random(),
+                item_size, base_iter);
+        return ret;
+    }
+}
+template<typename Random, typename X>
+auto _random_choice_single_impl(const Random& random, const X& x)
+{
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    using XV = value_type_t<X>;
+    const auto& valx = allows<view_category::Regular>(x);
+    const auto x_iter = valx.begin();
+    if constexpr (XR == 1u)
+    {
+        return *(x_iter + random());
+    }
+    else
+    {
+        auto item_dims = utils::dims_take<2u, XR>(x.dims());
+        auto item_size = utils::size_of_dims(item_dims);
+        ndarray<XV, XR - 1u> ret(item_dims);
+        utils::restrict_copy_n(
+            x_iter + item_size * random(), item_size, ret.data());
+        return ret;
+    }
+}
+inline auto _random_choice_prepare_uniform(const size_t x_length)
+{
+    if (!(x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
+    return [max = size_t(x_length - 1u)]
+    {
+        auto dist = std::uniform_int_distribution<size_t>(0u, max);
+        return dist(global_random_engine);
+    };
+}
+template<typename W>
+auto _random_choice_prepare_binary(const W& w, const size_t x_length)
+{
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+    const auto& valw = allows<view_category::Regular>(w);
+    const auto w_size = valw.size();
+    auto ret = ndarray<double, 1u>(valw.dims());
+    auto w_iter = valw.begin();
+    auto ret_iter = ret.data();
+    double accumulate = 0.0;
+    WL_IGNORE_DEPENDENCIES
+    for (size_t i = 0; i < w_size; ++i, ++w_iter, ++ret_iter)
+    {
+        const auto weight = double(*w_iter);
+        if (weight < 0.)
+            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+        accumulate += weight;
+        *ret_iter = accumulate;
+    }
+    return [weights = std::move(ret), sum = accumulate]
+    {
+        auto w_begin = weights.begin();
+        auto w_end = weights.end();
+        auto dist = std::uniform_real_distribution<>(0., sum);
+        return size_t(std::lower_bound(
+            w_begin, w_end, dist(global_random_engine)) - w_begin);
+    };
+}
+template<typename W>
+auto _random_choice_prepare_walker74(const W& w, const size_t x_length)
+{
+    // Walker, A.J. (1974), Electronics Letters, 10(8), 127
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+    const size_t n = x_length;
+    std::vector<double> p(n);
+    w.copy_to(p.data());
+    struct alias_t { double prob; uint64_t index; };
+    std::vector<alias_t> alias_vec(n);
+    auto small_base = new alias_t[n];
+    auto large_base = new alias_t[n];
+    auto* alias = alias_vec.data();
+    auto* small = small_base;
+    auto* large = large_base;
+    auto push = [](auto*& ptr, alias_t elem) { *(ptr++) = elem; };
+    auto pop = [](auto*& ptr) { return *(--ptr); };
+    double normalize = 0.0;
+    for (const auto& prob : p)
+    {
+        if (prob < 0.)
+            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+        normalize += prob;
+    }
+    const double factor = double(x_length) / normalize;
+    for (uint64_t i = 0; i < n; ++i)
+    {
+        const double prob = p[i] * factor;
+        push(prob <= 1. ? small : large, alias_t{prob, i});
+    }
+    while (small > small_base && large > large_base)
+    {
+        auto l = pop(small);
+        auto g = pop(large);
+        alias[l.index].prob = l.prob;
+        alias[l.index].index = g.index;
+        g.prob += l.prob - 1.;
+        push(g.prob <= 1. ? small : large, g);
+    }
+    while (large > large_base)
+    {
+        alias[pop(large).index].prob = 1.;
+    }
+    while (small > small_base)
+    {
+        alias[pop(small).index].prob = 1.;
+    }
+    delete[] small_base;
+    delete[] large_base;
+    return[alias_vec = std::move(alias_vec), max = double(n)]
+    {
+        auto dist = std::uniform_real_distribution<>(0.0, max);
+        double rand = dist(global_random_engine);
+        double index = std::floor(rand);
+        const auto& a = alias_vec[size_t(index)];
+        return (rand - index <= a.prob) ? size_t(index) : a.index;
+    };
+}
+template<typename X>
+auto random_choice(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return _random_choice_single_impl(
+        _random_choice_prepare_uniform(x.dims()[0]), x);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename... Dims>
+auto random_choice(const X& x, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return _random_choice_batch_impl(
+        _random_choice_prepare_uniform(x.dims()[0]),
+        x, utils::get_dims_array(dims...));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename W, typename X>
+auto random_choice(const W& w, const X& x, varg_tag)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return _random_choice_single_impl(
+        _random_choice_prepare_binary(w, x.dims()[0]), x);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename W, typename X, typename... Dims>
+auto random_choice(const W& w, const X& x, varg_tag, const Dims&... dims)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    const auto outer_dims = utils::get_dims_array(dims...);
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    // automatically select between binary and walker74
+    if ((outer_size >= 50u) && (outer_size * 5u >= x_length))
+        return _random_choice_batch_impl(
+            _random_choice_prepare_walker74(w, x_length), x, outer_dims);
+    else
+        return _random_choice_batch_impl(
+            _random_choice_prepare_binary(w, x_length), x, outer_dims);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+inline auto _random_sample_prepare_uniform(const size_t x_length)
+{
+    if (!(x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
+    ndarray<size_t, 1u> idx_vec(std::array<size_t, 1u>{x_length});
+    auto* const idx = idx_vec.data();
+    for (size_t i = 0; i < x_length; ++i)
+        idx[i] = i;
+    return [idx_vec = std::move(idx_vec), remain = x_length]() mutable
+    {
+        if (remain == 0u)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+        else if (remain == 1u)
+            return idx_vec.data()[0];
+        auto* const idx = idx_vec.data();
+        const auto this_idx = std::uniform_int_distribution<size_t>(
+            0u, remain - 1u)(global_random_engine);
+        const auto picked_idx = idx[this_idx];
+        if (this_idx + 1u < remain) // did not pick the last element
+            idx[this_idx] = idx[remain - 1u];
+        --remain;
+        return picked_idx;
+    };
+}
+inline auto _random_sample_prepare_short_uniform(const size_t x_length)
+{
+    if (!(x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_ELEM_LENGTH);
+    return [idx_vec = ndarray<size_t, 1u>{}, x_length]() mutable
+    {
+        const auto n_taken = idx_vec.size();
+        auto* const idx_begin = idx_vec.data();
+        auto* const idx_end = idx_begin + n_taken;
+        if (x_length == n_taken)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+        if (n_taken >= 2u)
+        { // move the last element to its place
+            auto* ins = std::lower_bound(
+                idx_begin, idx_end - 1, idx_end[-1]);
+            std::rotate(ins, idx_end - 1, idx_end);
+        }
+        auto this_idx = std::uniform_int_distribution<size_t>(
+            0u, x_length - n_taken - 1u)(global_random_engine);
+        idx_vec.for_each([&](const auto& taken)
+            {
+                if (this_idx >= taken)
+                    ++this_idx;
+            });
+        idx_vec.append(size_t(this_idx));
+        return this_idx;
+    };
+}
+template<typename W>
+auto _random_sample_prepare_binary(const W& w, const size_t x_length)
+{
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+    const size_t n = x_length;
+    if (n <= 3u)
+        throw std::logic_error(WL_ERROR_INTERNAL);
+    ndarray<double, 1u> probs_vec(std::array<size_t, 1>{n});
+    ndarray<uint64_t, 1u> uint_probs_vec(std::array<size_t, 1>{n});
+    auto* const probs = probs_vec.data();
+    auto* const uint_probs = uint_probs_vec.data();
+    w.copy_to(probs);
+    double sum_prob = 0.0;
+    for (const auto& prob : probs_vec)
+    {
+        if (prob < 0.)
+            throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+        sum_prob += prob;
+    }
+    constexpr double target_sum_prob = 1.0e+19; // ~2^63
+    const double factor = target_sum_prob / sum_prob;
+    WL_IGNORE_DEPENDENCIES
+    for (size_t i = 0; i < n; ++i)
+    {
+        const auto prob = uint64_t(std::floor(probs[i] * factor + 0.5));
+        // each element should have a probability of at least ~2^-63
+        uint_probs[i] = (prob > 0u) ? prob : uint64_t(1);
+    }
+    const auto lzcnt = utils::lzcnt_u64(uint64_t(n - 1u));
+    const auto max_jump = size_t(1) << (63u - lzcnt);
+    // fold the ragged part
+    for (size_t i = max_jump; i < n; ++i)
+        uint_probs[i - max_jump] += uint_probs[i];
+    // fold the regular parts
+    for (auto jump = max_jump >> 1; jump > 0u; jump >>= 1)
+    {
+        for (size_t i = 0; i < jump; ++i)
+            uint_probs[i] += uint_probs[jump + i];
+    }
+    
+    return [uint_probs_vec = std::move(uint_probs_vec), n, max_jump]() mutable
+    {
+        auto* uint_probs = uint_probs_vec.data();
+        if (uint_probs[0] == 0u)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+        auto rand = std::uniform_int_distribution<uint64_t>(
+            0u, uint_probs[0] - 1u)(global_random_engine);
+        // pick the index
+        auto index = uint64_t(0);
+        auto weight = uint_probs[0]; // to be removed from uint_probs
+        for (size_t jump = 1u; jump <= max_jump; jump <<= 1)
+        {
+            if (index + jump >= n)
+                break;
+            else
+            {
+                const auto proposed = uint_probs[index + jump];
+                if (rand >= proposed)
+                {
+                    rand -= proposed;
+                    weight -= proposed;
+                }
+                else
+                {
+                    index += jump;
+                    weight = proposed;
+                }
+            }
+        }
+        const auto ret_index = size_t(index);
+        // remove weight from the uint_probs
+        uint_probs[index] -= weight;
+        for (size_t jump = max_jump; true; jump >>= 1)
+        {
+            if (jump <= index)
+            {
+                index -= jump;
+                uint_probs[index] -= weight;
+            }
+            if (index == 0u)
+                break;
+        }
+        return ret_index;
+    };
+}
+template<typename W>
+auto _random_sample_prepare_linear(const W& w, const size_t x_length)
+{
+    static_assert(array_rank_v<W> == 1u && is_real_v<value_type_t<W>>,
+        WL_ERROR_RANDOM_WEIGHTS_TYPE);
+    if (!(x_length == w.dims()[0] && x_length >= 1u))
+        throw std::logic_error(WL_ERROR_RANDOM_WEIGHTS_LENGTH);
+    const size_t n = x_length;
+    if (n <= 1u)
+        throw std::logic_error(WL_ERROR_INTERNAL);
+    ndarray<double, 1u> pmf_vec(std::array<size_t, 1u>{n});
+    ndarray<double, 1u> cmf_vec(std::array<size_t, 1u>{n});
+    auto* const pmf = pmf_vec.data();
+    auto* const cmf = cmf_vec.data();
+    w.copy_to(pmf);
+    if (std::any_of(pmf, pmf + n, [](auto p) { return p < 0.; }))
+        throw std::logic_error(WL_ERROR_NEGATIVE_WEIGHT);
+    std::partial_sum(pmf, pmf + n, cmf);
+    return [cmf_vec = std::move(cmf_vec), n, last_index = n]() mutable
+    {
+        auto* const cmf = cmf_vec.data();
+        if (last_index < n)
+        { // if not the last element, update pmf and cmf
+            const auto diff = last_index == 0u ? cmf[0u] :
+                (cmf[last_index] - cmf[last_index - 1u]);
+            for (auto i = last_index; i < n; ++i)
+                cmf[i] -= diff;
+        }
+        if (cmf[n - 1u] <= 0.)
+            throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_ZERO_WEIGHTS);
+        const auto rand = std::uniform_real_distribution<>(
+            0., cmf[n - 1u])(global_random_engine);
+        size_t index = size_t(std::lower_bound(cmf, cmf + n, rand) - cmf);
+        last_index = index;
+        return index;
+    };
+}
+template<typename W, typename X, typename Size>
+auto random_sample(const W& w, const X& x, varg_tag, const Size& size)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    const auto outer_dims = utils::get_dims_array(size);
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if (size > x_length)
+        throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+    // automatically select between binary and linear
+    if (outer_size > 5u && x_length > 35u)
+        return _random_choice_batch_impl(
+            _random_sample_prepare_binary(w, x_length), x, outer_dims);
+    else
+        return _random_choice_batch_impl(
+            _random_sample_prepare_linear(w, x_length), x, outer_dims);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename W, typename X>
+auto random_sample(const W& w, const X& x, varg_tag)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    return random_sample(w, x, x_length);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Size>
+auto random_sample(const X& x, const Size& size)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    const auto outer_dims = utils::get_dims_array(size);
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if (size > x_length)
+        throw std::logic_error(WL_ERROR_RANDOM_SAMPLE_NO_ELEM);
+    // automatically select between two methods
+    if (x_length == 1u && size == 1u)
+        return val(x);
+    else if (size <= 2u || 10 * size * size <= x_length)
+        return _random_choice_batch_impl(
+            _random_sample_prepare_short_uniform(x_length), x, outer_dims);
+    else
+        return _random_choice_batch_impl(
+            _random_sample_prepare_uniform(x_length), x, outer_dims);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto random_sample(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto x_length = x.dims()[0];
+    return random_sample(x, x_length);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }

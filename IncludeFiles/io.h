@@ -73,11 +73,7 @@ auto echo_function(Function f)
     };
 }
 
-#ifdef _WIN32
-#  define WL_GETCWD _wgetcwd
-#  define WL_PATH_CHAR_TYPE wchar_t
-
-struct _codecvt_wchar_t:
+struct _codecvt_wchar_t :
     std::codecvt<char16_t, char, std::mbstate_t>
 {
     template<typename... Args>
@@ -91,39 +87,39 @@ struct _codecvt_wchar_t:
     }
 };
 
+inline wl::string _to_u8path(const char* ospath)
+{
+    return wl::string(ospath);
+}
+inline wl::string _to_u8path(const wchar_t* ospath)
+{
+    static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
+    const auto u8path = conv.to_bytes((const char16_t*)ospath);
+    return wl::string(u8path.c_str());
+}
+
+#if defined(_WIN32)
+#    define WL_GETCWD _wgetcwd
+#    define WL_PATH_CHAR_TYPE wchar_t
+#  if defined(_MSC_VER)
 inline std::wstring _from_u8path(const char* u8path)
 {
     static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
     const auto ospath = conv.from_bytes(u8path);
     return std::wstring((const wchar_t*)ospath.c_str());
 }
-inline wl::string _to_u8path(const WL_PATH_CHAR_TYPE* ospath)
-{
-    static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
-    const auto u8path = conv.to_bytes((const char16_t*)ospath);
-    return wl::string(u8path.c_str());
-}
+#  else
+#  endif
+
 #else
 #  define WL_GETCWD getcwd
 #  define WL_PATH_CHAR_TYPE char
-
 inline std::string _from_u8path(const char* u8path)
 {
     return std::string(u8path);
 }
-inline wl::string _to_u8path(const WL_PATH_CHAR_TYPE* ospath)
-{
-    return wl::string(ospath);
-}
-inline std::string _working_directory()
-{
-    char buffer[FILENAME_MAX];
-    if (getcwd(buffer, FILENAME_MAX))
-        return std::string(buffer);
-    else
-        throw std::logic_error(WL_ERROR_GETCWD);
-}
 #endif
+
 
 #define WL_PATH_STRING_TYPE std::basic_string<WL_PATH_CHAR_TYPE>
 
@@ -238,10 +234,11 @@ struct file_stream
     file_stream(const String& path, bool binary, bool append = false) :
         path_{path}, stream_{}
     {
-        int mode = 0;
+        std::ios_base::openmode mode{};
         if (binary) mode |= std::ios_base::binary;
         if (append) mode |= std::ios_base::app;
         auto ospath = _from_u8path(path.c_str());
+        //echo(ospath);
         stream_.open(ospath, mode);
         if (stream_.fail())
             throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
@@ -675,7 +672,7 @@ template<typename Any>
 auto read_string(Any& any)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_input_file_stream(any);
+    decltype(auto) stream = _as_input_file_stream(any);
     return stream.read_string();
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -685,7 +682,7 @@ auto read(Any& any, ReadType)
 {
     WL_TRY_BEGIN()
     using namespace stream_separator;
-    auto& stream = _as_input_file_stream(any);
+    decltype(auto) stream = _as_input_file_stream(any);
     char sep_found = '\0';
     if constexpr (std::is_same_v<ReadType, byte_type>)
     {
@@ -738,7 +735,7 @@ auto read_list(Any& any, ReadType, const Count& in_count)
     using namespace stream_separator;
     static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
     const auto count = int64_t(std::max(Count(0), in_count));
-    auto& stream = _as_input_file_stream(any);
+    decltype(auto) stream = _as_input_file_stream(any);
     char ignored = '\0';
     if constexpr (std::is_same_v<ReadType, byte_type>)
     {
@@ -840,7 +837,7 @@ template<typename Any, typename... Vals>
 auto write(Any& any, const Vals&... vals)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_output_file_stream(any);
+    decltype(auto) stream = _as_output_file_stream(any);
     [[maybe_unused]] const auto& _1 = (_write_impl(stream, vals), ...);
     return const_null;
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -850,7 +847,7 @@ template<typename Any, typename... Vals>
 auto write_string(Any& any, const Vals&... vals)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_output_file_stream(any);
+    decltype(auto) stream = _as_output_file_stream(any);
     [[maybe_unused]] const auto& _1 = (_write_string_impl(stream, vals), ...);
     return const_null;
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -860,7 +857,7 @@ template<typename Any, typename... Vals>
 auto write_line(Any& any, const Vals&... vals)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_output_file_stream(any);
+    decltype(auto) stream = _as_output_file_stream(any);
     [[maybe_unused]] const auto& _1 = (_write_line_impl(stream, vals), ...);
     return const_null;
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -870,7 +867,7 @@ template<typename Any, typename ReadType>
 auto binary_read(Any& any, ReadType)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_input_file_stream<true>(any);
+    decltype(auto) stream = _as_input_file_stream<true>(any);
     if constexpr (is_real_v<ReadType> || is_complex_v<ReadType>)
     {
         ReadType val;
@@ -897,7 +894,7 @@ auto binary_read_list(Any& any, ReadType, const Count& in_count)
     WL_TRY_BEGIN()
     static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
     const auto count = int64_t(std::max(Count(0), in_count));
-    auto& stream = _as_input_file_stream<true>(any);
+    decltype(auto) stream = _as_input_file_stream<true>(any);
     static_assert(is_real_v<ReadType> || is_complex_v<ReadType>,
         WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
     return stream.binary_read(ReadType{}, count);
@@ -916,7 +913,7 @@ template<typename Any, typename X, typename WriteType>
 void binary_write(Any& any, const X& x, WriteType)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_output_file_stream<true>(any);
+    decltype(auto) stream = _as_output_file_stream<true>(any);
     static_assert(is_real_v<WriteType> || is_complex_v<WriteType>,
         WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
     constexpr auto XR = array_rank_v<X>;
@@ -999,7 +996,7 @@ template<typename String, typename X, typename WriteType>
 auto export_text(const String& path, const X& x, file_format format, WriteType)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_output_file_stream(path);
+    decltype(auto) stream = _as_output_file_stream(path);
     char line_sep = '\n';
     char field_sep = (format == file_format::CSV) ? ',' : '\t';
     const auto& valx = allows<view_category::Simple>(x);
@@ -1021,7 +1018,7 @@ auto import_text(const String& path, file_format format, ReadType,
 {
     WL_TRY_BEGIN()
     using namespace stream_separator;
-    auto& stream = _as_input_file_stream(path);
+    decltype(auto) stream = _as_input_file_stream(path);
     const separator_table* sep_table_ptr = &default_table;
     switch (format)
     {
@@ -1119,7 +1116,7 @@ template<typename String, typename X, typename WriteType>
 void export_binary(const String& path, const X& x, WriteType)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_output_file_stream<true>(path);
+    decltype(auto) stream = _as_output_file_stream<true>(path);
     write_binary(stream, x, WriteType{});
     return stream.path();
     WL_TRY_END(__func__, __FILE__, __LINE__)
@@ -1129,7 +1126,7 @@ template<typename String, typename X>
 void export_binary(const String& path, const X& x)
 {
     WL_TRY_BEGIN()
-    auto& stream = _as_output_file_stream<true>(path);
+    decltype(auto) stream = _as_output_file_stream<true>(path);
     write_binary(stream, x);
     return stream.path();
     WL_TRY_END(__func__, __FILE__, __LINE__)

@@ -333,7 +333,7 @@ allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
 $builtinconstants=
-<|
+"wl::const_"<>#&/@<|
   "Null"       ->"null",
   "I"          ->"i",
   "All"        ->"all",
@@ -681,6 +681,9 @@ variablerename[code_]:=
   ]
 
 listtoseq[expr_]:=Replace[expr,list[_][any___]:>Sequence[any]]
+parsedatatype[literal[type_String,p_]]:=typed[p][totypespec[type]/.Missing[]:>"wl::void_type"]
+parsefileformat[literal[format_String,p_]]:=If[MemberQ[{"Table","TSV","CSV"},format],
+  const["wl::file_format::"<>format,p],literal[format,p]]
 
 functionmacro[code_]:=code//.{
     id["ConstantArray",p_][val_,dims_]:>native["constant_array",p][val,vargtag,listtoseq[dims]],
@@ -788,10 +791,12 @@ functionmacro[code_]:=code//.{
     id["OpenWrite",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_write<false>",p][str,patt],
     id["OpenAppend",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_append<true>",p][str,patt],
     id["OpenAppend",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_append<false>",p][str,patt],
-    id["BinaryRead",p_][str_,literal[type_String,pt_]]:>
-      native["binary_read",p][str,typed[pt][totypespec[type]/.Missing[]:>"wl::void_type"]],
-    id["BinaryReadList",p_][str_,literal[type_String,pt_],any___]:>
-      native["binary_read_list",p][str,typed[pt][totypespec[type]/.Missing[]:>"wl::void_type"],any]
+    id["BinaryRead",p_][str_,type:literal[_String,_]]:>native["binary_read",p][str,parsedatatype[type]],
+    id["BinaryReadList",p_][str_,type:literal[_String,_],any___]:>native["binary_read_list",p][str,parsedatatype[type],any],
+    id["Import",p_][path_,list[_][literal["Binary",_],type:literal[_String,_]]]:>
+      native["import_binary",p][path,parsedatatype[type]],
+    id["Import",p_][path_,list[_][format:literal[_String,_],type:literal[_String,_]]]:>
+      native["import_text",p][path,parsefileformat[format],parsedatatype[type]]
   }
 
 arithmeticmacro[code_]:=code//.{
@@ -936,7 +941,7 @@ codegen[literal[r_Real,p_],___]:={annotatebegin[p],ToString@CForm[r],annotateend
 codegen[const[i_Integer],___]:={annotatebegin[],"wl::const_int<"<>ToString@CForm[i]<>">",annotateend[],"{}"}
 codegen[c:consts[(_Integer)..],___]:=
   {annotatebegin[],"wl::const_ints<"<>StringRiffle[ToString@*CForm/@(List@@c),", "]<>">",annotateend[],"{}"}
-codegen[const[s_String,p___],___]:={annotatebegin[p],"wl::const_"<>s,annotateend[p]}
+codegen[const[s_String,p___],___]:={annotatebegin[p],s,annotateend[p]}
 
 codegen[native[name_,p_],"Function"]:={annotatebegin[p],"wl::"<>name,annotateend[p]}
 codegen[native[name_,p_],___]:={annotatebegin[p],"WL_FUNCTION(","wl::"<>name,annotateend[p],")"}

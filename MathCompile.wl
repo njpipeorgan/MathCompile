@@ -130,6 +130,8 @@ $typenames={
   (*informal names*)
   {"int64_t","MachineInteger"},
   {"uint8_t","Byte"},
+  {"wl::complex<float>","Complex64"},
+  {"wl::complex<double>","Complex128"},
   {"wl::string","TerminatedString"},
   (*formal names*)
   {"wl::void_type", "Void"},
@@ -366,7 +368,11 @@ $builtinconstants=
   "StartOfLine"         ->"start_of_line",
   "EndOfLine"           ->"end_of_line",
   "StartOfString"       ->"start_of_string",
-  "EndOfString"         ->"end_of_string"
+  "EndOfString"         ->"end_of_string",
+  "Byte"                ->"byte",
+  "Character"           ->"character",
+  "Word"                ->"word",
+  "Record"              ->"record"
 |>;
 
 $builtinfunctions=
@@ -645,6 +651,7 @@ $builtinfunctions=
   "Read"            ->"read",
   "ReadLine"        ->"read_line",
   "ReadString"      ->"read_string",
+  "ReadList"        ->"read_list",
   "Write"           ->"write",
   "WriteLine"       ->"write_line",
   "WriteString"     ->"write_string",
@@ -785,18 +792,23 @@ functionmacro[code_]:=code//.{
     id["StringCases",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_cases<false>",p][str,patt],
     id["StringPosition",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_position<true>",p][str,patt],
     id["StringPosition",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_position<false>",p][str,patt],
-    id["OpenRead",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_read<true>",p][str,patt],
-    id["OpenRead",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_read<false>",p][str,patt],
-    id["OpenWrite",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_write<true>",p][str,patt],
-    id["OpenWrite",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_write<false>",p][str,patt],
-    id["OpenAppend",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_append<true>",p][str,patt],
-    id["OpenAppend",p_][str_,patt_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_append<false>",p][str,patt],
+    id["OpenRead",p_][str_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_read<true>",p][str],
+    id["OpenRead",p_][str_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_read<false>",p][str],
+    id["OpenWrite",p_][str_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_write<true>",p][str],
+    id["OpenWrite",p_][str_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_write<false>",p][str],
+    id["OpenAppend",p_][str_,id["Rule",_][id["BinaryFormat",_],id["True",_]]]:>native["open_append<true>",p][str],
+    id["OpenAppend",p_][str_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_append<false>",p][str],
     id["BinaryRead",p_][str_,type:literal[_String,_]]:>native["binary_read",p][str,parsedatatype[type]],
     id["BinaryReadList",p_][str_,type:literal[_String,_],any___]:>native["binary_read_list",p][str,parsedatatype[type],any],
     id["Import",p_][path_,list[_][literal["Binary",_],type:literal[_String,_]]]:>
       native["import_binary",p][path,parsedatatype[type]],
     id["Import",p_][path_,list[_][format:literal[_String,_],type:literal[_String,_]]]:>
-      native["import_text",p][path,parsefileformat[format],parsedatatype[type]]
+      native["import_text",p][path,parsefileformat[format],parsedatatype[type]],
+    id["Export",p_][path_,x_,list[_][literal["Binary",_],type:literal[_String,_]]]:>
+      native["export_binary",p][path,x,parsedatatype[type]],
+    id["Export",p_][path_,x_,list[_][format:literal[_String,_],type:literal[_String,_]]]:>
+      native["export_text",p][path,x,parsefileformat[format],parsedatatype[type]],
+    id["Export",p_][path_,x_,format:literal[_String,fp_]]:>id["Export",p][path,x,list[fp][format,literal["Void",0]]]
   }
 
 arithmeticmacro[code_]:=code//.{

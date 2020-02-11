@@ -81,6 +81,10 @@ struct word_type
 {
 };
 
+struct record_type
+{
+};
+
 struct varg_tag
 {
 };

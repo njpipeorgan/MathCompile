@@ -23,8 +23,11 @@ cleartests[]:=($MathCompileTests={};)
 
 runtests[]:=
   Block[{$FailedMathCompileTests={},i=0,n=Length@$MathCompileTests},
+    CreateDirectory[$MathCompileTmp="./mathcompile_tmpfiles/"];
     PrintTemporary[Column[{ProgressIndicator[Dynamic[i/n]],Dynamic@$CurrentMathCompileTest}]];
-    Do[$MathCompileTests[[i]][],{i,1,n}];<|"FailedTests"->$FailedMathCompileTests|>
+    Do[$MathCompileTests[[i]][],{i,1,n}];
+    DeleteDirectory[$MathCompileTmp,DeleteContents->True];
+    <|"FailedTests"->$FailedMathCompileTests|>
   ]
 
 
@@ -471,4 +474,18 @@ registertest[test["to_character_code",        Function[{Typed[str,String]},ToCha
 
 registertest[test["sort:string",              Function[{Typed[x,String]},Sort[StringSplit@x]],{{"hurdle toilet radioisotope giant whippoorwill postponement cheddar census entranced bespoke junk attributive overhand clockmaker defection starlet zydeco reduced owlish oligarch"}}]&];
 registertest[test["ordering:string",          Function[{Typed[x,String]},Ordering[StringSplit@x]],{{"hurdle toilet radioisotope giant whippoorwill postponement cheddar census entranced bespoke junk attributive overhand clockmaker defection starlet zydeco reduced owlish oligarch"}}]&];
+
+registertest[test["read_string",              Function[{Typed[f,String]},ReadString[f]],{{Export[$MathCompileTmp<>"read_string.txt","12\[Alpha]45","Text"];$MathCompileTmp<>"read_string.txt"}->"12\[Alpha]45"}]&];
+registertest[test["read_line",                Function[{Typed[f,String]},Module[{str=OpenRead[f],l1,l2},l1=ReadLine[str];l2=ReadLine[str];{l1,l2}]],{{Export[$MathCompileTmp<>"read_line.txt","line1\n\nline2","Text"];$MathCompileTmp<>"read_line.txt"}->{"line1","line2"}}]&];
+registertest[test["read_list:text",           Function[{Typed[f,String]},Join[ReadList[f,Character],ReadList[f,Word],ReadList[f,Record]]],{{Export[$MathCompileTmp<>"read_list.txt","ab +\tb\[Alpha] \n c + \[Gamma]d","Text"];$MathCompileTmp<>"read_list.txt"}->Flatten[ReadList[StringToStream["ab +\tb\[Alpha] \n c + \[Gamma]d"],#]&/@{Character,Word,Record}]}]&];
+registertest[test["read_list:byte",           Function[{Typed[f,String]},Normal@ReadList[f,Byte]],{{Export[$MathCompileTmp<>"read_list.txt","ab +\tb\[Alpha] \n c + \[Gamma]d","Text"];$MathCompileTmp<>"read_list.txt"}->Normal@StringToByteArray["ab +\tb\[Alpha] \n c + \[Gamma]d"]}]&];
+registertest[test["read_list:integer",        Function[{Typed[f,String]},ReadList[f,Integer]],{{Export[$MathCompileTmp<>"read_list.txt","1 2 3\n -1  -2\t -3","Text"];$MathCompileTmp<>"read_list.txt"}->{1,2,3,-1,-2,-3}}]&];
+registertest[test["read_list:real",           Function[{Typed[f,String]},ReadList[f,Real]],{{Export[$MathCompileTmp<>"read_list.txt","1.2 -0.00123 -1.5e-5\n 12345678901234567890  123e13\t -0.","Text"];$MathCompileTmp<>"read_list.txt"}->N@{1.2,-0.00123,-1.5*^-5,1.2345678901234567890*^19,1.23*^15,0.}}]&];
+registertest[test["read:text",                Function[{Typed[f,String]},Module[{str=OpenRead[f],c,w,r},c=Read[str,Character];w=Read[str,Word];r=Read[str,Record];{c,w,r}]],{{Export[$MathCompileTmp<>"read.txt","ab+b\[Alpha]\n c + \[Gamma]d","Text"];$MathCompileTmp<>"read.txt"}->{"a","b+b\[Alpha]"," c + \[Gamma]d"}}]&];
+registertest[test["read:number",              Function[{Typed[f,String]},Module[{str=OpenRead[f],i,r},i=Read[str,Integer];r=Read[str,Real];{N@i,r}]],{{Export[$MathCompileTmp<>"read.txt","12345  \n123.45","Text"];$MathCompileTmp<>"read.txt"}->{12345.,123.45}}]&];
+registertest[test["binary_read",              Function[{Typed[f,String]},Module[{str=OpenRead[f,BinaryFormat->True],u64,i32,r,c},u64=BinaryRead[str,"UnsignedInteger64"];i32=BinaryRead[str,"Integer32"];r=BinaryRead[str,"Real64"];c=BinaryRead[str,"Complex128"];{N@u64,N@i32,N@r,Im[c]}]],{{BinaryWrite[$MathCompileTmp<>"binary_read.bin",{10^19,10^9,-0.01,3.1+1.3I},{"UnsignedInteger64","Integer32","Real64","Complex128"}];Close[$MathCompileTmp<>"binary_read.bin"];$MathCompileTmp<>"binary_read.bin"}->{1.*^19,1.*^9,-0.01,1.3}}]&];
+registertest[test["binary_read_list",         Function[{Typed[f,String]},Join[Normal@BinaryReadList[f,"Integer64"],Normal@BinaryReadList[f,"UnsignedInteger16"],Normal@BinaryReadList[f,"UnsignedInteger8"]]],{{BinaryWrite[$MathCompileTmp<>"binary_read.bin",Table[16^^cc,10],"UnsignedInteger8"];Close[$MathCompileTmp<>"binary_read.bin"];$MathCompileTmp<>"binary_read.bin"}->{-3689348814741910324,52428,52428,52428,52428,52428,204,204,204,204,204,204,204,204,204,204}}]&];
+registertest[test["write_line",               Function[{Typed[f,String]},WriteLine[f,"12,34\n12,34"];ReadString[f]],{{$MathCompileTmp<>"write_line.txt"}->"12,34\n12,34\n"}]&];
+registertest[test["write_string",             Function[{Typed[f,String]},WriteString[f,"12,34\n12,34","5678\n5678"];ReadString[f]],{{$MathCompileTmp<>"write_string.txt"}->"12,34\n12,345678\n5678"}]&];
+registertest[test["write",                    Function[{Typed[f,String]},Write[f,12345,123.45,1+I,"abcde",-333.3];ReadString[f]],{{$MathCompileTmp<>"write.txt"}->"12345\n123.45\n1.+1.*I\nabcde\n-333.3\n"}]&];
 

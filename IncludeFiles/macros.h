@@ -516,4 +516,7 @@ namespace wl
 #define WL_ERROR_IMPORT_NO_PADDING \
 "A padding element is required while reading an irregular table."
 
+#define WL_ERROR_NON_ASCII_PATH \
+"MinGW compiler does not support non-ascii characters in filenames."
+
 }

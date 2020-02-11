@@ -119,9 +119,10 @@ struct mathlink_t
             (*this).put("Complex", 2).put(val.real()).put(val.imag());
         else if constexpr (is_string_v<T>)
             noerror = MLPutUTF8String(link_,
-            (const unsigned char*)val.c_str(), val.byte_size());
+            (const unsigned char*)val.c_str(), int(val.byte_size()));
         else if constexpr (std::is_same_v<T, std::string>)
-            noerror = MLPutString(link_, val.c_str());
+            noerror = MLPutUTF8String(link_,
+            (const unsigned char*)val.c_str(), int(val.size()));
         else
             static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
         if (!noerror)

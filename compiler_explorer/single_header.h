@@ -381,6 +381,8 @@ namespace wl
 "The read/write operation does not match the binariness of the stream."
 #define WL_ERROR_IMPORT_NO_PADDING \
 "A padding element is required while reading an irregular table."
+#define WL_ERROR_NON_ASCII_PATH \
+"MinGW compiler does not support non-ascii characters in filenames."
 }
 namespace wl
 {
@@ -750,6 +752,9 @@ struct character_type
 struct word_type
 {
 };
+struct record_type
+{
+};
 struct varg_tag
 {
 };
@@ -824,6 +829,7 @@ constexpr auto const_list      = list_type{};
 constexpr auto const_byte      = byte_type{};
 constexpr auto const_character = character_type{};
 constexpr auto const_word      = word_type{};
+constexpr auto const_record    = record_type{};
 constexpr auto const_i         = complex<double>(0.f, 1.f);
 constexpr auto const_true      = boolean(true);
 constexpr auto const_false     = boolean(false);
@@ -14554,8 +14560,15 @@ inline std::wstring _from_u8path(const char* u8path)
     static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
     const auto ospath = conv.from_bytes(u8path);
     return std::wstring((const wchar_t*)ospath.c_str());
+    
 }
 #  else
+inline std::string _from_u8path(const char* u8path)
+{
+    if (!utf8::is_ascii_only((const utf8::char_t*)u8path, std::strlen(u8path)))
+        throw std::logic_error(WL_ERROR_NON_ASCII_PATH);
+    return std::string(u8path);
+}
 #  endif
 #else
 #  define WL_GETCWD getcwd
@@ -14649,23 +14662,24 @@ template<stream_direction Direction>
 struct file_stream
 {
     using separator_table = stream_separator::separator_table;
+    using mode_t = std::ios_base::openmode;
     static constexpr auto is_input  = (Direction == stream_direction::In);
     static constexpr auto is_output = (Direction == stream_direction::Out);
     using stream_t = std::conditional_t<is_input,
         std::ifstream, std::ofstream>;
-    static constexpr size_t chunk_size = 1048576u;
+    static constexpr size_t chunk_size = 5u;
     const string path_;
+    const mode_t mode_;
     mutable stream_t stream_;
     template<typename String>
     file_stream(const String& path, bool binary, bool append = false) :
-        path_{path}, stream_{}
+        path_{path},
+        mode_{(binary ? std::ios_base::binary : mode_t{}) |
+            (append ? std::ios_base::app : mode_t{})},
+        stream_{}
     {
-        std::ios_base::openmode mode{};
-        if (binary) mode |= std::ios_base::binary;
-        if (append) mode |= std::ios_base::app;
         auto ospath = _from_u8path(path.c_str());
-        //echo(ospath);
-        stream_.open(ospath, mode);
+        stream_.open(ospath, mode_);
         if (stream_.fail())
             throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
     }
@@ -14679,13 +14693,12 @@ struct file_stream
     file_stream& operator=(file_stream&&) = default;
     void close()
     {
-        if (!stream_.is_open())
-            throw std::logic_error(WL_ERROR_STREAM_ALREADY_CLOSED);
-        stream_.close();
+        if (stream_.is_open())
+            stream_.close();
     }
     bool binary() const
     {
-        return stream_.openmode & std::ios_base::binary;
+        return this->mode_ & std::ios_base::binary;
     }
     string path() const
     {
@@ -14715,7 +14728,7 @@ struct file_stream
         else
             return stream_.tellp() - std::streampos(0);
     }
-    size_t remaining_size() const
+    size_t remaining_byte_size() const
     {
         if (test_eof())
             return 0u;
@@ -14731,27 +14744,21 @@ struct file_stream
     auto read_string()
     {
         static_assert(is_input, WL_ERROR_INTERNAL);
-        auto ret_size = remaining_size();
-        auto ret = string(ret_size);
-        auto ret_data = (char*)ret.byte_begin();
+        auto byte_size = remaining_byte_size();
+        auto ret = string(byte_size);
+        auto ret_data = ret.byte_begin();
         for (;;)
         {
             WL_THROW_IF_ABORT()
-            if (ret_size <= chunk_size)
-            {
-                stream_.read(ret_data, ret_size);
+            stream_.read((char*)ret_data, chunk_size);
+            ret_data += stream_.gcount();
+            if (eof())
                 break;
-            }
-            else
-            {
-                stream_.read(ret_data, chunk_size);
-                ret_size -= chunk_size;
-                ret_data += chunk_size;
-            }
         }
+        ret.uninitialized_resize(ret_data - ret.byte_begin());
         if (!ret.check_validity())
             throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
-        stream_.test_eof();
+        test_eof();
         return ret;
     }
     
@@ -14903,12 +14910,12 @@ struct file_stream
     template<typename Val>
     bool binary_read(Val& val)
     {
-        if constexpr (is_real_v<Val> || is_complex_v<Val>)
+        if constexpr (is_arithmetic_v<Val>)
         {
             stream_.read((char*)(&val), sizeof(Val));
             return (stream_.gcount() == sizeof(Val));
         }
-        if constexpr (is_string_v<Val>)
+        else if constexpr (is_string_v<Val>)
         {
             char sep_found;
             return read(stream_separator::default_table,
@@ -14925,7 +14932,7 @@ struct file_stream
         static_assert(is_real_v<Val> || is_complex_v<Val>, WL_ERROR_INTERNAL);
         ndarray<Val, 1u> ret;
         size_t ret_size = (count == const_int_infinity) ?
-            (remaining_size() / sizeof(Val)) :
+            (remaining_byte_size() / sizeof(Val)) :
             (count > 0) ? size_t(count) : 0u;
         if (ret_size == 0u)
             return ret;
@@ -14968,9 +14975,15 @@ struct file_stream
     }
     bool test_eof() const
     {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        using traits = std::char_traits<char>;
+        const auto cur_pos = stream_.tellg();
+        stream_.get();
+        auto state = stream_.rdstate();
         stream_.clear();
-        stream_.peek();
-        return stream_.eof();
+        stream_.seekg(cur_pos);
+        stream_.setstate(state);
+        return state & std::ios_base::eofbit;
     }
 };
 template<bool Binary = false, typename String>
@@ -15086,7 +15099,8 @@ auto read(Any& any, ReadType)
         return stream.read_character();
     }
     else if constexpr (std::is_same_v<ReadType, word_type> ||
-        std::is_same_v<ReadType, string_type>)
+        std::is_same_v<ReadType, string_type> ||
+        std::is_same_v<ReadType, record_type>)
     {
         for (;;)
         {
@@ -15153,7 +15167,8 @@ auto read_list(Any& any, ReadType, const Count& in_count)
         return ret;
     }
     else if constexpr (std::is_same_v<ReadType, word_type> ||
-        std::is_same_v<ReadType, string_type>)
+        std::is_same_v<ReadType, string_type> ||
+        std::is_same_v<ReadType, record_type>)
     {
         ndarray<string, 1u> ret;
         char sep_found = '\0';
@@ -15161,9 +15176,10 @@ auto read_list(Any& any, ReadType, const Count& in_count)
         {
             auto str = stream.read(default_table,
                 std::is_same_v<ReadType, word_type> ? Field : Line, sep_found);
+            if (str.byte_size() > 0u)
+                ret.append(std::move(str));
             if (sep_found == '\0')
                 break;
-            ret.append(std::move(str));
         }
         return ret;
     }
@@ -15177,7 +15193,7 @@ auto read_list(Any& any, ReadType, const Count& in_count)
         for (int64_t i = 0; i < count; ++i)
         {
             Elem elem;
-            if (!stream.read_number(default_table, Field, sep_found, elem))
+            if (!stream.read_number(default_table, sep_found, elem))
             { // EOF
                 break;
             }
@@ -15277,7 +15293,7 @@ auto binary_read_list(Any& any, ReadType, const Count& in_count)
     static_assert(is_integral_v<Count>, WL_ERROR_READ_LIST_COUNT_INTEGRAL);
     const auto count = int64_t(std::max(Count(0), in_count));
     decltype(auto) stream = _as_input_file_stream<true>(any);
-    static_assert(is_real_v<ReadType> || is_complex_v<ReadType>,
+    static_assert(is_arithmetic_v<ReadType>,
         WL_ERROR_BINARY_READ_WRITE_UNKNOWN_TYPE);
     return stream.binary_read(ReadType{}, count);
     WL_TRY_END(__func__, __FILE__, __LINE__)

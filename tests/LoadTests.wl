@@ -488,4 +488,7 @@ registertest[test["binary_read_list",         Function[{Typed[f,String]},Join[No
 registertest[test["write_line",               Function[{Typed[f,String]},WriteLine[f,"12,34\n12,34"];ReadString[f]],{{$MathCompileTmp<>"write_line.txt"}->"12,34\n12,34\n"}]&];
 registertest[test["write_string",             Function[{Typed[f,String]},WriteString[f,"12,34\n12,34","5678\n5678"];ReadString[f]],{{$MathCompileTmp<>"write_string.txt"}->"12,34\n12,345678\n5678"}]&];
 registertest[test["write",                    Function[{Typed[f,String]},Write[f,12345,123.45,1+I,"abcde",-333.3];ReadString[f]],{{$MathCompileTmp<>"write.txt"}->"12345\n123.45\n1.+1.*I\nabcde\n-333.3\n"}]&];
+registertest[test["binary_write:i64",         Function[{Typed[f,String]},BinaryWrite[f,{1,2,3,4,5}];BinaryReadList[f,"Integer64"]],{{$MathCompileTmp<>"binary_write.bin"}->{1,2,3,4,5}}]&];
+registertest[test["binary_write:r32",         Function[{Typed[f,String]},BinaryWrite[f,{1.5,2.5,3.5,4.5,5.5},"Real32"];Normal@BinaryReadList[f,"Real32"]],{{$MathCompileTmp<>"binary_write.bin"}->{1.5,2.5,3.5,4.5,5.5}}]&];
+registertest[test["binary_write:mixed",       Function[{Typed[f,String]},Module[{str=OpenWrite[f,BinaryFormat->True]},BinaryWrite[str,1,"UnsignedInteger8"];BinaryWrite[str,-2,"Integer32"];BinaryWrite[str,3,"Real32"]];Normal@BinaryReadList[f,"Integer8"]],{{$MathCompileTmp<>"binary_write.bin"}->{1,-2,-1,-1,-1,0,0,64,64}}]&];
 

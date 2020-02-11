@@ -800,6 +800,7 @@ functionmacro[code_]:=code//.{
     id["OpenAppend",p_][str_,id["Rule",_][id["BinaryFormat",_],id["False",_]]]:>native["open_append<false>",p][str],
     id["BinaryRead",p_][str_,type:literal[_String,_]]:>native["binary_read",p][str,parsedatatype[type]],
     id["BinaryReadList",p_][str_,type:literal[_String,_],any___]:>native["binary_read_list",p][str,parsedatatype[type],any],
+    id["BinaryWrite",p_][str_,x_,type:literal[_String,_]]:>native["binary_write",p][str,x,parsedatatype[type]],
     id["Import",p_][path_,list[_][literal["Binary",_],type:literal[_String,_]]]:>
       native["import_binary",p][path,parsedatatype[type]],
     id["Import",p_][path_,list[_][format:literal[_String,_],type:literal[_String,_]]]:>

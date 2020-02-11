@@ -919,7 +919,7 @@ auto binary_read_list(Any& any, ReadType)
 }
 
 template<typename Any, typename X, typename WriteType>
-void binary_write(Any& any, const X& x, WriteType)
+auto binary_write(Any& any, const X& x, WriteType)
 {
     WL_TRY_BEGIN()
     decltype(auto) stream = _as_output_file_stream<true>(any);
@@ -936,17 +936,18 @@ void binary_write(Any& any, const X& x, WriteType)
         const auto& val = cast<ndarray<WriteType, XR>>(x);
         stream.binary_write(val.data(), val.size());
     }
+    return const_null;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename Any, typename X>
-void binary_write(Any& any, const X& x)
+auto binary_write(Any& any, const X& x)
 {
     WL_TRY_BEGIN()
     if constexpr (array_rank_v<X> == 0u)
-        binary_write(any, x, X{});
+        return binary_write(any, x, X{});
     else
-        binary_write(any, x, value_type_t<X>{});
+        return binary_write(any, x, value_type_t<X>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

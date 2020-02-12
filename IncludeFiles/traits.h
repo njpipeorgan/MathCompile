@@ -134,14 +134,10 @@ struct compiled_pattern_rule;
 
 }
 
-enum class stream_direction { In, Out };
+enum class stream_mode { Read, Write, Append };
 
-template<stream_direction Direction>
+template<stream_mode Mode, bool Binary>
 struct file_stream;
-
-using input_file_stream = file_stream<stream_direction::In>;
-using output_file_stream = file_stream<stream_direction::Out>;
-
 
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
@@ -235,8 +231,8 @@ constexpr auto is_pattern_v = is_pattern<T>::value;
 template<typename T>
 struct is_file_stream : std::false_type {};
 
-template<stream_direction Dir>
-struct is_file_stream<file_stream<Dir>> : std::true_type {};
+template<stream_mode Mode, bool Binary>
+struct is_file_stream<file_stream<Mode, Binary>> : std::true_type {};
 
 template<typename T>
 constexpr auto is_file_stream_v = is_file_stream<T>::value;

@@ -491,4 +491,5 @@ registertest[test["write",                    Function[{Typed[f,String]},Write[f
 registertest[test["binary_write:i64",         Function[{Typed[f,String]},BinaryWrite[f,{1,2,3,4,5}];BinaryReadList[f,"Integer64"]],{{$MathCompileTmp<>"binary_write.bin"}->{1,2,3,4,5}}]&];
 registertest[test["binary_write:r32",         Function[{Typed[f,String]},BinaryWrite[f,{1.5,2.5,3.5,4.5,5.5},"Real32"];Normal@BinaryReadList[f,"Real32"]],{{$MathCompileTmp<>"binary_write.bin"}->{1.5,2.5,3.5,4.5,5.5}}]&];
 registertest[test["binary_write:mixed",       Function[{Typed[f,String]},Module[{str=OpenWrite[f,BinaryFormat->True]},BinaryWrite[str,1,"UnsignedInteger8"];BinaryWrite[str,-2,"Integer32"];BinaryWrite[str,3,"Real32"]];Normal@BinaryReadList[f,"Integer8"]],{{$MathCompileTmp<>"binary_write.bin"}->{1,-2,-1,-1,-1,0,0,64,64}}]&];
+registertest[test["import:tsv",               Function[{Typed[f,String]},Normal@Import[f,{"TSV","Real32"}]],{{Export[$MathCompileTmp<>"import.txt","1.5\t2.5\t\t3.5\n\n4.5\t5.5\t6.5\n","Text"];$MathCompileTmp<>"import.txt"}->{{1.5,2.5,3.5},{4.5,5.5,6.5}}}]&];
 

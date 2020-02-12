@@ -24,12 +24,11 @@
 #include <random>
 #include <wchar.h>
 #include <unistd.h>
-#include <cstdio>
+#include <stdio.h>
 #include <locale>
-#include <fstream>
-#include <iostream>
 #include <functional>
 #include <cstdlib>
+#include <iostream>
 #include <limits.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -456,11 +455,9 @@ struct compiled_pattern;
 template<typename CompiledPattern, typename CompiledReplacement>
 struct compiled_pattern_rule;
 }
-enum class stream_direction { In, Out };
-template<stream_direction Direction>
+enum class stream_mode { Read, Write, Append };
+template<stream_mode Mode, bool Binary>
 struct file_stream;
-using input_file_stream = file_stream<stream_direction::In>;
-using output_file_stream = file_stream<stream_direction::Out>;
 template<typename T>
 constexpr auto is_integral_v = std::is_integral_v<T>;
 template<typename T>
@@ -528,8 +525,8 @@ template<typename T>
 constexpr auto is_pattern_v = is_pattern<T>::value;
 template<typename T>
 struct is_file_stream : std::false_type {};
-template<stream_direction Dir>
-struct is_file_stream<file_stream<Dir>> : std::true_type {};
+template<stream_mode Mode, bool Binary>
+struct is_file_stream<file_stream<Mode, Binary>> : std::true_type {};
 template<typename T>
 constexpr auto is_file_stream_v = is_file_stream<T>::value;
 template<typename T>
@@ -14658,47 +14655,209 @@ constexpr auto default_table = make_table("\n\r", " \t");
 constexpr auto tsv_table = make_table("\n\r", "\t");
 constexpr auto csv_table = make_table("\n\r", ",");
 }
-template<stream_direction Direction>
-struct file_stream
+template<stream_mode Mode, bool Binary>
+struct fstream
 {
-    using separator_table = stream_separator::separator_table;
-    using mode_t = std::ios_base::openmode;
-    static constexpr auto is_input  = (Direction == stream_direction::In);
-    static constexpr auto is_output = (Direction == stream_direction::Out);
-    using stream_t = std::conditional_t<is_input,
-        std::ifstream, std::ofstream>;
-    static constexpr size_t chunk_size = 5u;
-    const string path_;
-    const mode_t mode_;
-    mutable stream_t stream_;
-    template<typename String>
-    file_stream(const String& path, bool binary, bool append = false) :
-        path_{path},
-        mode_{(binary ? std::ios_base::binary : mode_t{}) |
-            (append ? std::ios_base::app : mode_t{})},
-        stream_{}
+    using state_t = int;
+    static constexpr state_t good_state   = 0x00;
+    static constexpr state_t failed_state = 0x01;
+    static constexpr state_t eof_state    = 0x02;
+    static constexpr auto mode = Mode;
+    static constexpr auto is_binary = Binary;
+    static constexpr bool is_input  = (Mode == stream_mode::Read);
+    static constexpr bool is_output = !is_input;
+    mutable FILE* file_;
+    mutable state_t state_;
+    bool is_open_;
+    auto is_open() const
     {
-        auto ospath = _from_u8path(path.c_str());
-        stream_.open(ospath, mode_);
-        if (stream_.fail())
-            throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
+        return is_open_;
     }
-    ~file_stream()
+    auto _set_state(state_t state) const
+    {
+        state_ |= state;
+    }
+    auto _clear_state(state_t state) const
+    {
+        state_ &= ~state;
+    }
+    auto failed() const
+    {
+        return state_ & failed_state;
+    }
+    auto eof() const
+    {
+        return state_ & eof_state;
+    }
+    template<typename CharT>
+    void open(const CharT* filename)
+    {
+        CharT mode_str[3];
+        mode_str[0] = (mode == stream_mode::Read) ? 'r' :
+            (mode == stream_mode::Write) ? 'w' : 'a';
+        mode_str[1] = Binary ? 'b' : '\0';
+        mode_str[2] = '\0';
+        if constexpr (std::is_same_v<CharT, char>)
+            file_ = fopen(filename, mode_str);
+        else
+            file_ = _wfopen(filename, mode_str);
+        if (!file_)
+            _set_state(failed_state);
+        else
+        {
+            is_open_ = true;
+            _clear_state(failed_state | eof_state);
+        }
+    }
+    void close()
+    {
+        if (is_open())
+            fclose(file_);
+        file_ = nullptr;
+        is_open_ = false;
+    }
+    fstream() : file_{nullptr}, state_{good_state}, is_open_{false}
+    {
+    }
+    template<typename CharT>
+    fstream(const CharT* filename) : fstream()
+    {
+        open(filename);
+    }
+    ~fstream()
     {
         close();
     }
-    file_stream(const file_stream&) = delete;
-    file_stream(file_stream&&) = default;
-    file_stream& operator=(const file_stream&) = delete;
-    file_stream& operator=(file_stream&&) = default;
+    fstream(const fstream&) = delete;
+    fstream(fstream&& other) : fstream()
+    {
+        *this = std::move(other);
+    }
+    fstream& operator=(const fstream&) = delete;
+    fstream& operator=(fstream&& other)
+    {
+        std::swap(file_, other.file_);
+        std::swap(state_, other.state_);
+        std::swap(is_open_, other.is_open_);
+        return *this;
+    }
+    bool seek(int64_t pos)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        assert(pos == int32_t(pos));
+        if (fseek(file_, long(pos), pos >= 0 ? SEEK_SET : SEEK_END))
+            _set_state(failed_state);
+        else
+            _clear_state(failed_state | eof_state);
+        return check_eof();
+    }
+    bool seek(int64_t pos, int origin)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        assert(pos == int32_t(pos));
+        if (fseek(file_, long(pos), origin))
+            _set_state(failed_state);
+        else
+            _clear_state(failed_state | eof_state);
+        return check_eof();
+    }
+    auto tell() const
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        auto pos = ftell(file_);
+        if (pos == -1)
+            _set_state(failed_state);
+        return pos;
+    }
+    auto get()
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        const int ch = fgetc(file_);
+        if (ch == EOF)
+        {
+            _set_state(eof_state);
+            return 0;
+        }
+        else
+            return ch;
+    }
+    template<typename CharT>
+    auto unget(CharT ch)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        _clear_state(eof_state);
+        ungetc(ch, file_);
+    }
+    template<typename CharT>
+    auto get(CharT* buffer, size_t size)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        const auto size_read = fread(buffer, 1u, size, file_);
+        if (size_read < size)
+            _set_state(feof(file_) ? eof_state : failed_state);
+        return size_read;
+    }
+    auto peek() const
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        const auto ch = fgetc(file_);
+        if (ch == EOF)
+            _set_state(eof_state);
+        else
+            ungetc(ch, file_);
+        return ch;
+    }
+    template<typename CharT>
+    void put(CharT ch) const
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        assert(is_open());
+        if (fputc(int(ch), file_) == EOF)
+            _set_state(failed_state);
+    }
+    template<typename CharT>
+    void put(const CharT* buffer, size_t size) const
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        assert(is_open());
+        if (fwrite(buffer, 1u, size, file_) < size)
+            _set_state(failed_state);
+    }
+    auto check_eof() const
+    {
+        assert(is_open());
+        peek();
+        return eof();
+    }
+};
+template<stream_mode Mode, bool Binary>
+struct file_stream
+{
+    using separator_table = stream_separator::separator_table;
+    using stream_t = fstream<Mode, Binary>;
+    static constexpr size_t chunk_size = 5u;
+    static constexpr bool is_binary = Binary;
+    
+    const string path_;
+    stream_t stream_;
+    template<typename String>
+    file_stream(const String& path) :
+        path_{path}, stream_{}
+    {
+        const auto ospath = _from_u8path(path.c_str());
+        stream_.open(ospath.c_str());
+        if (stream_.failed())
+            throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
+    }
     void close()
     {
-        if (stream_.is_open())
-            stream_.close();
-    }
-    bool binary() const
-    {
-        return this->mode_ & std::ios_base::binary;
+        stream_.close();
     }
     string path() const
     {
@@ -14711,54 +14870,44 @@ struct file_stream
     void seek(const Pos& pos)
     {
         static_assert(is_integral_v<Pos>, WL_ERROR_INTERNAL);
-        static_assert(is_input, WL_ERROR_STREAM_SEEK_ON_OUTPUT);
-        stream_.clear();
-        if (pos >= Pos(0))
-            stream_.seekg(pos, std::ios_base::beg);
-        else
-            stream_.seekg(int64_t(pos), std::ios_base::end);
-        stream_.peek();
-        if (!stream_.good())
+        static_assert(stream_t::is_input, WL_ERROR_STREAM_SEEK_ON_OUTPUT);
+        if (!stream_.seek(int64_t(pos)))
             throw std::logic_error(WL_ERROR_STREAM_SEEK_FAILED);
     }
     auto tell() const
     {
-        if constexpr (is_input)
-            return stream_.tellg() - std::streampos(0);
-        else
-            return stream_.tellp() - std::streampos(0);
+        return int64_t(stream_.tell());
     }
-    size_t remaining_byte_size() const
+    size_t remaining_byte_size()
     {
-        if (test_eof())
+        if (stream_.check_eof())
             return 0u;
         else
         {
-            const auto cur_pos = stream_.tellg();
-            const auto end_pos = stream_.seekg(0, std::ios_base::end).tellg();
-            stream_.seekg(cur_pos);
+            const auto cur_pos = stream_.tell();
+            stream_.seek(0, SEEK_END);
+            const auto end_pos = stream_.tell();
+            stream_.seek(cur_pos);
             return size_t(end_pos - cur_pos);
         }
     }
     // Get the entire file as a string
     auto read_string()
     {
-        static_assert(is_input, WL_ERROR_INTERNAL);
         auto byte_size = remaining_byte_size();
         auto ret = string(byte_size);
         auto ret_data = ret.byte_begin();
         for (;;)
         {
             WL_THROW_IF_ABORT()
-            stream_.read((char*)ret_data, chunk_size);
-            ret_data += stream_.gcount();
+            ret_data += stream_.get((char*)ret_data, chunk_size);
             if (eof())
                 break;
         }
         ret.uninitialized_resize(ret_data - ret.byte_begin());
         if (!ret.check_validity())
             throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
-        test_eof();
+        stream_.check_eof();
         return ret;
     }
     
@@ -14766,25 +14915,18 @@ struct file_stream
     size_t get_until(CharT* str, size_t max_count,
         const separator_table& sep_table, const int sep_class, char& sep_found)
     {
-        using traits = std::char_traits<char>;
-        using sentry_t = typename decltype(stream_)::sentry;
-        const sentry_t sentry(stream_, true);
-        if (!sentry || max_count == 0u)
+        if (max_count == 0u)
             return 0u;
         size_t count = 0u;
-        auto* rdbuf = stream_.rdbuf();
-        for (auto meta = rdbuf->sgetc();; meta = rdbuf->snextc())
+        for (auto ch = stream_.get();; ch = stream_.get())
         {
-            const auto meta_char = traits::to_char_type(meta);
-            if (traits::eq_int_type(traits::eof(), meta))
+            if (stream_.eof())
             {
-                stream_.setstate(std::ios_base::eofbit);
                 break;
             }
-            else if (sep_table.is_separator(meta, sep_class))
+            else if (sep_table.is_separator(ch, sep_class))
             {
-                sep_found = meta_char;
-                rdbuf->sbumpc();
+                sep_found = char(ch);
                 break;
             }
             else if (count >= max_count)
@@ -14794,7 +14936,7 @@ struct file_stream
             else
             {
                 ++count;
-                *str++ = CharT(meta_char);
+                *str++ = CharT(ch);
             }
         }
         *str = '\0';
@@ -14805,8 +14947,7 @@ struct file_stream
     auto read(const separator_table& sep_table, const int sep_class,
         char& sep_found)
     {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        if (test_eof())
+        if (stream_.check_eof())
         {
             sep_found = '\0';
             return string();
@@ -14835,21 +14976,17 @@ struct file_stream
     }
     // Get the next byte in the stream as a char
     // EOF: returns '\0'
-    char read_byte()
+    auto read_byte()
     {
-        using traits = std::char_traits<char>;
-        auto ch = stream_.get();
-        return traits::eq_int_type(traits::eof(), ch) ?
-            '\0' : traits::to_char_type(ch);
+        return char(stream_.get());
     }
     // Get the next character as a string
     // EOF: returns empty string
     auto read_character()
     {
-        using traits = std::char_traits<char>;
         utf8::char_t buffer[4];
         auto leading = stream_.get();
-        if (traits::eq_int_type(traits::eof(), leading))
+        if (stream_.eof())
             return string();
         buffer[0] = utf8::char_t(leading);
         if (!utf8::string_iterator::_is_valid_codepoint_leading(buffer[0]))
@@ -14859,7 +14996,7 @@ struct file_stream
         for (size_t i = 1; i < num_bytes; ++i)
         {
             auto trailing = stream_.get();
-            if (traits::eq_int_type(traits::eof(), trailing))
+            if (stream_.eof())
                 throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
             buffer[i] = utf8::char_t(trailing);
         }
@@ -14874,18 +15011,16 @@ struct file_stream
     bool read_number(const separator_table& sep_table, char& sep_found,
         Val& val)
     {
-        static_assert(is_input, WL_ERROR_INTERNAL);
         for (;;)
         {
-            sep_found = read_byte();
+            sep_found = char(stream_.get());
             if (sep_found == '\0')
             {
                 return false;
             }
             if (!sep_table.is_separator(sep_found, stream_separator::Field))
             {
-                stream_.clear();
-                stream_.unget();
+                stream_.unget(sep_found);
                 break;
             }
         }
@@ -14912,8 +15047,7 @@ struct file_stream
     {
         if constexpr (is_arithmetic_v<Val>)
         {
-            stream_.read((char*)(&val), sizeof(Val));
-            return (stream_.gcount() == sizeof(Val));
+            return (stream_.get((char*)(&val), sizeof(Val)) == sizeof(Val));
         }
         else if constexpr (is_string_v<Val>)
         {
@@ -14929,7 +15063,7 @@ struct file_stream
     template<typename Val>
     auto binary_read(Val, int64_t count)
     {
-        static_assert(is_real_v<Val> || is_complex_v<Val>, WL_ERROR_INTERNAL);
+        static_assert(is_arithmetic_v<Val>, WL_ERROR_INTERNAL);
         ndarray<Val, 1u> ret;
         size_t ret_size = (count == const_int_infinity) ?
             (remaining_byte_size() / sizeof(Val)) :
@@ -14937,19 +15071,18 @@ struct file_stream
         if (ret_size == 0u)
             return ret;
         ret.uninitialized_resize(std::array<size_t, 1u>{ret_size});
-        stream_.read((char*)(ret.data()), ret_size * sizeof(Val));
-        if (stream_.gcount() != ret_size * sizeof(Val))
+        auto gcount = stream_.get((char*)(ret.data()), ret_size * sizeof(Val));
+        if (gcount != ret_size * sizeof(Val))
             throw std::logic_error(WL_ERROR_STREAM_READ);
         return ret;
     }
     template<typename CharT, size_t N>
     void write(const CharT* begin, size_t count, const char (&end_chars)[N])
     {
-        static_assert(is_output, WL_ERROR_INTERNAL);
-        stream_.write((const char*)begin, count);
+        stream_.put((const char*)begin, count);
         if (N >= 2u)
-            stream_.write(end_chars, N - 1u);
-        if (!stream_.good())
+            stream_.put(end_chars, N - 1u);
+        if (stream_.failed())
             throw std::logic_error(WL_ERROR_STREAM_WRITE);
     }
     template<typename CharT>
@@ -14960,30 +15093,17 @@ struct file_stream
     template<typename Val>
     void binary_write(const Val* begin, size_t count)
     {
-        static_assert(is_output, WL_ERROR_INTERNAL);
-        stream_.write((const char*)begin, count * sizeof(Val));
-        if (!stream_.good())
+        stream_.put((const char*)begin, count * sizeof(Val));
+        if (stream_.failed())
             throw std::logic_error(WL_ERROR_STREAM_WRITE);
     }
     bool eof() const
     {
         return stream_.eof();
     }
-    bool fail() const
+    bool failed() const
     {
-        return stream_.fail();
-    }
-    bool test_eof() const
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        using traits = std::char_traits<char>;
-        const auto cur_pos = stream_.tellg();
-        stream_.get();
-        auto state = stream_.rdstate();
-        stream_.clear();
-        stream_.seekg(cur_pos);
-        stream_.setstate(state);
-        return state & std::ios_base::eofbit;
+        return stream_.failed();
     }
 };
 template<bool Binary = false, typename String>
@@ -14991,7 +15111,7 @@ auto open_read(const String& path)
 {
     WL_TRY_BEGIN()
     static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    return input_file_stream(path, Binary);
+    return file_stream<stream_mode::Read, Binary>(path);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<bool Binary = false, typename String>
@@ -14999,7 +15119,7 @@ auto open_write(const String& path)
 {
     WL_TRY_BEGIN()
     static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    return output_file_stream(path, Binary);
+    return file_stream<stream_mode::Write, Binary>(path);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<bool Binary = false, typename String>
@@ -15007,7 +15127,7 @@ auto open_append(const String& path)
 {
     WL_TRY_BEGIN()
     static_assert(is_string_view_v<String>, WL_ERROR_STRING_ONLY);
-    return output_file_stream(path, Binary, true);
+    return file_stream<stream_mode::Append, Binary>(path);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Stream>
@@ -15025,8 +15145,8 @@ auto _as_input_file_stream(Any& any) -> decltype(auto)
 {
     if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
     {
-        if (Binary != any.binary())
-            throw std::logic_error(WL_ERROR_STREAM_BINARINESS);
+        static_assert(Binary == remove_cvref_t<Any>::is_binary,
+            WL_ERROR_STREAM_BINARINESS);
         return any;
     }
     else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
@@ -15044,8 +15164,8 @@ auto _as_output_file_stream(Any& any) -> decltype(auto)
 {
     if constexpr (is_file_stream_v<remove_cvref_t<Any>>)
     {
-        if (Binary != any.binary())
-            throw std::logic_error(WL_ERROR_STREAM_BINARINESS);
+        static_assert(Binary == remove_cvref_t<Any>::is_binary,
+            WL_ERROR_STREAM_BINARINESS);
         return any;
     }
     else if constexpr (is_string_view_v<remove_cvref_t<Any>>)
@@ -15212,8 +15332,8 @@ auto read_list(Any& any, ReadType)
 {
     return read_list(any, ReadType{}, const_int_infinity);
 }
-template<typename Val>
-auto _write_impl(output_file_stream& stream, const Val& val)
+template<typename Stream, typename Val>
+auto _write_impl(Stream& stream, const Val& val)
 {
     if constexpr (is_string_view_v<Val>)
         stream.write(val.byte_begin(), val.byte_size(), "\n");
@@ -15221,15 +15341,15 @@ auto _write_impl(output_file_stream& stream, const Val& val)
         write(stream, to_string(val));
     return 0;
 }
-template<typename Val>
-auto _write_string_impl(output_file_stream& stream, const Val& val)
+template<typename Stream, typename Val>
+auto _write_string_impl(Stream& stream, const Val& val)
 {
     static_assert(is_string_view_v<Val>, WL_ERROR_WRITE_STRING_ONLY);
     stream.write(val.byte_begin(), val.byte_size());
     return 0;
 }
-template<typename Val>
-auto _write_line_impl(output_file_stream& stream, const Val& val)
+template<typename Stream, typename Val>
+auto _write_line_impl(Stream& stream, const Val& val)
 {
     static_assert(is_string_view_v<Val>, WL_ERROR_WRITE_STRING_ONLY);
     stream.write(val.byte_begin(), val.byte_size(), "\n");
@@ -15337,8 +15457,8 @@ auto binary_write(Any& any, const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 enum class file_format { Table, TSV, CSV };
-template<typename InWriteType, typename X, size_t XR>
-void _export_text_impl(output_file_stream& stream, const X& x,
+template<typename Stream, typename InWriteType, typename X, size_t XR>
+void _export_text_impl(Stream& stream, const X& x,
     const std::array<size_t, XR>& x_dims, char line_sep, char field_sep)
 {
     static_assert(XR <= 2u, WL_ERROR_INTERNAL);

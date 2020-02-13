@@ -801,6 +801,11 @@ functionmacro[code_]:=code//.{
     id["BinaryRead",p_][str_,type:literal[_String,_]]:>native["binary_read",p][str,parsedatatype[type]],
     id["BinaryReadList",p_][str_,type:literal[_String,_],any___]:>native["binary_read_list",p][str,parsedatatype[type],any],
     id["BinaryWrite",p_][str_,x_,type:literal[_String,_]]:>native["binary_write",p][str,x,parsedatatype[type]],
+    id["Import",p_][path_,any_,id["Rule",_][id["Padding",_],val_]]:>id["Import",p][path,any,val],
+    id["Import",p_][path_,list[_][literal["Binary",_],type:literal[_String,_]],any:Except[id["Rule",_][___]]]:>
+      native["import_binary",p][path,parsedatatype[type],any],
+    id["Import",p_][path_,list[_][format:literal[_String,_],type:literal[_String,_]],any:Except[id["Rule",_][___]]]:>
+      native["import_text",p][path,parsefileformat[format],parsedatatype[type],any],
     id["Import",p_][path_,list[_][literal["Binary",_],type:literal[_String,_]]]:>
       native["import_binary",p][path,parsedatatype[type]],
     id["Import",p_][path_,list[_][format:literal[_String,_],type:literal[_String,_]]]:>

@@ -23,10 +23,10 @@ cleartests[]:=($MathCompileTests={};)
 
 runtests[]:=
   Block[{$FailedMathCompileTests={},i=0,n=Length@$MathCompileTests},
-    CreateDirectory[$MathCompileTmp="./mathcompile_tmpfiles/"];
+    Quiet@CreateDirectory[$MathCompileTmp="./mathcompile_tmpfiles/"];
     PrintTemporary[Column[{ProgressIndicator[Dynamic[i/n]],Dynamic@$CurrentMathCompileTest}]];
     Do[$MathCompileTests[[i]][],{i,1,n}];
-    DeleteDirectory[$MathCompileTmp,DeleteContents->True];
+    (*DeleteDirectory[$MathCompileTmp,DeleteContents\[Rule]True];*)
     <|"FailedTests"->$FailedMathCompileTests|>
   ]
 
@@ -491,5 +491,11 @@ registertest[test["write",                    Function[{Typed[f,String]},Write[f
 registertest[test["binary_write:i64",         Function[{Typed[f,String]},BinaryWrite[f,{1,2,3,4,5}];BinaryReadList[f,"Integer64"]],{{$MathCompileTmp<>"binary_write.bin"}->{1,2,3,4,5}}]&];
 registertest[test["binary_write:r32",         Function[{Typed[f,String]},BinaryWrite[f,{1.5,2.5,3.5,4.5,5.5},"Real32"];Normal@BinaryReadList[f,"Real32"]],{{$MathCompileTmp<>"binary_write.bin"}->{1.5,2.5,3.5,4.5,5.5}}]&];
 registertest[test["binary_write:mixed",       Function[{Typed[f,String]},Module[{str=OpenWrite[f,BinaryFormat->True]},BinaryWrite[str,1,"UnsignedInteger8"];BinaryWrite[str,-2,"Integer32"];BinaryWrite[str,3,"Real32"]];Normal@BinaryReadList[f,"Integer8"]],{{$MathCompileTmp<>"binary_write.bin"}->{1,-2,-1,-1,-1,0,0,64,64}}]&];
+registertest[test["import:table",             Function[{Typed[f,String]},Normal@Import[f,{"Table","Integer64"}]],{{Export[$MathCompileTmp<>"import.txt","1  2 345 \n -5  55\t-12345\n","Text"];$MathCompileTmp<>"import.txt"}->{{1,2,345},{-5,55,-12345}}}]&];
 registertest[test["import:tsv",               Function[{Typed[f,String]},Normal@Import[f,{"TSV","Real32"}]],{{Export[$MathCompileTmp<>"import.txt","1.5\t2.5\t\t3.5\n\n4.5\t5.5\t6.5\n","Text"];$MathCompileTmp<>"import.txt"}->{{1.5,2.5,3.5},{4.5,5.5,6.5}}}]&];
+registertest[test["import:csv",               Function[{Typed[f,String]},Normal@Import[f,{"CSV","Real64"}]],{{Export[$MathCompileTmp<>"import.txt","1.5,2.5,3.5\n4.5,5.5,6.5","Text"];$MathCompileTmp<>"import.txt"}->{{1.5,2.5,3.5},{4.5,5.5,6.5}}}]&];
+registertest[test["import:padding",           Function[{Typed[f,String]},Normal@Import[f,{"Table","Integer64"},Padding->-1]],{{Export[$MathCompileTmp<>"import.txt","1 2 3 \n4\n 5 6\n 7 8 9 10\n \n","Text"];$MathCompileTmp<>"import.txt"}->{{1,2,3,-1},{4,-1,-1,-1},{5,6,-1,-1},{7,8,9,10}}}]&];
+registertest[test["export:table",             Function[{Typed[f,String]},Export[f,{{1,2,3},{4,5,6},{7,8,9}},"Table"];ReadString[f]],{{$MathCompileTmp<>"export.txt"}->"1\t2\t3\n4\t5\t6\n7\t8\t9"}]&];
+registertest[test["export:real",              Function[{Typed[f,String]},Export[f,{{1,2,3},{4,5,6},{7,8,9}},{"Table","Real64"}];ReadString[f]],{{$MathCompileTmp<>"export.txt"}->"1.\t2.\t3.\n4.\t5.\t6.\n7.\t8.\t9."}]&];
+registertest[test["export:csv",               Function[{Typed[f,String]},Export[f,{{1,2,3},{4,5,6},{7,8,9}},"CSV"];ReadString[f]],{{$MathCompileTmp<>"export.txt"}->"1,2,3\n4,5,6\n7,8,9"}]&];
 

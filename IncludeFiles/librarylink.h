@@ -470,6 +470,7 @@ template<typename X>
 auto print(const X& x)
 {
     WL_TRY_BEGIN()
+    WL_THROW_IF_ABORT()
     librarylink::mathlink_t link;
     link.put("EvaluatePacket", 1).
         put("Print", 1);
@@ -485,6 +486,7 @@ template<typename X>
 auto echo(X&& x)
 {
     WL_TRY_BEGIN()
+    WL_THROW_IF_ABORT()
     librarylink::mathlink_t link;
     link.put("EvaluatePacket", 1).
         put("CompoundExpression", 2).

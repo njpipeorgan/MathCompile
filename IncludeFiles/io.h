@@ -67,7 +67,7 @@ auto echo_function(Function f)
     return [=](auto&& x)
     {
         const auto& xref = x;
-        echo(f(x));
+        echo(f(xref));
         return std::forward<decltype(x)>(x);
     };
 }
@@ -98,33 +98,28 @@ inline wl::string _to_u8path(const wchar_t* ospath)
 }
 
 #if defined(_WIN32)
-#    define WL_GETCWD _wgetcwd
-#    define WL_PATH_CHAR_TYPE wchar_t
-#  if defined(_MSC_VER)
+#  define WL_GETCWD _wgetcwd
+#  define WL_PATH_CHAR_TYPE wchar_t
+#  define WL_FSEEK _fseeki64
+#  define WL_FTELL _ftelli64
+#  define WL_FOPEN _wfopen
 inline std::wstring _from_u8path(const char* u8path)
 {
     static std::wstring_convert<_codecvt_wchar_t, char16_t> conv;
     const auto ospath = conv.from_bytes(u8path);
     return std::wstring((const wchar_t*)ospath.c_str());
-    
 }
-#  else
-inline std::string _from_u8path(const char* u8path)
-{
-    if (!utf8::is_ascii_only((const utf8::char_t*)u8path, std::strlen(u8path)))
-        throw std::logic_error(WL_ERROR_NON_ASCII_PATH);
-    return std::string(u8path);
-}
-#  endif
 #else
 #  define WL_GETCWD getcwd
 #  define WL_PATH_CHAR_TYPE char
+#  define WL_FSEEK fseek
+#  define WL_FTELL ftell
+#  define WL_FOPEN fopen
 inline std::string _from_u8path(const char* u8path)
 {
     return std::string(u8path);
 }
 #endif
-
 
 #define WL_PATH_STRING_TYPE std::basic_string<WL_PATH_CHAR_TYPE>
 
@@ -165,6 +160,209 @@ inline auto directory()
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<stream_mode Mode, bool Binary>
+struct fstream
+{
+    static constexpr auto mode = Mode;
+    static constexpr auto is_binary = Binary;
+    static constexpr bool is_input  = (Mode == stream_mode::Read);
+    static constexpr bool is_output = !is_input;
+#if defined(_WIN32)
+    static constexpr bool is_CRLF = !Binary;
+#else
+    static constexpr bool is_CRLF = false;
+#endif
+
+    mutable FILE* file_ = nullptr;
+    bool is_open_ = false;
+    mutable bool is_eof_ = false;
+
+    auto is_open() const
+    {
+        return is_open_;
+    }
+    auto eof() const
+    {
+        return is_eof_;
+    }
+
+    template<typename CharT>
+    void open(const CharT* filename)
+    {
+        CharT mode_str[3] = {0, 'b', 0};
+        mode_str[0] = (mode == stream_mode::Read) ? 'r' :
+            (mode == stream_mode::Write) ? 'w' : 'a';
+        file_ = WL_FOPEN(filename, mode_str);
+        is_open_ = (file_ != nullptr);
+    }
+    void close()
+    {
+        if (is_open())
+            fclose(file_);
+        file_ = nullptr;
+        is_open_ = false;
+    }
+
+    fstream() = default;
+
+    template<typename CharT>
+    fstream(const CharT* filename) : fstream()
+    {
+        open(filename);
+    }
+
+    ~fstream()
+    {
+        close();
+    }
+
+    fstream(const fstream&) = delete;
+    fstream(fstream&& other) : fstream()
+    {
+        *this = std::move(other);
+    }
+
+    fstream& operator=(const fstream&) = delete;
+    fstream& operator=(fstream&& other)
+    {
+        std::swap(file_, other.file_);
+        std::swap(is_open_, other.is_open_);
+        std::swap(is_eof_, other.is_eof_);
+        return *this;
+    }
+
+    bool seek(ptrdiff_t pos)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        auto err = WL_FSEEK(file_, long(pos), pos >= 0 ? SEEK_SET : SEEK_END);
+        return err;
+    }
+
+    bool seek(ptrdiff_t pos, int origin)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        auto err = WL_FSEEK(file_, long(pos), origin);
+        return err;
+    }
+
+    auto tell() const
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        auto pos = WL_FTELL(file_);
+        if (pos == -1)
+            is_eof_ = true;
+        return pos;
+    }
+
+    auto _get_impl() const
+    {
+        int ch = fgetc(file_);
+        if (ch == EOF)
+        {
+            is_eof_ = true;
+            return 0;
+        }
+        if constexpr (is_CRLF)
+        {
+            if (ch == '\r')
+            {
+                int next_ch = fgetc(file_);
+                if (next_ch == '\n')
+                    return next_ch;
+                else
+                    ungetc(next_ch, file_);
+            }
+        }
+        return ch;
+    }
+
+    // EOF: return 0
+    auto get()
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        return _get_impl();
+    }
+
+    template<typename CharT>
+    void _unget_impl(CharT ch) const
+    {
+        is_eof_ = false;
+        ungetc(ch, file_);
+    }
+
+    template<typename CharT>
+    void unget(CharT ch)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        _unget_impl(ch);
+    }
+
+    template<typename CharT>
+    auto get(CharT* buffer, size_t size)
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        auto size_read = fread(buffer, 1u, size, file_);
+        if (size_read < size)
+            is_eof_ = true;
+        if (size_read <= 1u)
+            return size_read;
+        if constexpr (is_CRLF)
+        {
+            auto ptr_in = buffer;
+            auto ptr_out = buffer;
+            auto ptr_last = buffer + (size_read - 1);
+            for (; ptr_in < ptr_last;)
+            {
+                if (*ptr_in == '\r' && *(ptr_in + 1) == '\n')
+                    ++ptr_in;
+                *ptr_out++ = *ptr_in++;
+            }
+            if (ptr_in == ptr_last)
+                *ptr_out++ = *ptr_in++;
+            return size_t(ptr_out - buffer);
+        }
+        else
+            return size_read;
+    }
+
+    auto peek() const
+    {
+        static_assert(is_input, WL_ERROR_INTERNAL);
+        assert(is_open());
+        const auto ch = _get_impl();
+        if (!eof())
+            _unget_impl(ch);
+        return ch;
+    }
+
+    template<typename CharT>
+    auto put(CharT ch) const
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        assert(is_open());
+        return (fputc(int(ch), file_) == EOF);
+    }
+
+    template<typename CharT>
+    auto put(const CharT* buffer, size_t size) const
+    {
+        static_assert(is_output, WL_ERROR_INTERNAL);
+        assert(is_open());
+        return (fwrite(buffer, 1u, size, file_) < size);
+    }
+
+    auto check_eof() const
+    {
+        assert(is_open());
+        peek();
+        return eof();
+    }
+};
 
 namespace stream_separator
 {
@@ -178,8 +376,8 @@ struct separator_table
     const std::array<uint8_t, table_size> table_;
 
     template<size_t NL, size_t NF, size_t... Is>
-    constexpr separator_table(const char (&line_seps)[NL],
-        const char (&field_seps)[NF], std::index_sequence<Is...>) :
+    constexpr separator_table(const char(&line_seps)[NL],
+        const char(&field_seps)[NF], std::index_sequence<Is...>) :
         table_{(uint8_t(char(Is) == '\0' ? EOS :
             matches_any(char(Is), line_seps) ? Line :
             matches_any(char(Is), field_seps) ? Field : None))...}
@@ -188,16 +386,26 @@ struct separator_table
 
     template<size_t N, size_t... Is>
     static constexpr bool _matches_any_impl(const char ch,
-        const char (&seps)[N], std::index_sequence<Is...>)
+        const char(&seps)[N], std::index_sequence<Is...>)
     {
         return ((ch == seps[Is]) || ...);
     }
 
     template<size_t N>
-    static constexpr bool matches_any(const char ch, const char (&seps)[N])
+    static constexpr bool matches_any(const char ch, const char(&seps)[N])
     {
         static_assert(N >= 1u, WL_ERROR_INTERNAL);
         return _matches_any_impl(ch, seps, std::make_index_sequence<N - 1u>{});
+    }
+
+    template<typename CharT>
+    constexpr int classify(CharT ch) const
+    {
+        const auto uch = std::make_unsigned_t<CharT>(ch);
+        if (uch >= unsigned(table_size))
+            return int(None);
+        else
+            return int(table_[uch]);
     }
 
     template<typename CharT>
@@ -223,217 +431,11 @@ constexpr auto csv_table = make_table("\n\r", ",");
 }
 
 template<stream_mode Mode, bool Binary>
-struct fstream
-{
-    using state_t = int;
-    static constexpr state_t good_state   = 0x00;
-    static constexpr state_t failed_state = 0x01;
-    static constexpr state_t eof_state    = 0x02;
-
-    static constexpr auto mode = Mode;
-    static constexpr auto is_binary = Binary;
-    static constexpr bool is_input  = (Mode == stream_mode::Read);
-    static constexpr bool is_output = !is_input;
-
-    mutable FILE* file_;
-    mutable state_t state_;
-    bool is_open_;
-
-    auto is_open() const
-    {
-        return is_open_;
-    }
-
-    auto _set_state(state_t state) const
-    {
-        state_ |= state;
-    }
-
-    auto _clear_state(state_t state) const
-    {
-        state_ &= ~state;
-    }
-
-    auto failed() const
-    {
-        return state_ & failed_state;
-    }
-
-    auto eof() const
-    {
-        return state_ & eof_state;
-    }
-
-    template<typename CharT>
-    void open(const CharT* filename)
-    {
-        CharT mode_str[3];
-        mode_str[0] = (mode == stream_mode::Read) ? 'r' :
-            (mode == stream_mode::Write) ? 'w' : 'a';
-        mode_str[1] = Binary ? 'b' : '\0';
-        mode_str[2] = '\0';
-        if constexpr (std::is_same_v<CharT, char>)
-            file_ = fopen(filename, mode_str);
-        else
-            file_ = _wfopen(filename, mode_str);
-        if (!file_)
-            _set_state(failed_state);
-        else
-        {
-            is_open_ = true;
-            _clear_state(failed_state | eof_state);
-        }
-    }
-
-    void close()
-    {
-        if (is_open())
-            fclose(file_);
-        file_ = nullptr;
-        is_open_ = false;
-    }
-
-    fstream() : file_{nullptr}, state_{good_state}, is_open_{false}
-    {
-    }
-
-    template<typename CharT>
-    fstream(const CharT* filename) : fstream()
-    {
-        open(filename);
-    }
-
-    ~fstream()
-    {
-        close();
-    }
-
-    fstream(const fstream&) = delete;
-    fstream(fstream&& other) : fstream()
-    {
-        *this = std::move(other);
-    }
-
-    fstream& operator=(const fstream&) = delete;
-    fstream& operator=(fstream&& other)
-    {
-        std::swap(file_, other.file_);
-        std::swap(state_, other.state_);
-        std::swap(is_open_, other.is_open_);
-        return *this;
-    }
-
-    bool seek(int64_t pos)
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        assert(is_open());
-        assert(pos == int32_t(pos));
-        if (fseek(file_, long(pos), pos >= 0 ? SEEK_SET : SEEK_END))
-            _set_state(failed_state);
-        else
-            _clear_state(failed_state | eof_state);
-        return check_eof();
-    }
-
-    bool seek(int64_t pos, int origin)
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        assert(is_open());
-        assert(pos == int32_t(pos));
-        if (fseek(file_, long(pos), origin))
-            _set_state(failed_state);
-        else
-            _clear_state(failed_state | eof_state);
-        return check_eof();
-    }
-
-    auto tell() const
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        assert(is_open());
-        auto pos = ftell(file_);
-        if (pos == -1)
-            _set_state(failed_state);
-        return pos;
-    }
-
-    auto get()
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        assert(is_open());
-        const int ch = fgetc(file_);
-        if (ch == EOF)
-        {
-            _set_state(eof_state);
-            return 0;
-        }
-        else
-            return ch;
-    }
-
-    template<typename CharT>
-    auto unget(CharT ch)
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        _clear_state(eof_state);
-        ungetc(ch, file_);
-    }
-
-    template<typename CharT>
-    auto get(CharT* buffer, size_t size)
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        assert(is_open());
-        const auto size_read = fread(buffer, 1u, size, file_);
-        if (size_read < size)
-            _set_state(feof(file_) ? eof_state : failed_state);
-        return size_read;
-    }
-
-    auto peek() const
-    {
-        static_assert(is_input, WL_ERROR_INTERNAL);
-        assert(is_open());
-        const auto ch = fgetc(file_);
-        if (ch == EOF)
-            _set_state(eof_state);
-        else
-            ungetc(ch, file_);
-        return ch;
-    }
-
-    template<typename CharT>
-    void put(CharT ch) const
-    {
-        static_assert(is_output, WL_ERROR_INTERNAL);
-        assert(is_open());
-        if (fputc(int(ch), file_) == EOF)
-            _set_state(failed_state);
-    }
-
-    template<typename CharT>
-    void put(const CharT* buffer, size_t size) const
-    {
-        static_assert(is_output, WL_ERROR_INTERNAL);
-        assert(is_open());
-        if (fwrite(buffer, 1u, size, file_) < size)
-            _set_state(failed_state);
-    }
-
-    auto check_eof() const
-    {
-        assert(is_open());
-        peek();
-        return eof();
-    }
-};
-
-template<stream_mode Mode, bool Binary>
 struct file_stream
 {
     using separator_table = stream_separator::separator_table;
     using stream_t = fstream<Mode, Binary>;
-    static constexpr size_t chunk_size = 5u;
+    static constexpr size_t chunk_size = 1024;
     static constexpr bool is_binary = Binary;
     
     const string path_;
@@ -445,7 +447,7 @@ struct file_stream
     {
         const auto ospath = _from_u8path(path.c_str());
         stream_.open(ospath.c_str());
-        if (stream_.failed())
+        if (!stream_.is_open())
             throw std::logic_error(WL_ERROR_CANNOT_OPEN_FILE);
     }
 
@@ -467,7 +469,8 @@ struct file_stream
     {
         static_assert(is_integral_v<Pos>, WL_ERROR_INTERNAL);
         static_assert(stream_t::is_input, WL_ERROR_STREAM_SEEK_ON_OUTPUT);
-        if (!stream_.seek(int64_t(pos)))
+        auto err = stream_.seek(int64_t(pos));
+        if (err)
             throw std::logic_error(WL_ERROR_STREAM_SEEK_FAILED);
     }
 
@@ -506,50 +509,61 @@ struct file_stream
         ret.uninitialized_resize(ret_data - ret.byte_begin());
         if (!ret.check_validity())
             throw std::logic_error(WL_ERROR_INVALID_UTF8_STRING);
-        stream_.check_eof();
         return ret;
     }
-    
+
+    // Read the stream until a separator matches sep_class is found
+    // the number of characters read is returned
+    // the actual separator class is return in sep_class
     template<typename CharT>
     size_t get_until(CharT* str, size_t max_count,
-        const separator_table& sep_table, const int sep_class, char& sep_found)
+        const separator_table& sep_table, int& sep_class)
     {
         if (max_count == 0u)
             return 0u;
         size_t count = 0u;
+        int max_sep_class = sep_class;
         for (auto ch = stream_.get();; ch = stream_.get())
         {
             if (stream_.eof())
             {
+                sep_class = stream_separator::EOS;
                 break;
             }
-            else if (sep_table.is_separator(ch, sep_class))
+            int cur_sep_class = sep_table.classify(ch);
+            if (cur_sep_class < sep_class)
             {
-                sep_found = char(ch);
-                break;
-            }
-            else if (count >= max_count)
-            {
-                return max_count + 1;
+                if (count >= max_count)
+                {
+                    sep_class = max_sep_class;
+                    count = max_count + 1;
+                    break;
+                }
+                else
+                {
+                    ++count;
+                    *str++ = CharT(ch);
+                }
             }
             else
             {
-                ++count;
-                *str++ = CharT(ch);
+                if (cur_sep_class > max_sep_class)
+                    max_sep_class = cur_sep_class;
+                break;
             }
         }
         *str = '\0';
+        sep_class = max_sep_class;
         return count;
     }
 
-    // Get the next line/field as a string
-    // EOF: returns empty string, sep_found = '\0'
-    auto read(const separator_table& sep_table, const int sep_class,
-        char& sep_found)
+    // Get the next line/field as a string, by sep_class
+    // the actual separator class is return in sep_class
+    auto read(const separator_table& sep_table, int& sep_class)
     {
         if (stream_.check_eof())
         {
-            sep_found = '\0';
+            sep_class = stream_separator::EOS;
             return string();
         }
         auto ret = string(size_t(0)); // is_ascii = Unknown
@@ -558,7 +572,7 @@ struct file_stream
             const auto ret_capacity = ret.capacity();
             const auto max_count = ret_capacity - ret.byte_size();
             const auto count = get_until(ret.byte_end(), max_count,
-                sep_table, sep_class, sep_found);
+                sep_table, sep_class);
             if (count > max_count)
             { // buffer is too small
                 ret.uninitialized_resize(ret.byte_size() + max_count);
@@ -608,26 +622,34 @@ struct file_stream
         return ret;
     }
 
-    // Read the next number from the stream
+    // Read the next number from the stream, by stream_separator::Field
+    // the maximum sep class before the number is returned in sep_class_before
+    // the sep class following the number is returned in sep_class_after
     // EOF: returns false
     template<typename Val>
-    bool read_number(const separator_table& sep_table, char& sep_found,
-        Val& val)
+    bool read_number(const separator_table& sep_table, int& sep_class_before,
+        int& sep_class_after, Val& val)
     {
         for (;;)
         {
-            sep_found = char(stream_.get());
-            if (sep_found == '\0')
+            auto ch = stream_.get();
+            if (stream_.eof())
             {
                 return false;
             }
-            if (!sep_table.is_separator(sep_found, stream_separator::Field))
+            auto cur_sep_class = sep_table.classify(ch);
+            if (cur_sep_class < stream_separator::Field)
             {
-                stream_.unget(sep_found);
+                stream_.unget(ch);
                 break;
             }
+            else if (cur_sep_class > sep_class_before)
+            {
+                sep_class_before = cur_sep_class;
+            }
         }
-        auto str = read(sep_table, stream_separator::Field, sep_found);
+        sep_class_after = stream_separator::Field;
+        auto str = read(sep_table, sep_class_after);
         assert(str.byte_size() > 0);
         if constexpr (std::is_same_v<Val, double>)
         {
@@ -685,10 +707,11 @@ struct file_stream
     template<typename CharT, size_t N>
     void write(const CharT* begin, size_t count, const char (&end_chars)[N])
     {
-        stream_.put((const char*)begin, count);
+        bool err = false;
+        err = err || stream_.put((const char*)begin, count);
         if (N >= 2u)
-            stream_.put(end_chars, N - 1u);
-        if (stream_.failed())
+            err = err || stream_.put(end_chars, N - 1u);
+        if (err)
             throw std::logic_error(WL_ERROR_STREAM_WRITE);
     }
 
@@ -701,8 +724,8 @@ struct file_stream
     template<typename Val>
     void binary_write(const Val* begin, size_t count)
     {
-        stream_.put((const char*)begin, count * sizeof(Val));
-        if (stream_.failed())
+        bool err = stream_.put((const char*)begin, count * sizeof(Val));
+        if (err)
             throw std::logic_error(WL_ERROR_STREAM_WRITE);
     }
 
@@ -829,7 +852,6 @@ auto read(Any& any, ReadType)
     WL_TRY_BEGIN()
     using namespace stream_separator;
     decltype(auto) stream = _as_input_file_stream(any);
-    char sep_found = '\0';
     if constexpr (std::is_same_v<ReadType, byte_type>)
     {
         return int64_t(stream.read_byte());
@@ -842,11 +864,11 @@ auto read(Any& any, ReadType)
         std::is_same_v<ReadType, string_type> ||
         std::is_same_v<ReadType, record_type>)
     {
+        int sep_class = std::is_same_v<ReadType, word_type> ? Field : Line;
         for (;;)
         {
-            auto str = stream.read(default_table,
-                std::is_same_v<ReadType, word_type> ? Field : Line, sep_found);
-            if ((str.byte_size() > 0u) || (sep_found == '\0'))
+            auto str = stream.read(default_table, sep_class);
+            if ((str.byte_size() > 0u) || (sep_class == EOS))
                 return str;
         }
     }
@@ -856,7 +878,10 @@ auto read(Any& any, ReadType)
         using Ret = std::conditional_t<
             std::is_same_v<ReadType, real_type>, double, int64_t>;
         Ret ret;
-        if (!stream.read_number(default_table, sep_found, ret))
+        int sep_class_before = Field;
+        int sep_class_after  = Field;
+        if (!stream.read_number(default_table, sep_class_before,
+            sep_class_after, ret))
             throw std::logic_error(WL_ERROR_STREAM_CANNOT_READ_NUMBER);
         return ret;
     }
@@ -913,14 +938,13 @@ auto read_list(Any& any, ReadType, const Count& in_count)
         std::is_same_v<ReadType, record_type>)
     {
         ndarray<string, 1u> ret;
-        char sep_found = '\0';
         for (int64_t i = 0; i < count; ++i)
         {
-            auto str = stream.read(default_table,
-                std::is_same_v<ReadType, word_type> ? Field : Line, sep_found);
+            int sep_class = std::is_same_v<ReadType, word_type> ? Field : Line;
+            auto str = stream.read(default_table, sep_class);
             if (str.byte_size() > 0u)
                 ret.append(std::move(str));
-            if (sep_found == '\0')
+            if (sep_class == EOS)
                 break;
         }
         return ret;
@@ -931,15 +955,20 @@ auto read_list(Any& any, ReadType, const Count& in_count)
         using Elem = std::conditional_t<
             std::is_same_v<ReadType, real_type>, double, int64_t>;
         ndarray<Elem, 1u> ret;
-        char sep_found = '\0';
         for (int64_t i = 0; i < count; ++i)
         {
             Elem elem;
-            if (!stream.read_number(default_table, sep_found, elem))
-            { // EOF
+            int sep_class_before = Field;
+            int sep_class_after  = Field;
+            if (stream.read_number(default_table, sep_class_before,
+                sep_class_after, elem))
+            {
+                ret.append(elem);
+            }
+            else
+            { // no number left in the stream
                 break;
             }
-            ret.append(elem);
         }
         return ret;
     }
@@ -1093,7 +1122,22 @@ auto binary_write(Any& any, const X& x)
 
 enum class file_format { Table, TSV, CSV };
 
-template<typename Stream, typename InWriteType, typename X, size_t XR>
+auto _get_sep_table(file_format format) -> const auto&
+{
+    const stream_separator::separator_table* sep_table_ptr;
+    switch (format)
+    {
+    case file_format::TSV:
+        sep_table_ptr = &stream_separator::tsv_table; break;
+    case file_format::CSV:
+        sep_table_ptr = &stream_separator::csv_table; break;
+    default:
+        sep_table_ptr = &stream_separator::default_table;
+    }
+    return *sep_table_ptr;
+}
+
+template<typename InWriteType, typename Stream, typename X, size_t XR>
 void _export_text_impl(Stream& stream, const X& x,
     const std::array<size_t, XR>& x_dims, char line_sep, char field_sep)
 {
@@ -1169,26 +1213,15 @@ auto import_text(const String& path, file_format format, ReadType,
     WL_TRY_BEGIN()
     using namespace stream_separator;
     decltype(auto) stream = _as_input_file_stream(path);
-    const separator_table* sep_table_ptr = &default_table;
-    switch (format)
-    {
-    case file_format::TSV:
-        sep_table_ptr = &tsv_table; break;
-    case file_format::CSV:
-        sep_table_ptr = &csv_table; break;
-    default:
-        sep_table_ptr = &default_table;
-    }
+    const auto& sep_table = _get_sep_table(format);
 
     static_assert(is_real_v<ReadType>, WL_ERROR_IMPORT_UNKNOWN_TYPE);
     constexpr auto has_padding = !std::is_same_v<Padding, void_type>;
+    static_assert(!has_padding || is_convertible_v<Padding, ReadType>,
+        WL_ERROR_IMPORT_PADDING_TYPE);
     auto padding = ReadType{};
     if constexpr (has_padding)
-    {
-        static_assert(is_convertible_v<Padding, ReadType>,
-            WL_ERROR_IMPORT_PADDING_TYPE);
-        const ReadType padding = cast<ReadType>(in_padding);
-    }
+        padding = cast<ReadType>(in_padding);
 
     ndarray<ReadType, 1u> list;
     ndarray<size_t, 1u> num_fields;
@@ -1198,15 +1231,20 @@ auto import_text(const String& path, file_format format, ReadType,
     {
         using Val = std::conditional_t<is_float_v<ReadType>, double, int64_t>;
         Val val;
-        char sep_found;
-        auto has_number = stream.read_number(*sep_table_ptr, sep_found, val);
+        int sep_class_before = Field;
+        int sep_class_after = Field;
+        auto has_number = stream.read_number(sep_table, sep_class_before,
+            sep_class_after, val);
         if (!has_number)
             break;
         list.append(ReadType(val));
+        if (sep_class_before == Line)
+        {
+            num_fields.append(0u);
+            num_fields_back_ptr = num_fields.end() - 1;
+        }
         ++(*num_fields_back_ptr);
-        if (sep_table_ptr->is_separator(sep_found, EOS))
-            break;
-        else if (sep_table_ptr->is_separator(sep_found, Line))
+        if (sep_class_after == Line)
         {
             num_fields.append(0u);
             num_fields_back_ptr = num_fields.end() - 1;

@@ -17,6 +17,7 @@
 
 #pragma once
 
+//#define WL_USE_MATHLINK
 #if defined(WL_USE_MATHLINK)
 
 #include <cstddef>
@@ -31,8 +32,9 @@
 
 #include "mathlink.h"
 #include "WolframLibrary.h"
-#include "WolframLibrary.h"
+#include "WolframCompileLibrary.h"
 #include "WolframNumericArrayLibrary.h"
+#include "WolframRTL.h"
 
 namespace wl
 {
@@ -41,6 +43,7 @@ namespace librarylink
 {
 
 extern WolframLibraryData lib_data;
+extern WolframCompileLibrary_Functions lib_functions;
 
 struct mathlink_t
 {
@@ -206,59 +209,115 @@ numericarray_data_t get_numeric_array_type()
 }
 
 template<typename T, size_t R>
+auto mtensor_to_ndarray(const MTensor& tensor,
+    const int mtensor_value_type)
+{
+    auto input_type = lib_data->MTensor_getType(tensor);
+    auto input_rank = size_t(lib_data->MTensor_getRank(tensor));
+    const mint* input_dims = lib_data->MTensor_getDimensions(tensor);
+
+    if (input_rank != R) 
+        throw int(LIBRARY_RANK_ERROR);
+    if (input_type != mtensor_value_type)
+        throw int(LIBRARY_TYPE_ERROR);
+
+    std::array<size_t, R> dims;
+    std::copy_n(input_dims, R, dims.data());
+    const size_t size = utils::size_of_dims(dims);
+    ndarray<T, R> ret(dims);
+
+    const void* input_ptr = nullptr;
+    if (mtensor_value_type == MType_Integer)
+    {
+        const auto* input_ptr =
+            (const mint*)lib_data->MTensor_getIntegerData(tensor);
+        if constexpr (is_integral_v<T>)
+            utils::restrict_copy_n(input_ptr, size, ret.data());
+    }
+    else if (mtensor_value_type == MType_Real)
+    {
+        const auto* input_ptr =
+            (const mreal*)lib_data->MTensor_getRealData(tensor);
+        if constexpr (is_float_v<T>)
+            utils::restrict_copy_n(input_ptr, size, ret.data());
+    }
+    else if (mtensor_value_type == MType_Complex)
+    {
+        const auto* input_ptr =
+            (const complex<mreal>*)lib_data->MTensor_getComplexData(tensor);
+        if constexpr (is_complex_v<T>)
+            utils::restrict_copy_n(input_ptr, size, ret.data());
+    }
+    else
+    {
+        throw LIBRARY_TYPE_ERROR;
+    }
+    return ret;
+}
+
+template<typename T, size_t R>
+void ndarray_to_mtensor(const ndarray<T, R>& val, MTensor& tensor,
+    const int mtensor_value_type)
+{
+    std::array<mint, R> output_dims;
+    std::copy_n(val.dims().data(), R, output_dims.data());
+
+    bool type_is_matched = false;
+    if constexpr (is_integral_v<T>)
+        type_is_matched = (mtensor_value_type == MType_Integer);
+    else if constexpr (is_float_v<T>)
+        type_is_matched = (mtensor_value_type == MType_Real);
+    else if constexpr (is_complex_v<T>)
+        type_is_matched = (mtensor_value_type == MType_Complex);
+    if (!type_is_matched)
+        throw LIBRARY_TYPE_ERROR;
+
+    auto error = lib_data->MTensor_new(
+        mtensor_value_type, R, output_dims.data(), &tensor);
+    if (error)
+        throw error;
+    if (mtensor_value_type == MType_Integer)
+    {
+        auto* output_ptr = (mint*)lib_data->MTensor_getIntegerData(tensor);
+        utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+    }
+    else if (mtensor_value_type == MType_Real)
+    {
+        auto* output_ptr = (mreal*)lib_data->MTensor_getRealData(tensor);
+        utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+    }
+    else
+    {
+        auto* output_ptr =
+            (complex<mreal>*)lib_data->MTensor_getComplexData(tensor);
+        utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+    }
+}
+
+template<typename T, size_t R>
 auto get_array(MArgument arg)
 {
     const numericarray_data_t type = get_numeric_array_type<T>();
-    bool pass_by_tensor = false;
+    int mtensor_value_type = 0;
     switch (type)
     {
     case MNumericArray_Type_Bit64:
+        mtensor_value_type = MType_Integer;
+        break;
     case MNumericArray_Type_Real64:
+        mtensor_value_type = MType_Real;
+        break;
     case MNumericArray_Type_Complex_Real64:
-        pass_by_tensor = true;
+        mtensor_value_type = MType_Complex;
         break;
     case MNumericArray_Type_Undef:
-        throw LIBRARY_TYPE_ERROR;
-    default:
-        pass_by_tensor = false;
+        throw int(LIBRARY_TYPE_ERROR);
     }
 
-    if (pass_by_tensor)
+    if (mtensor_value_type != 0)
     {
         auto tensor = MArgument_getMTensor(arg);
-        auto input_type = lib_data->MTensor_getType(tensor);
-        auto input_rank = size_t(lib_data->MTensor_getRank(tensor));
-        const mint* input_dims = lib_data->MTensor_getDimensions(tensor);
-
-        if (input_rank != R) throw LIBRARY_RANK_ERROR;
-        std::array<size_t, R> dims;
-        std::copy_n(input_dims, R, dims.data());
-        const size_t size = utils::size_of_dims(dims);
-
-        if (type == MNumericArray_Type_Bit64)
-        {
-            if (input_type != MType_Integer) throw LIBRARY_TYPE_ERROR;
-            const auto* ptr = lib_data->MTensor_getIntegerData(tensor);
-            ndarray<T, R> ret(dims);
-            std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
-            return ret;
-        }
-        else if (type == MNumericArray_Type_Real64)
-        {
-            if (input_type != MType_Real) throw LIBRARY_TYPE_ERROR;
-            const auto* ptr = lib_data->MTensor_getRealData(tensor);
-            ndarray<T, R> ret(dims);
-            std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
-            return ret;
-        }
-        else // type == MNumericArray_Type_Complex_Real64
-        {
-            if (input_type != MType_Complex) throw LIBRARY_TYPE_ERROR;
-            const auto* ptr = lib_data->MTensor_getComplexData(tensor);
-            ndarray<T, R> ret(dims);
-            std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
-            return ret;
-        }
+        return mtensor_to_ndarray<T, R>(tensor, mtensor_value_type);
     }
     else // pass by numeric array
     {
@@ -270,8 +329,8 @@ auto get_array(MArgument arg)
         const mint* input_dims =
             na_lib_data->MNumericArray_getDimensions(narray);
 
-        if (input_type != type) throw LIBRARY_TYPE_ERROR;
-        if (input_rank != R) throw LIBRARY_RANK_ERROR;
+        if (input_type != type) throw int(LIBRARY_TYPE_ERROR);
+        if (input_rank != R) throw int(LIBRARY_RANK_ERROR);
         std::array<size_t, R> dims;
         std::copy_n(input_dims, R, dims.data());
         const size_t size = utils::size_of_dims(dims);
@@ -329,54 +388,32 @@ template<typename T, size_t R>
 void set_array(MArgument& res, const ndarray<T, R>& val)
 {
     const numericarray_data_t type = get_numeric_array_type<T>();
-    bool pass_by_tensor = false;
+    int mtensor_value_type = 0;
     switch (type)
     {
     case MNumericArray_Type_Bit64:
+        mtensor_value_type = MType_Integer;
+        break;
     case MNumericArray_Type_Real64:
+        mtensor_value_type = MType_Real;
+        break;
     case MNumericArray_Type_Complex_Real64:
-        pass_by_tensor = true;
+        mtensor_value_type = MType_Complex;
         break;
     case MNumericArray_Type_Undef:
-        throw LIBRARY_TYPE_ERROR;
-    default:
-        pass_by_tensor = false;
+        throw int(LIBRARY_TYPE_ERROR);
     }
 
-    std::array<mint, R> output_dims;
-    std::copy_n(val.dims().data(), R, output_dims.data());
-
-    if (pass_by_tensor)
+    if (mtensor_value_type != 0)
     {
         MTensor tensor;
-        if (type == MNumericArray_Type_Bit64)
-        {
-            auto error = lib_data->MTensor_new(
-                MType_Integer, R, output_dims.data(), &tensor);
-            if (error) throw error;
-            auto* ptr = lib_data->MTensor_getIntegerData(tensor);
-            std::memcpy(ptr, val.data(), val.size() * sizeof(T));
-        }
-        else if (type == MNumericArray_Type_Real64)
-        {
-            auto error = lib_data->MTensor_new(
-                MType_Real, R, output_dims.data(), &tensor);
-            if (error) throw error;
-            auto* ptr = lib_data->MTensor_getRealData(tensor);
-            std::memcpy(ptr, val.data(), val.size() * sizeof(T));
-        }
-        else // type == MNumericArray_Type_Complex_Real64
-        {
-            auto error = lib_data->MTensor_new(
-                MType_Complex, R, output_dims.data(), &tensor);
-            if (error) throw error;
-            auto* ptr = lib_data->MTensor_getComplexData(tensor);
-            std::memcpy(ptr, val.data(), val.size() * sizeof(T));
-        }
+        ndarray_to_mtensor(val, tensor, mtensor_value_type);
         MArgument_setMTensor(res, tensor);
     }
     else
     {
+        std::array<mint, R> output_dims;
+        std::copy_n(val.dims().data(), R, output_dims.data());
         auto na_lib_data = lib_data->numericarrayLibraryFunctions;
         MNumericArray narray;
         auto error = na_lib_data->MNumericArray_new(
@@ -462,6 +499,196 @@ void send_error(const String& what) noexcept
     catch (...)
     {
     }
+}
+
+template<typename Ret>
+struct kernel_function
+{
+    void* fptr_ = nullptr;
+
+    kernel_function(const char* code)
+    {
+        fptr_ = lib_functions->getExpressionFunctionPointer(lib_data, code);
+        if (!fptr_)
+            throw std::logic_error("failed to get kernel function ptr.");
+    }
+
+    template<typename X>
+    int get_mtype() const
+    {
+        if constexpr (array_rank_v<X> == 0u)
+        {
+            if constexpr (is_integral_v<X>)
+                return MType_Integer;
+            else if constexpr (is_float_v<X>)
+                return MType_Real;
+            else if constexpr (is_complex_v<X>)
+                return MType_Complex;
+            else
+                return 0;
+        }
+        else
+        {
+            return get_mtype<value_type_t<X>>();
+        }
+    }
+
+    template<typename X>
+    void _prepare_args_impl(int& type, void* storage, const X& x) const
+    {
+        static_assert(is_numerical_type_v<X>,
+            WL_ERROR_KERNEL_FUNCTION_ARG_TYPE);
+        constexpr auto XR = array_rank_v<X>;
+        if constexpr (XR == 0u)
+        {
+            type = get_mtype<X>();
+            switch (type)
+            {
+            case MType_Integer:
+                new((mint*)storage) mint(cast<mint>(x));
+                break;
+            case MType_Real:
+                new((mreal*)storage) mreal(cast<mreal>(x));
+                break;
+            case MType_Complex:
+                new((complex<mreal>*)storage) complex<mreal>(
+                    cast<complex<mreal>>(x));
+                break;
+            default:
+                throw LIBRARY_TYPE_ERROR;
+            }
+        }
+        else
+        {
+            type = 0; // means MTensor
+            using XV = value_type_t<X>;
+            new((MTensor*)storage) MTensor(nullptr);
+            ndarray_to_mtensor(x, *(MTensor*)storage, get_mtype<XV>());
+        }
+    }
+
+    template<size_t NArgs, typename Storage, typename ArgsTuple, size_t... Is>
+    void prepare_args(std::array<int, NArgs>& arg_types,
+        std::array<Storage, NArgs>& arg_storages,
+        const ArgsTuple& args, std::index_sequence<Is...>) const
+    {
+        [[maybe_unused]] const auto& _1 = (
+            _prepare_args_impl(arg_types[Is], (void*)(&arg_storages[Is]),
+                std::get<Is>(args)),
+            ..., 0);
+    }
+
+    template<typename X>
+    void _cleanup_args_impl(const X& x, void* storage) const
+    {
+        if constexpr (array_rank_v<X> >= 1u)
+        {
+            MTensor& mtensor = *(MTensor*)storage;
+            lib_data->MTensor_free(mtensor);
+        }
+    }
+
+    template<size_t NArgs, typename Storage, typename ArgsTuple, size_t... Is>
+    void cleanup_args(std::array<Storage, NArgs>& arg_storages,
+        const ArgsTuple& args, std::index_sequence<Is...>) const
+    {
+        [[maybe_unused]] const auto& _1 = (
+            _cleanup_args_impl(std::get<Is>(args), (void*)(&arg_storages[Is])),
+            ..., 0);
+    }
+
+    template<typename Storage>
+    void prepare_ret(Storage& ret_storage, void*& ret_ptr,
+        MTensorInitializationData& init_data) const
+    {
+        static_assert(is_numerical_type_v<Ret>,
+            WL_ERROR_KERNEL_FUNCTION_ARG_TYPE);
+        if constexpr (array_rank_v<Ret> == 0u)
+        {
+            ret_ptr = (void*)(&ret_storage);
+        }
+        else
+        {
+            init_data = lib_functions->GetInitializedMTensors(lib_data, 1);
+            ret_ptr = (void*)MTensorInitializationData_getTensor(init_data, 0);
+        }
+    }
+
+    template<typename Storage>
+    auto retrieve_ret(int err, Storage& storage, void*& ret_ptr,
+        MTensorInitializationData& init_data) const
+    {
+        constexpr auto RR = array_rank_v<Ret>;
+        if constexpr (RR == 0u)
+        {
+            if constexpr (is_integral_v<Ret>)
+                return cast<Ret>(*(mint*)(&storage));
+            else if constexpr (is_float_v<Ret>)
+                return cast<Ret>(*(mreal*)(&storage));
+            else if constexpr (is_complex_v<Ret>)
+                return cast<Ret>(*(complex<mreal>*)(&storage));
+            else
+                static_assert(always_false_v<Storage>, WL_ERROR_INTERNAL);
+        }
+        else
+        {
+            auto ret = ndarray<value_type_t<Ret>, RR>{};
+            if (!err)
+            {
+                const MTensor& mtensor = *(MTensor*)(&storage);
+                auto ret = mtensor_to_ndarray<value_type_t<Ret>, RR>(
+                    mtensor, get_mtype<Ret>());
+            }
+            lib_functions->ReleaseInitializedMTensors(init_data);
+            lib_functions->WolframLibraryData_cleanUp(lib_data, 1);
+            return ret;
+        }
+    }
+
+    template<typename... Args>
+    auto operator()(const Args&... args) const
+    {
+        //int (*evaluateFunctionExpression)(struct st_WolframLibraryData*, void *, mint, mint, mint, int *, void **, int, mint, void *);
+        constexpr size_t NArgs = sizeof...(Args);
+        using storage_t = char[sizeof(complex<double>)];
+        std::array<int, NArgs> arg_types;
+        std::array<storage_t, NArgs> arg_storages;
+        std::array<void*, NArgs> arg_ptrs;
+        storage_t ret_storage;
+        void* ret_ptr = nullptr;
+        MTensorInitializationData mtensor_init_data = nullptr;
+
+        prepare_args(arg_types, arg_storages, std::tie(args...),
+            std::make_index_sequence<NArgs>{});
+        prepare_ret(ret_storage, ret_ptr, mtensor_init_data);
+        // prepare the addresses of the arguments
+        for (size_t i = 0; i < NArgs; ++i)
+            arg_ptrs[i] = (void*)(&arg_storages[i]);
+        
+        int err = lib_functions->evaluateFunctionExpression(
+            lib_data, fptr_, 0, 0,
+            NArgs, arg_types.data(), arg_ptrs.data(),
+            get_mtype<Ret>(), array_rank_v<Ret>, ret_ptr);
+        //funStructCompile->evaluateFunctionExpression(libData, E0, 0, 0, 1, \
+        //    S0, S1, 2, 0, (void*)(&I0_ 3))
+        //arg_types[0] = 2;
+        //mint arg0 = 5;
+        //arg_ptrs[0] = (void*)(&arg0);
+        //int err = lib_functions->evaluateFunctionExpression(lib_data, fptr_, 0, 0, 1, arg_types.data(), arg_ptrs.data(), 2, 0, ret_ptr);
+
+        cleanup_args(arg_storages, std::tie(args...),
+            std::make_index_sequence<NArgs>{});
+        auto ret = retrieve_ret(err, ret_storage, ret_ptr, mtensor_init_data);
+        if (err)
+            throw std::logic_error(WL_ERROR_KERNEL_FUNCTION_CALL);
+        return ret;
+    }
+};
+
+template<typename Ret>
+auto extern_function(const wl::string& func, Ret)
+{
+    return kernel_function<Ret>((const char*)func.c_str());
 }
 
 }

@@ -46,6 +46,7 @@ parse::unknown="`1` cannot be parsed.";
 syntax::iter="`1` does not have a correct syntax for an iterator.";
 syntax::bad="`1` does not have a correct syntax for `2`.";
 syntax::badtype="`1` does not specify a correct type.";
+syntax::badextern="`1` does not specify a correct extern function.";
 syntax::farg="`1` does not have a correct syntax for a function argument.";
 syntax::slotmax="#`1` exceeds the maximum value of slot number allowed.";
 syntax::fpure="`1` does not have a correct syntax for a pure function.";
@@ -179,6 +180,13 @@ syntax[type][code_]:=code//.{
   }/.{
     id["Typed",_][any___]:>(Message[syntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"]),
     typespec[any___]:>(Message[syntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"])
+  }
+
+syntax[extern][code_]:=code//.{
+    id["Extern",p_][id[f_,fp_],type_]:>
+      native["librarylink::extern_function",p][literal["Hold["<>f<>"]",fp],type]
+  }/.{
+    id["Extern",_][any___]:>(Message[syntax::badextern,tostring@id["Extern",0][any]];Throw["syntax"])
   }
 
 syntax[clause][code_]:=code//.{
@@ -330,7 +338,7 @@ syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
       }
   ]
 
-$syntaxpasses={list,type,clause,mutable,function,scope,branch,loop,sequence,assign,loopbreak};
+$syntaxpasses={list,type,extern,clause,mutable,function,scope,branch,loop,sequence,assign,loopbreak};
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 

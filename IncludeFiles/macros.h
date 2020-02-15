@@ -352,10 +352,16 @@ namespace wl
 #define WL_ERROR_EXPORT_TYPE \
 "Only arithmetic types are supported for export."
 
+#define WL_ERROR_KERNEL_FUNCTION_ARG_TYPE \
+"Only values with numerical types can be passed through kernel functions."
+
 // runtime error messages
 
+#define WL_ERROR_LIBRARYLINK \
+"An error has occurred during a LibraryLink operation."
+
 #define WL_ERROR_CALLBACK \
-"Callback failed."
+"An error has occurred during a callback through MathLink."
 
 #define WL_ERROR_NEGATIVE_DIMS \
 "The dimension specifications should be non-negative integers."
@@ -518,5 +524,8 @@ namespace wl
 
 #define WL_ERROR_NON_ASCII_PATH \
 "MinGW compiler does not support non-ascii characters in filenames."
+
+#define WL_ERROR_KERNEL_FUNCTION_CALL \
+"The call to kernel function has failed."
 
 }

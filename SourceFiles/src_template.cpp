@@ -19,6 +19,7 @@
 
 wl::random_engine wl::global_random_engine;
 WolframLibraryData wl::librarylink::lib_data;
+WolframCompileLibrary_Functions wl::librarylink::lib_functions;
 
 volatile bool wl::librarylink::global_abort_in_progress;
 volatile bool wl::librarylink::global_stop_check_abort;
@@ -36,6 +37,8 @@ EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
     wl::global_random_engine.seed(rd());
 #endif
     wl::librarylink::lib_data = lib_data;
+    wl::librarylink::lib_functions =
+        wl::librarylink::lib_data->compileLibraryFunctions;
     wl::librarylink::global_stop_check_abort = false;
     return LIBRARY_NO_ERROR;
 }
@@ -73,6 +76,12 @@ mint argc, MArgument *argv, MArgument res) {
         wl::librarylink::send_error(error.what());
         wl::librarylink::stop_check_abort(abort_thread);
         return LIBRARY_MEMORY_ERROR;
+    }
+    catch (int error)
+    {
+        wl::librarylink::send_error(std::string(WL_ERROR_LIBRARYLINK));
+        wl::librarylink::stop_check_abort(abort_thread);
+        return error;
     }
     catch (...) {
         wl::librarylink::send_error(std::string(WL_ERROR_INTERNAL));

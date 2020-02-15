@@ -216,7 +216,7 @@ auto mtensor_to_ndarray(const MTensor& tensor,
     auto input_rank = size_t(lib_data->MTensor_getRank(tensor));
     const mint* input_dims = lib_data->MTensor_getDimensions(tensor);
 
-    if (input_rank != R) 
+    if (input_rank != R)
         throw int(LIBRARY_RANK_ERROR);
     if (input_type != mtensor_value_type)
         throw int(LIBRARY_TYPE_ERROR);
@@ -545,14 +545,17 @@ struct kernel_function
             switch (type)
             {
             case MType_Integer:
-                new((mint*)storage) mint(cast<mint>(x));
+                if constexpr (is_integral_v<X>)
+                    new((mint*)storage) mint(cast<mint>(x));
                 break;
             case MType_Real:
-                new((mreal*)storage) mreal(cast<mreal>(x));
+                if constexpr (is_float_v<X>)
+                    new((mreal*)storage) mreal(cast<mreal>(x));
                 break;
             case MType_Complex:
-                new((complex<mreal>*)storage) complex<mreal>(
-                    cast<complex<mreal>>(x));
+                if constexpr (is_complex_v<X>)
+                    new((complex<mreal>*)storage) complex<mreal>(
+                        cast<complex<mreal>>(x));
                 break;
             default:
                 throw LIBRARY_TYPE_ERROR;
@@ -603,14 +606,16 @@ struct kernel_function
     {
         static_assert(is_numerical_type_v<Ret>,
             WL_ERROR_KERNEL_FUNCTION_ARG_TYPE);
-        if constexpr (array_rank_v<Ret> == 0u)
+        constexpr auto RR = array_rank_v<Ret>;
+        if constexpr (RR == 0u)
         {
             ret_ptr = (void*)(&ret_storage);
         }
         else
         {
-            init_data = lib_functions->GetInitializedMTensors(lib_data, 1);
-            ret_ptr = (void*)MTensorInitializationData_getTensor(init_data, 0);
+            std::array<mint, RR> dims{3};
+            int err = lib_data->MTensor_new(get_mtype<Ret>(), RR, dims.data(), (MTensor*)(&ret_storage));
+            ret_ptr = (void*)(&ret_storage);
         }
     }
 
@@ -636,11 +641,11 @@ struct kernel_function
             if (!err)
             {
                 const MTensor& mtensor = *(MTensor*)(&storage);
-                auto ret = mtensor_to_ndarray<value_type_t<Ret>, RR>(
+                const mint* dims = lib_data->MTensor_getDimensions(mtensor);
+                ret = mtensor_to_ndarray<value_type_t<Ret>, RR>(
                     mtensor, get_mtype<Ret>());
             }
-            lib_functions->ReleaseInitializedMTensors(init_data);
-            lib_functions->WolframLibraryData_cleanUp(lib_data, 1);
+            lib_data->MTensor_free(*(MTensor*)(&storage));
             return ret;
         }
     }
@@ -669,13 +674,7 @@ struct kernel_function
             lib_data, fptr_, 0, 0,
             NArgs, arg_types.data(), arg_ptrs.data(),
             get_mtype<Ret>(), array_rank_v<Ret>, ret_ptr);
-        //funStructCompile->evaluateFunctionExpression(libData, E0, 0, 0, 1, \
-        //    S0, S1, 2, 0, (void*)(&I0_ 3))
-        //arg_types[0] = 2;
-        //mint arg0 = 5;
-        //arg_ptrs[0] = (void*)(&arg0);
-        //int err = lib_functions->evaluateFunctionExpression(lib_data, fptr_, 0, 0, 1, arg_types.data(), arg_ptrs.data(), 2, 0, ret_ptr);
-
+        
         cleanup_args(arg_storages, std::tie(args...),
             std::make_index_sequence<NArgs>{});
         auto ret = retrieve_ret(err, ret_storage, ret_ptr, mtensor_init_data);

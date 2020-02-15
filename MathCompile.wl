@@ -12,21 +12,23 @@ CompileToBinary::usage="\!\(\*RowBox[{\"CompileToBinary\", \"[\", StyleBox[\"fun
 
 CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"]]&@compile[Hold[Function[func]]]
 CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
-LevelTag[i_Integer]:=Sequence[];
+LevelTag[i_Integer]:=Sequence[]
+SetAttributes[Extern,HoldFirst];
+Extern[f_,type_]:=Unevaluated[f]
 
 
 $CppSource="";
 $CompilerOutput="";
 
 
-parse
-syntax
-semantics
-optim
-codegen
-link
-cxx
-runtime
+MCParse
+MCSyntax
+MCSemantics
+MCOptim
+MCCodegen
+MCLink
+MCCxx
+MCRuntime
 
 
 Begin["`Private`"];
@@ -42,37 +44,37 @@ $documentlinkbase="https://github.com/njpipeorgan/MathCompile/wiki/";
 
 
 getlink[page_]:="\!\(\*TemplateBox[{\"\[RightGuillemet]\",\""<>$documentlinkbase<>page<>"\"},\"HyperlinkURL\"]\)"
-parse::unknown="`1` cannot be parsed.";
-syntax::iter="`1` does not have a correct syntax for an iterator.";
-syntax::bad="`1` does not have a correct syntax for `2`.";
-syntax::badtype="`1` does not specify a correct type.";
-syntax::badextern="`1` does not specify a correct extern function.";
-syntax::farg="`1` does not have a correct syntax for a function argument.";
-syntax::slotmax="#`1` exceeds the maximum value of slot number allowed.";
-syntax::fpure="`1` does not have a correct syntax for a pure function.";
-syntax::scopevar="`1` does not have a correct syntax for a local variable.";
-syntax::badbreak="Break[] cannot be called in `1`.";
-syntax::breakloc="Break[] in `1` is not correctly enclosed by a loop.";
-semantics::bad="`1` does not have correct semantics.";
-semantics::undef="Identifier `1` is not found.";
-semantics::noinit="Variable `1` is declared but not initialized.";
-semantics::badinit="Variable `1` is initialized in a nested scope.";
-semantics::badref="Variable `1` is referenced before initialization.";
-optim::elemtype="The types of the elements in the list `1` are not consistent."
-optim::elemdims="The dimensions of the elements in the list `1` are not consistent."
-codegen::bad="Cannot generate code for `1`.";
-codegen::notype="One or more arguments of the main function is declared without types.";
-link::rettype="Failed to retrieve the return type of the compiled function.";
-link::bigrank="The rank of an argument exceeds the maximum rank.";
-link::badtype="Cannot infer the type id \"`1`\"returned by the library.";
-link::workdir="The working directory does not exist.";
-link::libdir="The library directory does not exist.";
-link::genfail="Failed to generate the library.";
-link::noheader="The header file \"math_compile.h\" cannot be found.";
-cxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information."
-cxx::support="The compiler `1` is not supported on the platform `2`."
-cxx::error="`1`";
-runtime::error="`1`";
+MCParse::unknown="`1` cannot be parsed.";
+MCSyntax::iter="`1` does not have a correct syntax for an iterator.";
+MCSyntax::bad="`1` does not have a correct syntax for `2`.";
+MCSyntax::badtype="`1` does not specify a correct type.";
+MCSyntax::badextern="`1` does not specify a correct extern function.";
+MCSyntax::farg="`1` does not have a correct syntax for a function argument.";
+MCSyntax::slotmax="#`1` exceeds the maximum value of slot number allowed.";
+MCSyntax::fpure="`1` does not have a correct syntax for a pure function.";
+MCSyntax::scopevar="`1` does not have a correct syntax for a local variable.";
+MCSyntax::badbreak="Break[] cannot be called in `1`.";
+MCSyntax::breakloc="Break[] in `1` is not correctly enclosed by a loop.";
+MCSemantics::bad="`1` does not have correct semantics.";
+MCSemantics::undef="Identifier `1` is not found.";
+MCSemantics::noinit="Variable `1` is declared but not initialized.";
+MCSemantics::badinit="Variable `1` is initialized in a nested scope.";
+MCSemantics::badref="Variable `1` is referenced before initialization.";
+MCOptim::elemtype="The types of the elements in the list `1` are not consistent."
+MCOptim::elemdims="The dimensions of the elements in the list `1` are not consistent."
+MCCodegen::bad="Cannot generate code for `1`.";
+MCCodegen::notype="One or more arguments of the main function is declared without types.";
+MCLink::rettype="Failed to retrieve the return type of the compiled function.";
+MCLink::bigrank="The rank of an argument exceeds the maximum rank.";
+MCLink::badtype="Cannot infer the type id \"`1`\"returned by the library.";
+MCLink::workdir="The working directory does not exist.";
+MCLink::libdir="The library directory does not exist.";
+MCLink::genfail="Failed to generate the library.";
+MCLink::noheader="The header file \"math_compile.h\" cannot be found.";
+MCCxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information."
+MCCxx::support="The compiler `1` is not supported on the platform `2`."
+MCCxx::error="`1`";
+MCRuntime::error="`1`";
 
 
 compile[code_]:=
@@ -84,7 +86,7 @@ compile[code_]:=
         parsed=parse[code];
         precodegen=alloptim@semantics@allsyntax@parsed;
         types=getargtypes[precodegen];
-        If[MemberQ[types,nil],Message[codegen::notype];Throw["codegen"]];
+        If[MemberQ[types,nil],Message[MCCodegen::notype];Throw["codegen"]];
         output=maincodegen@precodegen;
       ];
     Clear[$variabletable];
@@ -124,7 +126,7 @@ parse[Hold[i:(_Integer|_Real|_String)]]:=
     $sourceptr+=StringLength@ToString@CForm[i];
     literal[i,oldptr]
   ]
-parse[Hold[any_]]:=(Message[parse::unknown,ToString[Unevaluated[any]]];Throw["lexical"])
+parse[Hold[any_]]:=(Message[MCParse::unknown,ToString[Unevaluated[any]]];Throw["lexical"])
 
 
 $typenames={
@@ -178,15 +180,15 @@ syntax[type][code_]:=code//.{
   }//.{
     typespec[type_]:>If[istypename[type],totypespec[type],typespec[type]]
   }/.{
-    id["Typed",_][any___]:>(Message[syntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"]),
-    typespec[any___]:>(Message[syntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"])
+    id["Typed",_][any___]:>(Message[MCSyntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"]),
+    typespec[any___]:>(Message[MCSyntax::badtype,tostring@id["Typed",0][any]];Throw["syntax"])
   }
 
 syntax[extern][code_]:=code//.{
     id["Extern",p_][id[f_,fp_],type_]:>
       native["librarylink::extern_function",p][literal["Hold["<>f<>"]",fp],type]
   }/.{
-    id["Extern",_][any___]:>(Message[syntax::badextern,tostring@id["Extern",0][any]];Throw["syntax"])
+    id["Extern",_][any___]:>(Message[MCSyntax::badextern,tostring@id["Extern",0][any]];Throw["syntax"])
   }
 
 syntax[clause][code_]:=code//.{
@@ -196,11 +198,11 @@ syntax[clause][code_]:=code//.{
             e:Except[list[_]][___]:>{nil,native["iterator",0][e]},
             list[p1_][e_]:>{nil,native["iterator",p1][e]},
             list[p1_][id[var_,p2_],spec:Repeated[_,3]]:>{id[var,p2],native["var_iterator",p1][spec]},
-            any_:>(Message[syntax::iter,tostring[any]];Throw["syntax"])
+            any_:>(Message[MCSyntax::iter,tostring[any]];Throw["syntax"])
           },{1}])
   }/.{
     any:id[type:("Table"|"Do"|"Sum"|"Product"),_][___]:>
-      (Message[syntax::bad,tostring[any],type];Throw["syntax"])
+      (Message[MCSyntax::bad,tostring[any],type];Throw["syntax"])
   }
 
 syntax[mutable][code_]:=code//.{
@@ -224,7 +226,7 @@ syntax[mutable][code_]:=code//.{
     id["PrependTo",p0_][target:id[_,_],expr_]:>native["prepend_to",p0][target,expr]
   }/.{
     any:id[type:("AddTo"|"SubtractFrom"|"TimesBy"|"DivideBy"|"AppendTo"|"PrependTo"),_][___]:>
-      (Message[syntax::bad,tostring[any],type];Throw["syntax"])
+      (Message[MCSyntax::bad,tostring[any],type];Throw["syntax"])
   }
 
 syntax[function][code_]:=
@@ -238,7 +240,7 @@ syntax[function][code_]:=
           ]&@Replace[If[MatchQ[Head[args],list[_]],List@@args,{args}],{
               id[arg_,_]:>{arg,nil},
               typed[_][id[arg_,_],type_]:>{arg,type},
-              any_:>(Message[syntax::farg,tostring[any]];Throw["syntax"])
+              any_:>(Message[MCSyntax::farg,tostring[any]];Throw["syntax"])
             },{1}]),
       id["Function",p0_][pure_]:>
         Module[{slots,slotsrule,slotspos},
@@ -248,7 +250,7 @@ syntax[function][code_]:=
             {0,Infinity},Heads->True];
           slotsrule=Module[{i=newid,nvar,names},
             nvar=Max[slots[[;;,2]]/.slotseq->Sequence,0]+1;
-            If[nvar>$slotmaximum,(Message[syntax::slotmax,nvar-1];Throw["syntax"])];
+            If[nvar>$slotmaximum,(Message[MCSyntax::slotmax,nvar-1];Throw["syntax"])];
             names=MapAt[pack[#]&,arg[i,#]&/@Range[nvar],{-1,2}];
             (#1->Sequence@@Replace[#2,{slotseq[i_]:>names[[i;;]],i_:>names[[i;;i]]}]&)@@@slots];
           slotspos=(#[[2]]/.pack[i_]:>i)->#&/@Union[slotsrule[[;;,2]]];
@@ -258,7 +260,7 @@ syntax[function][code_]:=
             sequence[pure/.slotsrule]
           ]
         ],
-      any:id["Function",_][___]:>(Message[syntax::bad,tostring[any],"Function"];Throw["syntax"])
+      any:id["Function",_][___]:>(Message[MCSyntax::bad,tostring[any],"Function"];Throw["syntax"])
     }},
     Fold[
       If[#2=={},Replace[#,functionrules],ReplacePart[#,#2->Replace[Extract[##],functionrules]]]&,
@@ -274,10 +276,10 @@ syntax[scope][code_]:=code//.{
         Replace[{vars},{
           id[var_,p2_]:>{var,0,p2,nil},
           id["Set",p1_][id[var_,p2_],init_]:>{var,p1,p2,init},
-          any_:>(Message[syntax::scopevar,tostring[any]];Throw["syntax"])
+          any_:>(Message[MCSyntax::scopevar,tostring[any]];Throw["syntax"])
         },{1}])
   }/.{
-    any:id["Module",_][___]:>(Message[syntax::bad,tostring[any],"Module"];Throw["syntax"])
+    any:id["Module",_][___]:>(Message[MCSyntax::bad,tostring[any],"Module"];Throw["syntax"])
   }
 
 syntax[branch][code_]:=code//.{
@@ -287,8 +289,8 @@ syntax[branch][code_]:=code//.{
       branchwhich[p0][native["_which_conditions"]@@(sequence/@{any}[[;;;;2]]),
         Sequence@@(sequence/@{any}[[2;;;;2]])]*)
   }/.{
-    any:id["If",_][___]:>(Message[syntax::bad,tostring[any],"If"];Throw["syntax"]),
-    any:id["Which",_][___]:>(Message[syntax::bad,tostring[any],"Which"];Throw["syntax"])
+    any:id["If",_][___]:>(Message[MCSyntax::bad,tostring[any],"If"];Throw["syntax"]),
+    any:id["Which",_][___]:>(Message[MCSyntax::bad,tostring[any],"Which"];Throw["syntax"])
   }
   
 syntax[loop][code_]:=code//.{
@@ -297,8 +299,8 @@ syntax[loop][code_]:=code//.{
     id["While",p0_][test_,body_]:>loopwhile[p0][sequence@test,sequence@body],
     id["While",p0_][test_]:>loopwhile[p0][sequence@test,sequence[]]
   }/.{
-    any:id["For",_][___]:>(Message[syntax::bad,tostring[any],"For"];Throw["syntax"]),
-    any:id["While",_][___]:>(Message[syntax::bad,tostring[any],"While"];Throw["syntax"])
+    any:id["For",_][___]:>(Message[MCSyntax::bad,tostring[any],"For"];Throw["syntax"]),
+    any:id["While",_][___]:>(Message[MCSyntax::bad,tostring[any],"While"];Throw["syntax"])
   }
 
 syntax[sequence][code_]:=code//.{
@@ -311,7 +313,7 @@ syntax[assign][code_]:=code//.{
     id["Set",p0_][target:id[_,_],expr_]:>assign[p0][target,expr],
     id["Set",p0_][target:id["Part",_][id[_,_],___],expr_]:>assign[p0][target,expr]
   }/.{
-    any:id["Set",_][___]:>(Message[syntax::bad,tostring[any],"Set"];Throw["syntax"])
+    any:id["Set",_][___]:>(Message[MCSyntax::bad,tostring[any],"Set"];Throw["syntax"])
   }
 
 syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
@@ -319,7 +321,7 @@ syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
       headspos=Table[Append[p[[;;i]],0],{i,Length@p-1}];
       heads=Extract[code,headspos];
       If[Last@heads=!=sequence,
-        Message[syntax::badbreak,tostring@Extract[code,Most@p]];Throw["syntax"],
+        Message[MCSyntax::badbreak,tostring@Extract[code,Most@p]];Throw["syntax"],
         breakpos=Join[
           Select[Extract[headspos,Position[heads,clause["Do",_]]],
             ReplacePart[#,-1->1(*body of Do*)]==p[[;;Length@#]]&],
@@ -328,7 +330,7 @@ syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
           Select[Extract[headspos,Position[heads,loopwhile[_]]],
             ReplacePart[#,-1->2(*body of While*)]==p[[;;Length@#]]&]];
         If[Length@breakpos==0,
-          Message[syntax::breakloc,tostring@Extract[code,Most@p]];Throw["syntax"]]
+          Message[MCSyntax::breakloc,tostring@Extract[code,Most@p]];Throw["syntax"]]
       ]
     ,{p,Position[code,id["Break",_][]]}];
     code//.{
@@ -689,7 +691,7 @@ variablerename[code_]:=
               {}]
           ]
         ],
-      any_:>(Message[semantics::bad,tostring@any];Throw["semantics"])
+      any_:>(Message[MCSemantics::bad,tostring@any];Throw["semantics"])
     }},
     Fold[If[#2=={},Replace[#,renamerules],ReplacePart[#,#2->Replace[Extract[##],renamerules]]]&,
       code,Most/@Reverse@SortBy[Length]@Position[code,function[_]|scope[_]]]
@@ -746,7 +748,7 @@ functionmacro[code_]:=code//.{
     id["Flatten",p_][array_,literal[i_Integer,_]]:>
       native["flatten",p][array,
         If[0<=i<$rankmaximum,consts@@Range[i+1],
-          (Message[semantics::bad,tostring@id["Flatten"][array,literal[i,0]]];Throw["semantics"])]],
+          (Message[MCSemantics::bad,tostring@id["Flatten"][array,literal[i,0]]];Throw["semantics"])]],
     id["Flatten",p_][array_,l:list[_][literal[_Integer,_]..]]:>id["Flatten",p][array,list[l]],
     id["Flatten",p_][array_,l:list[_][list[_][literal[_Integer,_]..]..]]:>
       Module[{levels=l/.{list[_]->List,literal->(#1&)},ints,maxlevel,out},
@@ -755,7 +757,7 @@ functionmacro[code_]:=code//.{
         out=Join[levels,List/@Complement[Range[maxlevel],ints]];
         native[If[#==Range[Length@#]&@Flatten[out],"flatten_copy","flatten"],p][
           array,Sequence@@(consts@@@out)],
-        (Message[semantics::bad,tostring@id["Flatten",p][array,l]];Throw["semantics"])]
+        (Message[MCSemantics::bad,tostring@id["Flatten",p][array,l]];Throw["semantics"])]
       ],
     id["Composition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
     id["RightComposition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
@@ -898,9 +900,9 @@ findinit[code_]:=
       badref=Cases[{#,If[MissingQ[#],#,Append[#,1]]&@initpos[#],refpos[#]}&/@scopevar,
         {name_,init_,use_}/;(init=!=use):>(name-><|"Initialization"->init,"FirstUsage"->use|>)];
       If[MissingQ@#2["Actual"],
-        (Message[semantics::noinit,$variabletable[#1]];),
-        (Message[semantics::badinit,$variabletable[#1]];Throw["semantics"])]&@@@badinit;
-      (Message[semantics::badref,$variabletable[#1]];Throw["semantics"])&@@@badref;
+        (Message[MCSemantics::noinit,$variabletable[#1]];),
+        (Message[MCSemantics::badinit,$variabletable[#1]];Throw["semantics"])]&@@@badinit;
+      (Message[MCSemantics::badref,$variabletable[#1]];Throw["semantics"])&@@@badref;
     ];
     ReplacePart[code,Append[#,0]->initialize&/@DeleteMissing[initpos/@scopevar]]
   ]
@@ -911,10 +913,10 @@ semantics[code_]:=findinit@resolvesymbols@regexmacro@arithmeticmacro@functionmac
 optim[array][code_]:=code//.{
     list[p_][v:(literal[_,_]..)]:>(If[SameQ@@(Head/@#),
       regularlist[p][Head[#[[1]]],{Length@#},#],
-      (Message[optim::elemtype,tostring@list[0][v]];Throw["syntax"])]&@{v}[[;;,1]]),
+      (Message[MCOptim::elemtype,tostring@list[0][v]];Throw["syntax"])]&@{v}[[;;,1]]),
     list[p_][v:(regularlist[_][__]..)]:>(If[SameQ@@(#[[;;,1]])&&SameQ@@(#[[;;,2]]),
       regularlist[p][#[[1,1]],Prepend[#[[1,2]],Length@#],#[[;;,3]]],
-      (Message[optim::elemdims,tostring@list[0][v]];Throw["syntax"])]&@{v})
+      (Message[MCOptim::elemdims,tostring@list[0][v]];Throw["syntax"])]&@{v})
   };
 
 $optimpasses={array};
@@ -989,7 +991,7 @@ codegen[typed[p_][any_],___]:={annotatebegin[p],"(",codegen[type[any]]<>"{}",ann
 
 codegen[var[name_,p___],___]:={annotatebegin[p],name<>expandpack[name],annotateend[p]}
 codegen[movvar[name_,p___],___]:={annotatebegin[p],"WL_PASS("<>name<>")"<>expandpack[name],annotateend[p]}
-codegen[id[name_,___],___]:=(Message[semantics::undef,name];Throw["semantics"])
+codegen[id[name_,___],___]:=(Message[MCSemantics::undef,name];Throw["semantics"])
 
 codegen[sequence[scope[vars_,expr_]],any___]:=codegen[scope[vars,expr],any]
 codegen[sequence[expr___],"Scope"]:={"{",({codegen[#],";"}&/@{expr}),"}"}
@@ -1021,7 +1023,7 @@ codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]
 codegen[native[name_,p_][args___],any___]:=
   {annotatebegin[p],codegen[native[name,0],"Function"],"(",Riffle[codegen[#,any]&/@{args},", "],annotateend[p],")"}
 
-codegen[any_,rest___]:=(Message[codegen::bad,tostring[any]];"<codegen>")
+codegen[any_,rest___]:=(Message[MCCodegen::bad,tostring[any]];"<codegen>")
 
 initcodegen[function[p_][vars_,types_,expr_]]:=
   Flatten@{annotatebegin[p],"auto main_function(",
@@ -1057,13 +1059,13 @@ loadfunction[libpath_String,funcid_String,args_]:=
   Module[{typefunc,libfunc,rank,type,commontype,returntype,argtypes,
           maxtypecount=256,retbylink=False},
     typefunc=LibraryFunctionLoad[libpath,funcid<>"_type",{},Integer];
-    If[typefunc===$Failed,Message[link::rettype];Return[$Failed]];
+    If[typefunc===$Failed,Message[MCLink::rettype];Return[$Failed]];
     {rank,type}=QuotientRemainder[typefunc[],maxtypecount];
     LibraryFunctionUnload[typefunc];
     If[1<=type<=Length[$numerictypes],
-      type=$numerictypes[[type]],Message[link::badtype];Return[$Failed]];
+      type=$numerictypes[[type]],Message[MCLink::badtype];Return[$Failed]];
     If[type=="MathLink",returntype="Void";retbylink=True,
-      If[Not[0<=rank<=$rankmaximum],Message[link::bigrank];Return[$Failed]];
+      If[Not[0<=rank<=$rankmaximum],Message[MCLink::bigrank];Return[$Failed]];
       commontype=symboltype[type];
       returntype=If[rank==0,commontype,
         If[MemberQ[{"Integer64","Real64","ComplexReal64"},type],
@@ -1104,21 +1106,21 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     workdir=OptionValue["WorkingDirectory"];
     libdir=OptionValue["LibraryDirectory"];
     If[workdir=!=Automatic&&!(StringQ[workdir]&&DirectoryQ[workdir]),
-      Message[link::workdir];Return[$Failed]];
+      Message[MCLink::workdir];Return[$Failed]];
     If[!StringQ[libdir],
-      Message[link::libdir];Return[$Failed]];
+      Message[MCLink::libdir];Return[$Failed]];
     MathCompile`$CppSource=
       TemplateApply[$template,<|
         "funcbody"->toexportbinary@output,
         "argsv"->StringRiffle[#<>"{}"&/@types,", "],
         "args"->StringRiffle[
-          MapThread[StringTemplate["wl::librarylink::get<``>(argv[``])"],
+          MapThread[StringTemplate["wl::libraryMCLink::get<``>(argv[``])"],
             {types,Range[Length@types]-1}],
           {"            ",",\n            ",""}],
         "funcid"->funcid
         |>];
     If[FileExistsQ[$packagepath<>"/IncludeFiles/math_compile.h"]=!=True,
-      Message[link::noheader];Return[$Failed]];
+      Message[MCLink::noheader];Return[$Failed]];
     mldir=$InstallationDirectory<>
       "/SystemFiles/Links/MathLink/DeveloperKit/"<>$SystemID<>"/CompilerAdditions";
     mllib=If[StringContainsQ[$SystemID,"MacOSX"],"MLi4","ML"<>ToString[$SystemWordLength]<>"i4"];
@@ -1146,12 +1148,12 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       "ShellOutputFunction"->((MathCompile`$CompilerOutput=#)&)
     ];
     If[lib===$Failed,
-      Message[link::genfail];
+      Message[MCLink::genfail];
       errorparser=Lookup[$compilererrorparser,compiler,Null];
       If[Head[errorparser]===Function,
         errors=errorparser[funcid];
         emitcompilererrors[f["source"],errors];,
-        Message[cxx::error,"Check $CompilerOutput for the errors."];
+        Message[MCCxx::error,"Check $CompilerOutput for the errors."];
       ];
       Return[$Failed]];
     If[#["ReturnByLink"],IndirectReturn[#["Function"]],#["Function"]]&@
@@ -1207,7 +1209,7 @@ $compileroptions[
     s_String/;StringContainsQ[s,"Windows"]
   ]:=$compileroptionsbase["MSVC"]
 $compileroptions[compiler_,platform_String
-  ]:=(Message[cxx::support,SymbolName@Unevaluated@compiler,platform];Throw[0];)
+  ]:=(Message[MCCxx::support,SymbolName@Unevaluated@compiler,platform];Throw[0];)
 
 $compilererrorparserbase=<|
   "GCC"->Function[{id},{
@@ -1249,13 +1251,13 @@ emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
     cxxsrc=StringSplit[$CppSource,"\n"];
     srcrange=MinMax[Flatten@Position[cxxsrc,_String?(StringTake[#,UpTo[2]]=="/*"&)]];
     errors=extract@DeleteCases[parsed,l_Integer/;!Between[l,srcrange]];
-    If[AnyTrue[errors,Head[#]===String&&StringContainsQ[#,"cxx::compilerver"]&,2],
-      (Message[cxx::compilerver];Return[])];
+    If[AnyTrue[errors,Head[#]===String&&StringContainsQ[#,"MCCxx::compilerver"]&,2],
+      (Message[MCCxx::compilerver];Return[])];
     If[Length@errors===0,
-      Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
+      Message[MCCxx::error,"Check $CompilerOutput for the errors."];Return[];];
     errors=List@@@Flatten[If[Head@First[#]===Integer,Thread[Rest[#]->First[#]],Thread[#->0]]&/@errors];
     If[Length@errors===0,
-      Message[cxx::error,"Check $CompilerOutput for the errors."];Return[];];
+      Message[MCCxx::error,"Check $CompilerOutput for the errors."];Return[];];
     errors=MapAt[If[#==0,0,FromDigits@First@StringCases[
         cxxsrc[[#]],"/*\\"~~("b"|"e"|"n")~~(l:Shortest[___])~~"*/":>"0"<>l]]&,
       errors,{;;,2}];
@@ -1268,8 +1270,8 @@ emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
           StringTake[wlsrc,{Max[1,position-30],position-1}],
           StringTake[wlsrc,{position,position}],
           StringTake[wlsrc,{position+1,Min[StringLength[wlsrc],position+30]}]};
-        Message[cxx::error,"\!\(\(\"..."<>srcpart[[1]]<>"\"\!\(\""<>srcpart[[2]]<>"\"\+\"\[And]\"\)\""<>srcpart[[3]]<>"...\"\)\+"<>message<>"\)"],
-        Message[cxx::error,"\!\("<>message<>"\) (cannot be located)"]
+        Message[MCCxx::error,"\!\(\(\"..."<>srcpart[[1]]<>"\"\!\(\""<>srcpart[[2]]<>"\"\+\"\[And]\"\)\""<>srcpart[[3]]<>"...\"\)\+"<>message<>"\)"],
+        Message[MCCxx::error,"\!\("<>message<>"\) (cannot be located)"]
       ]
     ,{error,errors}]
   ]

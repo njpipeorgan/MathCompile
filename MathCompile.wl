@@ -15,6 +15,7 @@ CompileToBinary
 LevelTag
 Extern
 IndirectReturn
+CXX
 
 
 $CppSource="";
@@ -54,6 +55,7 @@ MCSyntax::iter="`1` does not have a correct syntax for an iterator.";
 MCSyntax::bad="`1` does not have a correct syntax for `2`.";
 MCSyntax::badtype="`1` does not specify a correct type.";
 MCSyntax::badextern="`1` does not specify a correct extern function.";
+MCSyntax::badembedcxx="`1` does not specify correct embedded C++ code.";
 MCSyntax::farg="`1` does not have a correct syntax for a function argument.";
 MCSyntax::slotmax="#`1` exceeds the maximum value of slot number allowed.";
 MCSyntax::fpure="`1` does not have a correct syntax for a pure function.";
@@ -198,6 +200,12 @@ syntax[extern][code_]:=code//.{
       ]
   }/.{
     id["MathCompile`Extern",_][any___]:>(Message[MCSyntax::badextern,tostring@id["Extern",0][any]];Throw["syntax"])
+  }
+
+syntax[embedcxx][code_]:=code//.{
+    id["MathCompile`CXX",p_][literal[cxx_String,_]]:>embedcxx[p][cxx]
+  }/.{
+    id["MathCompile`CXX",_][any___]:>(Message[MCSyntax::badembedcxx,tostring@id["CXX",0][any]];Throw["syntax"])
   }
 
 syntax[clause][code_]:=code//.{
@@ -349,7 +357,7 @@ syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
       }
   ]
 
-$syntaxpasses={list,type,extern,clause,mutable,function,scope,branch,loop,sequence,assign,loopbreak};
+$syntaxpasses={list,type,extern,embedcxx,clause,mutable,function,scope,branch,loop,sequence,assign,loopbreak};
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
@@ -1028,6 +1036,8 @@ codegen[regularlist[p_][t_,dims_,array_],___]:={
   StringRiffle[ToString@*CForm/@Flatten@array,{"{",", ","}"}],
   annotatebegin[p],")"}
 
+codegen[embedcxx[p_][cxx_],___]:={annotatebegin[p],cxx,annotateend[p]}
+
 codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
 codegen[native[name_,p_][args___],any___]:=
   {annotatebegin[p],codegen[native[name,0],"Function"],"(",Riffle[codegen[#,any]&/@{args},", "],annotateend[p],")"}
@@ -1306,6 +1316,7 @@ print[branchif[_][cond_,true_,false_]]:=print[id["If"][cond,true,false]];
 print[sequence[exprs__]]:={"(",Riffle[(print/@{exprs}),";"],")"}
 print[assign[_][var_,expr_]]:={print@var,"=",print@expr}
 print[initialize[var_,expr_]]:={print@var,"=",print@expr}
+print[embedcxx[_][cxx_]]:={"CXX","[",cxx,"]"}
 print[any_]:=any
 
 tostring[any_]:=StringJoin@Flatten@print[any]

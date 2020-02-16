@@ -32,17 +32,17 @@ EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {
 
 inline void `funcid`_load_kernel_fptrs()
 {
-    if (wl::librarylink::kernel_fptrs)
-        return;
-    static const char* kernel_func_names[] = {
-        `kernelfuncnames`
+    static const char* kernel_fnames[] = {
+        `kernelfuncnames` nullptr
     };
-    constexpr auto n_funcs = sizeof(kernel_func_names) / sizeof(const char*);
+    constexpr auto n_funcs = sizeof(kernel_fnames) / sizeof(const char*) - 1u;
+    if (n_funcs == 0u || wl::librarylink::kernel_fptrs)
+        return;
     wl::librarylink::kernel_fptrs = std::make_unique<void*[]>(n_funcs);
     for (size_t i = 0; i < n_funcs; ++i) {
         wl::librarylink::kernel_fptrs[i] = wl::librarylink::lib_functions->
             getExpressionFunctionPointer(
-                wl::librarylink::lib_data, kernel_func_names[i]);
+                wl::librarylink::lib_data, kernel_fnames[i]);
     }
 }
 

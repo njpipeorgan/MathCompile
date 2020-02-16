@@ -20,6 +20,7 @@
 wl::random_engine wl::global_random_engine;
 WolframLibraryData wl::librarylink::lib_data;
 WolframCompileLibrary_Functions wl::librarylink::lib_functions;
+std::unique_ptr<void*[]> wl::librarylink::kernel_fptrs;
 
 volatile bool wl::librarylink::global_abort_in_progress;
 volatile bool wl::librarylink::global_stop_check_abort;
@@ -27,6 +28,22 @@ std::unique_ptr<std::thread> abort_thread;
 
 EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {
     return WolframLibraryVersion;
+}
+
+inline void `funcid`_load_kernel_fptrs()
+{
+    if (wl::librarylink::kernel_fptrs)
+        return;
+    static const char* kernel_func_names[] = {
+        `kernelfuncnames`
+    };
+    constexpr auto n_funcs = sizeof(kernel_func_names) / sizeof(const char*);
+    wl::librarylink::kernel_fptrs = std::make_unique<void*[]>(n_funcs);
+    for (size_t i = 0; i < n_funcs; ++i) {
+        wl::librarylink::kernel_fptrs[i] = wl::librarylink::lib_functions->
+            getExpressionFunctionPointer(
+                wl::librarylink::lib_data, kernel_func_names[i]);
+    }
 }
 
 EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
@@ -40,6 +57,7 @@ EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
     wl::librarylink::lib_functions =
         wl::librarylink::lib_data->compileLibraryFunctions;
     wl::librarylink::global_stop_check_abort = false;
+    `funcid`_load_kernel_fptrs();
     return LIBRARY_NO_ERROR;
 }
 

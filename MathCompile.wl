@@ -10,11 +10,11 @@ CompileToCode::usage="\!\(\*RowBox[{\"CompileToCode\", \"[\", StyleBox[\"func\",
 CompileToBinary::usage="\!\(\*RowBox[{\"CompileToBinary\", \"[\", StyleBox[\"func\", \"TI\"], \"]\"}]\) generates a function compiled as C++.";
 
 
-CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"]]&@compile[Hold[Function[func]]]
-CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
-LevelTag[i_Integer]:=Sequence[]
-SetAttributes[Extern,HoldFirst];
-Extern[f_,type_]:=Unevaluated[f]
+CompileToCode
+CompileToBinary
+LevelTag
+Extern
+IndirectReturn
 
 
 $CppSource="";
@@ -34,6 +34,11 @@ MCRuntime
 Begin["`Private`"];
 
 
+CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"]]&@compile[Hold[Function[func]]]
+CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
+LevelTag[i_Integer]:=Sequence[]
+SetAttributes[Extern,HoldFirst];
+Extern[f_,type_]:=Unevaluated[f]
 IndirectReturn[f_][any___]:=Block[{linkreturn=$Failed},f[any];linkreturn]
 
 
@@ -60,8 +65,8 @@ MCSemantics::undef="Identifier `1` is not found.";
 MCSemantics::noinit="Variable `1` is declared but not initialized.";
 MCSemantics::badinit="Variable `1` is initialized in a nested scope.";
 MCSemantics::badref="Variable `1` is referenced before initialization.";
-MCOptim::elemtype="The types of the elements in the list `1` are not consistent."
-MCOptim::elemdims="The dimensions of the elements in the list `1` are not consistent."
+MCOptim::elemtype="The types of the elements in the list `1` are not consistent.";
+MCOptim::elemdims="The dimensions of the elements in the list `1` are not consistent.";
 MCCodegen::bad="Cannot generate code for `1`.";
 MCCodegen::notype="One or more arguments of the main function is declared without types.";
 MCLink::rettype="Failed to retrieve the return type of the compiled function.";
@@ -71,8 +76,8 @@ MCLink::workdir="The working directory does not exist.";
 MCLink::libdir="The library directory does not exist.";
 MCLink::genfail="Failed to generate the library.";
 MCLink::noheader="The header file \"math_compile.h\" cannot be found.";
-MCCxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information."
-MCCxx::support="The compiler `1` is not supported on the platform `2`."
+MCCxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information.";
+MCCxx::support="The compiler `1` is not supported on the platform `2`.";
 MCCxx::error="`1`";
 MCRuntime::error="`1`";
 
@@ -80,7 +85,7 @@ MCRuntime::error="`1`";
 compile[code_]:=
   Module[{parsed,sourceidx,precodegen,output,types,error},
     $variabletable=Association[];
-    $statictable=Association[];
+    $kernelfunctiontable=Association[];
     error=Catch[
         $sourceptr=1;
         parsed=parse[code];
@@ -185,10 +190,14 @@ syntax[type][code_]:=code//.{
   }
 
 syntax[extern][code_]:=code//.{
-    id["Extern",p_][id[f_,fp_],type_]:>
-      native["librarylink::extern_function",p][literal["Hold["<>f<>"]",fp],type]
+    id["MathCompile`Extern",p_][id[f_,fp_],type:typed[_][_]]:>
+      Module[{fstr="Hold["<>f<>"]",fidx},
+        If[MissingQ[fidx=$kernelfunctiontable[fstr]],
+          fidx=Length@$kernelfunctiontable;AppendTo[$kernelfunctiontable,fstr->fidx]];
+        native["librarylink::extern_function",p][literal[fidx,fp],type]
+      ]
   }/.{
-    id["Extern",_][any___]:>(Message[MCSyntax::badextern,tostring@id["Extern",0][any]];Throw["syntax"])
+    id["MathCompile`Extern",_][any___]:>(Message[MCSyntax::badextern,tostring@id["Extern",0][any]];Throw["syntax"])
   }
 
 syntax[clause][code_]:=code//.{
@@ -1111,13 +1120,15 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       Message[MCLink::libdir];Return[$Failed]];
     MathCompile`$CppSource=
       TemplateApply[$template,<|
-        "funcbody"->toexportbinary@output,
-        "argsv"->StringRiffle[#<>"{}"&/@types,", "],
-        "args"->StringRiffle[
-          MapThread[StringTemplate["wl::libraryMCLink::get<``>(argv[``])"],
-            {types,Range[Length@types]-1}],
-          {"            ",",\n            ",""}],
-        "funcid"->funcid
+          "funcbody"->toexportbinary@output,
+          "argsv"->StringRiffle[#<>"{}"&/@types,", "],
+          "args"->StringRiffle[
+            MapThread[StringTemplate["wl::librarylink::get<``>(argv[``])"],
+              {types,Range[Length@types]-1}],
+            {"            ",",\n            ",""}],
+          "funcid"->funcid,
+          "kernelfuncnames"->StringRiffle[
+            ToString@*CForm/@Keys@$kernelfunctiontable,{"",",\n        ",""}]
         |>];
     If[FileExistsQ[$packagepath<>"/IncludeFiles/math_compile.h"]=!=True,
       Message[MCLink::noheader];Return[$Failed]];
@@ -1245,7 +1256,7 @@ $compilererrorparser=<|
     $compilererrorparserbase["ICC"],
   CCompilerDriver`VisualStudioCompiler`VisualStudioCompiler->
     $compilererrorparserbase["MSVC"]
-|>
+|>;
 emitcompilererrors[wlsrc_,{extract_Function,parsed_List}]:=
   Module[{cxxsrc,srcrange,errors,message,position,srcpart},
     cxxsrc=StringSplit[$CppSource,"\n"];

@@ -44,6 +44,7 @@ namespace librarylink
 
 extern WolframLibraryData lib_data;
 extern WolframCompileLibrary_Functions lib_functions;
+extern std::unique_ptr<void*[]> kernel_fptrs;
 
 struct mathlink_t
 {
@@ -492,7 +493,7 @@ void send_error(const String& what) noexcept
         link.put("EvaluatePacket", 1).
             put("Message", 2).
             put("MessageName", 2).
-            put("runtime").put(std::string("error")).
+            put("MCRuntime").put(std::string("error")).
             put(get_stack_message(what)).
             eof();
     }
@@ -506,9 +507,9 @@ struct kernel_function
 {
     void* fptr_ = nullptr;
 
-    kernel_function(const char* code)
+    kernel_function(size_t i)
     {
-        fptr_ = lib_functions->getExpressionFunctionPointer(lib_data, code);
+        fptr_ = kernel_fptrs.get()[i];
         if (!fptr_)
             throw std::logic_error("failed to get kernel function ptr.");
     }
@@ -685,9 +686,9 @@ struct kernel_function
 };
 
 template<typename Ret>
-auto extern_function(const wl::string& func, Ret)
+auto extern_function(int64_t i, Ret)
 {
-    return kernel_function<Ret>((const char*)func.c_str());
+    return kernel_function<Ret>(size_t(i));
 }
 
 }

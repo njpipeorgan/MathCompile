@@ -203,7 +203,10 @@ syntax[extern][code_]:=code//.{
   }
 
 syntax[embedcxx][code_]:=code//.{
-    id["MathCompile`CXX",p_][literal[cxx_String,_]]:>embedcxx[p][cxx]
+    id["MathCompile`CXX",p_][literal[cxx_String,_]]:>
+      Module[{split=StringSplit[cxx,"`"~~v:(Except["`"]..)~~"`":>v,All]},
+        embedcxx[p][If[Length@split==1,{},id[#,p]&/@split[[2;;-2;;2]]],split[[1;;-1;;2]]]
+      ]
   }/.{
     id["MathCompile`CXX",_][any___]:>(Message[MCSyntax::badembedcxx,tostring@id["CXX",0][any]];Throw["syntax"])
   }
@@ -1036,7 +1039,7 @@ codegen[regularlist[p_][t_,dims_,array_],___]:={
   StringRiffle[ToString@*CForm/@Flatten@array,{"{",", ","}"}],
   annotatebegin[p],")"}
 
-codegen[embedcxx[p_][cxx_],___]:={annotatebegin[p],cxx,annotateend[p]}
+codegen[embedcxx[p_][vars_,cxx_],___]:={annotatebegin[p],StringJoin@Riffle[cxx,vars[[;;,1]]],annotateend[p]}
 
 codegen[head_[args___],any___]:={codegen[head,"Value"],"(",Riffle[codegen[#,any]&/@{args},", "],")"}
 codegen[native[name_,p_][args___],any___]:=
@@ -1137,8 +1140,8 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
               {types,Range[Length@types]-1}],
             {"            ",",\n            ",""}],
           "funcid"->funcid,
-          "kernelfuncnames"->StringRiffle[
-            ToString@*CForm/@Keys@$kernelfunctiontable,{"",",\n        ",""}]
+          "kernelfuncnames"->StringJoin[
+            ToString@CForm[#]<>",\n        "&/@Keys@$kernelfunctiontable]
         |>];
     If[FileExistsQ[$packagepath<>"/IncludeFiles/math_compile.h"]=!=True,
       Message[MCLink::noheader];Return[$Failed]];
@@ -1316,7 +1319,7 @@ print[branchif[_][cond_,true_,false_]]:=print[id["If"][cond,true,false]];
 print[sequence[exprs__]]:={"(",Riffle[(print/@{exprs}),";"],")"}
 print[assign[_][var_,expr_]]:={print@var,"=",print@expr}
 print[initialize[var_,expr_]]:={print@var,"=",print@expr}
-print[embedcxx[_][cxx_]]:={"CXX","[",cxx,"]"}
+print[embedcxx[_][_,cxx_]]:={"CXX","[",cxx,"]"}
 print[any_]:=any
 
 tostring[any_]:=StringJoin@Flatten@print[any]

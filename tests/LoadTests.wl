@@ -499,3 +499,10 @@ registertest[test["export:table",             Function[{Typed[f,String]},Export[
 registertest[test["export:real",              Function[{Typed[f,String]},Export[f,{{1,2,3},{4,5,6},{7,8,9}},{"Table","Real64"}];ReadString[f]],{{$MathCompileTmp<>"export.txt"}->"1.\t2.\t3.\n4.\t5.\t6.\n7.\t8.\t9."}]&];
 registertest[test["export:csv",               Function[{Typed[f,String]},Export[f,{{1,2,3},{4,5,6},{7,8,9}},"CSV"];ReadString[f]],{{$MathCompileTmp<>"export.txt"}->"1,2,3\n4,5,6\n7,8,9"}]&];
 
+registertest[test["extern:scalar->scalar",    Function[{Typed[x,Real]},Extern[$ex,Typed[Real]][x]],{{$ex=AiryAi;3.}->AiryAi[3.]}]&];
+registertest[test["extern:scalar->list",      Function[{Typed[x,Real]},Extern[$ex,Typed[{Real,1}]][x]],{{$ex=Table[#,5]&;3.}->{3.,3.,3.,3.,3.}}]&];
+registertest[test["extern:list->list",        Function[{Typed[x,{Real,1}]},Extern[$ex,Typed[{Real,2}]][x]],{{$ex=Outer[Times,#,#]&;Range[1.,100.]}->Outer[Times,Range[1.,100.],Range[1.,100.]]}]&];
+registertest[test["extern:list->scalar",      Function[{Typed[x,{Integer,1}]},Extern[$ex,Typed[Real]][x]],{{$ex=N@#[[7]]&;Range[10]}->7.}]&];
+registertest[test["cxx:basic",                Function[{Typed[x,Integer]},Module[{y},y=CXX["wl::ndarray<double,1>{}"];y={x,x,x}]],{{3}->{3.,3.,3.}}]&];
+registertest[test["cxx:rename",               Function[{Typed[x,Integer]},Module[{y=1},y+=Module[{x=5},CXX["`x` = -123"];CXX["`x`"]];CXX["`x` + `y`"]]],{{2}->-120}]&];
+

@@ -279,19 +279,28 @@ void ndarray_to_mtensor(const ndarray<T, R>& val, MTensor& tensor,
         throw error;
     if (mtensor_value_type == MType_Integer)
     {
-        auto* output_ptr = (mint*)lib_data->MTensor_getIntegerData(tensor);
-        utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+        if constexpr (is_integral_v<T>)
+        {
+            auto* output_ptr = (mint*)lib_data->MTensor_getIntegerData(tensor);
+            utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+        }
     }
     else if (mtensor_value_type == MType_Real)
     {
-        auto* output_ptr = (mreal*)lib_data->MTensor_getRealData(tensor);
-        utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+        if constexpr (is_float_v<T>)
+        {
+            auto* output_ptr = (mreal*)lib_data->MTensor_getRealData(tensor);
+            utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+        }
     }
     else
     {
-        auto* output_ptr =
-            (complex<mreal>*)lib_data->MTensor_getComplexData(tensor);
-        utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+        if constexpr (is_complex_v<T>)
+        {
+            auto* output_ptr =
+                (complex<mreal>*)lib_data->MTensor_getComplexData(tensor);
+            utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+        }
     }
 }
 

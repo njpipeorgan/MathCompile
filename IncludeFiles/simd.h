@@ -103,13 +103,32 @@ WL_INLINE auto storeu(Ptr* ptr, M x)
 }
 
 template<int I, typename M>
+WL_INLINE auto extract_epi32(M x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_extract_epi32(x, I);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_extract_epi32(x, I);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+
+template<int I, typename M>
 WL_INLINE auto extract_epi64(M x)
 {
+#if defined(_WIN32) && !defined(_WIN64)
+    // 32-bit Windows
+    const uint64_t lo32 = uint32_t(extract_epi32<2 * I>(x));
+    const uint64_t hi32 = uint32_t(extract_epi32<2 * I + 1>(x));
+    return (hi32 << 32) | lo32;
+#else
     if constexpr (std::is_same_v<M, __m256i>)
         return _mm256_extract_epi64(x, I);
     else if constexpr (std::is_same_v<M, __m128i>)
         return _mm_extract_epi64(x, I);
-    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+#endif
 }
 
 WL_INLINE int64_t hsum_epi8(__m256i v)

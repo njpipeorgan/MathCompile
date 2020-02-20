@@ -816,6 +816,7 @@ functionmacro[code_]:=code//.{
     id["FreeQ",p_][any_,patt_,list[_][literal[i_Integer,_]]]:>native["free_q",p][any,patt,const[i]],
     id["Tr",p_][array_,f_,literal[i_Integer,_]]:>native["tr",p][array,f,const[i]],
     id["Partition",p_][array_,id["LevelTag",_][literal[i_Integer,_]],n_,d_]:>native["partition",p][array,const[i],n,d],
+    id["ReplacePart",p_][array_,id["Rule",_][pos_,new_]]:>native["replace_part",p][array,pos,new],
     id["StringCount",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_count<true>",p][str,patt],
     id["StringCount",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["False",_]]]:>native["string_count<false>",p][str,patt],
     id["StringCases",p_][str_,patt_,id["Rule",_][id["Overlaps",_],id["True",_]]]:>native["string_cases<true>",p][str,patt],

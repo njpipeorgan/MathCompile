@@ -274,6 +274,10 @@ namespace wl
 "Only arithmetic types are supported for export."
 #define WL_ERROR_KERNEL_FUNCTION_ARG_TYPE \
 "Only values with numerical types can be passed through kernel functions."
+#define WL_ERROR_REPLACE_PART_POS \
+"Positions should be specified as integers or lists of integers."
+#define WL_ERROR_REPLACE_PART_LEVEL \
+"The rank of new elements should be consistent with the level of positions."
 #define WL_ERROR_LIBRARYLINK \
 "An error has occurred during a LibraryLink operation."
 #define WL_ERROR_CALLBACK \
@@ -388,6 +392,8 @@ namespace wl
 "MinGW compiler does not support non-ascii characters in filenames."
 #define WL_ERROR_KERNEL_FUNCTION_CALL \
 "The call to kernel function has failed."
+#define WL_ERROR_REPLACE_PART_DIMS \
+"The replacing array should have the same dimensions as other elements."
 }
 namespace wl
 {
@@ -1111,13 +1117,31 @@ WL_INLINE auto storeu(Ptr* ptr, M x)
         static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
 }
 template<int I, typename M>
+WL_INLINE auto extract_epi32(M x)
+{
+    if constexpr (std::is_same_v<M, __m256i>)
+        return _mm256_extract_epi32(x, I);
+    else if constexpr (std::is_same_v<M, __m128i>)
+        return _mm_extract_epi32(x, I);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+}
+template<int I, typename M>
 WL_INLINE auto extract_epi64(M x)
 {
+#if defined(_WIN32) && !defined(_WIN64)
+    // 32-bit Windows
+    const uint64_t lo32 = uint32_t(extract_epi32<2 * I>(x));
+    const uint64_t hi32 = uint32_t(extract_epi32<2 * I + 1>(x));
+    return (hi32 << 32) | lo32;
+#else
     if constexpr (std::is_same_v<M, __m256i>)
         return _mm256_extract_epi64(x, I);
     else if constexpr (std::is_same_v<M, __m128i>)
         return _mm_extract_epi64(x, I);
-    else static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+    else
+        static_assert(always_false_v<M>, WL_ERROR_INTERNAL);
+#endif
 }
 WL_INLINE int64_t hsum_epi8(__m256i v)
 {
@@ -9795,6 +9819,81 @@ template<typename X, typename N>
 auto partition(const X& x, const N& n)
 {
     return partition(x, n, n);
+}
+template<typename XV, size_t XR, typename Y, typename PosV, size_t... Is>
+auto _replace_part_impl(ndarray<XV, XR>& x, const Y& y, const PosV* pos,
+    std::index_sequence<Is...>)
+{
+    if constexpr (array_rank_v<Y> == 0u)
+    {
+        XV& elem = part(x, pos[Is]...);
+        elem = cast<XV>(y);
+    }
+    else
+    {
+        auto view = part(x, pos[Is]...);
+        y.copy_to(view.data());
+    }
+}
+template<typename X, typename Pos, typename Y>
+auto replace_part(X&& x, const Pos& pos, const Y& y)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    using YT = remove_cvref_t<Y>;
+    constexpr auto XR = array_rank_v<XT>;
+    constexpr auto YR = array_rank_v<YT>;
+    constexpr auto PosR = array_rank_v<Pos>;
+    static_assert(is_integral_v<value_type_t<Pos>>,
+        WL_ERROR_PART_SPEC_INTEGRAL);
+    static_assert(XR >= 1u && XR > YR, WL_ERROR_REPLACE_PART_LEVEL);
+    ndarray<value_type_t<XT>, XR> valx =
+        allows<view_category::Array>(std::move(x));
+    const auto& valy = allows<view_category::Simple>(y);
+    if constexpr (YR >= 1u)
+    {
+        if (!utils::check_dims<YR>(
+            x.dims().data() + (XR - YR), valy.dims().data()))
+        {
+            throw std::logic_error(WL_ERROR_REPLACE_PART_DIMS);
+        }
+    }
+    if constexpr (PosR == 0u)
+    {
+        static_assert(YR + 1u == XR, WL_ERROR_REPLACE_PART_LEVEL);
+        _replace_part_impl(valx, valy, &pos, std::make_index_sequence<1u>{});
+        return valx;
+    }
+    else if constexpr (PosR == 1u)
+    {
+        const size_t pos_size = pos.size();
+        if (!(YR < XR && YR + pos_size == XR))
+            throw std::logic_error(WL_ERROR_REPLACE_PART_LEVEL);
+        std::array<value_type_t<Pos>, XR - YR> pos_array;
+        pos.copy_to(pos_array.data());
+        _replace_part_impl(valx, valy, pos_array.data(),
+            std::make_index_sequence<XR - YR>{});
+        return valx;
+    }
+    else if constexpr (PosR == 2u)
+    {
+        const auto pos_dims = pos.dims();
+        if (pos_dims[0] == 0u)
+            return valx;
+        if (!(YR < XR && YR + pos_dims[1] == XR))
+            throw std::logic_error(WL_ERROR_REPLACE_PART_LEVEL);
+        const auto& valpos = allows<view_category::Simple>(pos);
+        auto pos_data = valpos.data();
+        for (size_t i = 0; i < pos_dims[0]; ++i, pos_data += pos_dims[1])
+            _replace_part_impl(valx, valy, pos_data,
+                std::make_index_sequence<XR - YR>{});
+        return valx;
+    }
+    else
+    {
+        static_assert(always_false_v<Pos>, WL_ERROR_REPLACE_PART_POS);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl

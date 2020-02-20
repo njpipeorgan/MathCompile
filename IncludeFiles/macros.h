@@ -355,6 +355,12 @@ namespace wl
 #define WL_ERROR_KERNEL_FUNCTION_ARG_TYPE \
 "Only values with numerical types can be passed through kernel functions."
 
+#define WL_ERROR_REPLACE_PART_POS \
+"Positions should be specified as integers or lists of integers."
+
+#define WL_ERROR_REPLACE_PART_LEVEL \
+"The rank of new elements should be consistent with the level of positions."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \
@@ -527,5 +533,8 @@ namespace wl
 
 #define WL_ERROR_KERNEL_FUNCTION_CALL \
 "The call to kernel function has failed."
+
+#define WL_ERROR_REPLACE_PART_DIMS \
+"The replacing array should have the same dimensions as other elements."
 
 }

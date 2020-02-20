@@ -355,7 +355,11 @@ registertest[test["free_q:scalar",            Function[{Typed[x,{Integer,2}]},Bo
 registertest[test["free_q:list",              Function[{Typed[x,{Integer,3}]},Boole[FreeQ[#,{0,1,2}]&/@x]],{{RandomInteger[2,{100,20,3}]}}]&];
 registertest[test["member_q:scalar",          Function[{Typed[x,{Integer,2}]},Boole[MemberQ[#,5]&/@x]],{{RandomInteger[10,{100,10}]}}]&];
 registertest[test["member_q:list",            Function[{Typed[x,{Integer,3}]},Boole[MemberQ[#,{0,1,2}]&/@x]],{{RandomInteger[2,{100,20,3}]}}]&];
-registertest[test["member_q:pattern",         Function[{Typed[x,{Integer,3}]},Boole[MemberQ[#,_?(#[[2]]==8&),{1}]&/@x]],{{RandomInteger[20,{100,20,3}]}}]&];
+registertest[test["member_q:pattern",         Function[{Typed[x,{Integer,3}]},Boole[MemberQ[#,_?(#[[2]]==8&),{1}]&/@x]],{{RandomInteger[20,{100,20,3}]}}]&];registertest[test["replace_part:scalar1",Function[{Typed[x,{Real,2}]},N@ReplacePart[x,{3,4}->-123]],{{RandomReal[1.,{5,5}]}}]&];
+registertest[test["replace_part:scalar2",     Function[{Typed[x,{Real,2}]},N@ReplacePart[x,{{3,4},{1,2},{-3,-2}}->-123]],{{RandomReal[1.,{5,5}]}}]&];
+registertest[test["replace_part:list1",       Function[{Typed[x,{Real,2}]},N@ReplacePart[x,3->{1,2,3,4,5}]],{{RandomReal[1.,{5,5}]}}]&];
+registertest[test["replace_part:list2",       Function[{Typed[x,{Real,2}]},N@ReplacePart[x,{{2},{-1}}->{1,2,3,4,5}]],{{RandomReal[1.,{5,5}]}}]&];
+registertest[test["replace_part:move",        Function[{},ReplacePart[Range[1000],{{2},{-5},{123}}->-1]],{{}}]&];
 
 registertest[test["random_integer",           Function[{},RandomInteger[{-20,20},10000]],{{}},Abs[Mean@N[#]-0.0]<1.0&&Abs[StandardDeviation@N[#]-11.83]<0.5&]&];
 registertest[test["random_real",              Function[{},RandomReal[{-20,20},10000]],{{}},Abs[Mean[#]-0.0]<1.0&&Abs[StandardDeviation[#]-11.83]<0.5&]&];

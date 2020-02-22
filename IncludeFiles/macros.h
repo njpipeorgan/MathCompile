@@ -361,6 +361,9 @@ namespace wl
 #define WL_ERROR_REPLACE_PART_LEVEL \
 "The rank of new elements should be consistent with the level of positions."
 
+#define WL_ERROR_OUTER_LEVEL_SPEC \
+"Array and level specifications to Outer is not appropriate."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

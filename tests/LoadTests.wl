@@ -360,6 +360,10 @@ registertest[test["replace_part:scalar2",     Function[{Typed[x,{Real,2}]},N@Rep
 registertest[test["replace_part:list1",       Function[{Typed[x,{Real,2}]},N@ReplacePart[x,3->{1,2,3,4,5}]],{{RandomReal[1.,{5,5}]}}]&];
 registertest[test["replace_part:list2",       Function[{Typed[x,{Real,2}]},N@ReplacePart[x,{{2},{-1}}->{1,2,3,4,5}]],{{RandomReal[1.,{5,5}]}}]&];
 registertest[test["replace_part:move",        Function[{},ReplacePart[Range[1000],{{2},{-5},{123}}->-1]],{{}}]&];
+registertest[test["outer:basic",              Function[{},Outer[Times,{1,2,3},{4,5,6,7,8}]],{{}}]&];
+registertest[test["outer:level2",             Function[{},Outer[Plus,{{1,2,3},{4,5,6}},{{1,2,3,4},{5,6,7,8}}]],{{}}]&];
+registertest[test["outer:level1",             Function[{},Outer[Times,{{1,2,3},{4,5,6}},{{.1,.2,.3},{.4,.5,.6},{.7,.8,.9}},1]],{{}}]&];
+registertest[test["outer:leveln",             Function[{Typed[x,{Real,2}],Typed[y,{Real,3}],Typed[z,{Real,4}],Typed[w,{Real,3}]},Outer[#1-#2*#3[[1]]+#4&,x,y,z,w,1,3,3]],{RandomReal[1,#]&/@{{2,3},{3,1,2},{2,1,2,3},{3,2,1}}}]&];
 
 registertest[test["random_integer",           Function[{},RandomInteger[{-20,20},10000]],{{}},Abs[Mean@N[#]-0.0]<1.0&&Abs[StandardDeviation@N[#]-11.83]<0.5&]&];
 registertest[test["random_real",              Function[{},RandomReal[{-20,20},10000]],{{}},Abs[Mean[#]-0.0]<1.0&&Abs[StandardDeviation[#]-11.83]<0.5&]&];

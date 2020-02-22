@@ -598,6 +598,7 @@ $builtinfunctions=
   "Union"           ->"set_union",
   "Dot"             ->"dot",
   "Inner"           ->"inner",
+  "Outer"           ->"outer",
   "Tr"              ->"tr",
   "Position"        ->"position",
   "Cases"           ->"cases",
@@ -779,6 +780,7 @@ functionmacro[code_]:=code//.{
           array,Sequence@@(consts@@@out)],
         (Message[MCSemantics::bad,tostring@id["Flatten",p][array,l]];Throw["semantics"])]
       ],
+    id["Outer",p_][f_,args___]:>native["outer",p][f,Sequence@@Replace[{args},literal[i_Integer,_]:>const[i],1]],
     id["Composition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},Reverse@{funcs}],
     id["RightComposition",p_][funcs__][args___]:>First@Fold[{#2@@#1}&,{args},{funcs}],
     id["Composition",p_][]:>native["identity",p],

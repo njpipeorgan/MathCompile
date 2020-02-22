@@ -81,6 +81,21 @@ struct identity_type
     using type = T;
 };
 
+template<int64_t I>
+struct const_int;
+
+template<int64_t... Is>
+struct const_ints;
+
+template<typename T>
+struct is_const_int : std::false_type {};
+
+template<int64_t I>
+struct is_const_int<const_int<I>> : std::true_type {};
+
+template<typename T>
+constexpr bool is_const_int_v = is_const_int<T>::value;
+
 template<int64_t Id, typename Pattern>
 struct _named_pattern;
 

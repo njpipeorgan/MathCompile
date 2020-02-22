@@ -278,6 +278,8 @@ namespace wl
 "Positions should be specified as integers or lists of integers."
 #define WL_ERROR_REPLACE_PART_LEVEL \
 "The rank of new elements should be consistent with the level of positions."
+#define WL_ERROR_OUTER_LEVEL_SPEC \
+"Array and level specifications to Outer is not appropriate."
 #define WL_ERROR_LIBRARYLINK \
 "An error has occurred during a LibraryLink operation."
 #define WL_ERROR_CALLBACK \
@@ -432,6 +434,16 @@ struct identity_type
 {
     using type = T;
 };
+template<int64_t I>
+struct const_int;
+template<int64_t... Is>
+struct const_ints;
+template<typename T>
+struct is_const_int : std::false_type {};
+template<int64_t I>
+struct is_const_int<const_int<I>> : std::true_type {};
+template<typename T>
+constexpr bool is_const_int_v = is_const_int<T>::value;
 template<int64_t Id, typename Pattern>
 struct _named_pattern;
 template<int64_t Id>
@@ -9892,6 +9904,224 @@ auto replace_part(X&& x, const Pos& pos, const Y& y)
     else
     {
         static_assert(always_false_v<Pos>, WL_ERROR_REPLACE_PART_POS);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<size_t N, typename... Args>
+struct _outer_args_find_division;
+template<size_t N, int64_t I, typename... Rest>
+struct _outer_args_find_division<N, const_int<I>, Rest...>
+{
+    static constexpr size_t value = N;
+};
+template<size_t N>
+struct _outer_args_find_division<N>
+{
+    static constexpr size_t value = N;
+};
+template<size_t N, typename First, typename... Rest>
+struct _outer_args_find_division<N, First, Rest...> :
+    _outer_args_find_division<N + 1u, Rest...> {};
+template<size_t N, size_t... PadJs>
+auto _parse_outer_args_get_levels(std::index_sequence<PadJs...>)
+{
+    return std::tuple<const_int<-1 + 0 * int(PadJs)>...>{};
+}
+template<size_t N, size_t... PadJs, typename Level>
+auto _parse_outer_args_get_levels(std::index_sequence<PadJs...>, Level)
+{
+    static_assert(is_const_int_v<Level>, WL_ERROR_OUTER_LEVEL_SPEC);
+    constexpr auto level = Level::value;
+    return std::tuple<Level, const_int<level + 0 * int(PadJs)>...>{};
+}
+template<size_t N, size_t... PadJs, typename Level1, typename... Levels>
+auto _parse_outer_args_get_levels(std::index_sequence<PadJs...>,
+    Level1, Levels...)
+{
+    return std::tuple<Level1, Levels..., const_int<-1 + 0 * int(PadJs)>...>{};
+}
+template<typename View, typename Dims>
+struct _outer_arg_info_t
+{
+    const View view;
+    const Dims dims;
+    const size_t size;
+    _outer_arg_info_t(const View& view, const Dims& dims) :
+        view{view}, dims{dims}, size{utils::size_of_dims(dims)}
+    {
+    }
+};
+template<typename XV, size_t XR, int64_t I>
+auto _parse_outer_args_info(const ndarray<XV, XR>& x, const_int<I>)
+{
+    constexpr auto Level = size_t(I > 0 ? I : XR + (I + 1));
+    static_assert(1u <= Level && Level <= XR, WL_ERROR_OUTER_LEVEL_SPEC);
+    auto view = x.template view_begin<Level>();
+    auto dims = utils::dims_take<1, Level>(x.dims());
+    return _outer_arg_info_t<decltype(view), decltype(dims)>(view, dims);
+}
+template<typename X, typename Any>
+auto _parse_outer_args_info(const X& x, Any)
+{
+    static_assert(always_false_v<Any>, WL_ERROR_OUTER_LEVEL_SPEC);
+}
+template<typename ValArgs, size_t... Is, size_t... Js, size_t... PadJs>
+auto _parse_outer_args(const ValArgs& valargs, std::index_sequence<Is...>,
+    std::index_sequence<Js...>, std::index_sequence<PadJs...> pad_js)
+{
+    constexpr auto num_arrays = sizeof...(Is);
+    auto levels = _parse_outer_args_get_levels<num_arrays>(
+        pad_js, std::get<Js + num_arrays>(valargs)...);
+    return std::make_tuple(_parse_outer_args_info(
+        std::get<Is>(valargs), std::get<Is>(levels))...);
+}
+template<typename ArgsTuple, size_t... Is>
+auto _outer_get_valargs(const ArgsTuple& args, std::index_sequence<Is...>)
+{
+    return std::tuple<
+        decltype(allows<view_category::Array>(std::get<Is>(args)))...>(
+            allows<view_category::Array>(std::get<Is>(args))...);
+}
+template<size_t R>
+auto _outer_get_outer_dims_impl(size_t*& outer_dims_data,
+    const std::array<size_t, R>& dims)
+{
+    for (size_t i = 0; i < R; ++i)
+        *outer_dims_data++ = dims[i];
+}
+template<typename ArgsInfoTuple, size_t... Is>
+auto _outer_get_outer_dims(const ArgsInfoTuple& args_info,
+    std::index_sequence<Is...>)
+{
+    constexpr auto OuterRank = (std::tuple_size_v<
+        remove_cvref_t<decltype(std::get<Is>(args_info).dims)>> + ...);
+    std::array<size_t, OuterRank> outer_dims;
+    auto outer_dims_data = outer_dims.data();
+    const auto& _1 = (_outer_get_outer_dims_impl(
+        outer_dims_data, std::get<Is>(args_info).dims), ..., 0);
+    return outer_dims;
+}
+template<typename F, typename ArgsTuple>
+struct _outer_item_type;
+template<typename F, typename... Args>
+struct _outer_item_type<F, std::tuple<Args...>>
+{
+    using type = remove_cvref_t<decltype(
+        std::declval<F>()(*(std::declval<Args>().view)...))>;
+};
+template<typename F, typename ArgsTuple>
+using _outer_item_type_t = typename _outer_item_type<F, ArgsTuple>::type;
+template<size_t I, typename Function, typename Val, typename ArgsInfoTuple>
+auto _outer_impl_scalar(Function f, Val*& ret_data, const ArgsInfoTuple& args_info)
+{
+    constexpr auto N = std::tuple_size_v<ArgsInfoTuple>;
+    const auto& info = std::get<I>(args_info);
+    auto view = info.view;
+    auto size = info.size;
+    if constexpr (I + 1u == N)
+    {
+        for (size_t i = 0; i < size; ++i, ++view, ++ret_data)
+            *ret_data = f(*view);
+    }
+    else
+    {
+        for (size_t i = 0; i < size; ++i, ++view)
+        {
+            const auto& arg1 = *view;
+            _outer_impl_scalar<I + 1u>(
+                [&](const auto&... args) { return f(arg1, args...); },
+                ret_data, args_info);
+        }
+    }
+}
+template<size_t I, typename Function, size_t R, typename Val,
+    typename ArgsInfoTuple>
+auto _outer_impl_array(Function f, ndarray<Val, R>& ret, Val*& ret_data,
+    size_t* item_dims, size_t& item_size, const ArgsInfoTuple& args_info)
+{
+    constexpr auto N = std::tuple_size_v<ArgsInfoTuple>;
+    const auto& info = std::get<I>(args_info);
+    auto view = info.view;
+    auto size = info.size;
+    if constexpr (I + 1u == N)
+    {
+        constexpr auto InnerRank =
+            array_rank_v<remove_cvref_t<decltype(f(*view))>>;
+        if (ret_data == nullptr)
+        {
+            auto first_item = f(*view);
+            const auto& first_dims = first_item.dims();
+            std::copy_n(first_dims.data(), InnerRank, item_dims);
+            item_size = first_item.size();
+            auto new_dims = utils::dims_join(
+                utils::dims_take<1, R - InnerRank>(ret.dims()), first_dims);
+            ret.uninitialized_resize(new_dims);
+            ret_data = ret.data();
+            first_item.copy_to(ret_data);
+            ret_data += item_size;
+            assert(size >= 1u);
+            --size;
+            ++view;
+        }
+        for (size_t i = 0; i < size; ++i, ++view, ret_data += item_size)
+        {
+            auto item = f(*view);
+            if (!utils::check_dims<InnerRank>(item_dims, item.dims().data()))
+                throw std::logic_error(WL_ERROR_LIST_ELEM_DIMS);
+            item.copy_to(ret_data);
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < size; ++i, ++view)
+        {
+            const auto& arg1 = *view;
+            _outer_impl_array<I + 1u>(
+                [&](const auto&... args) { return f(arg1, args...); },
+                ret, ret_data, item_dims, item_size, args_info);
+        }
+    }
+}
+template<typename Function, typename... Args>
+auto outer(Function f, const Args&... args)
+{
+    WL_TRY_BEGIN()
+    constexpr auto num_arrays = _outer_args_find_division<0u, Args...>::value;
+    static_assert((num_arrays >= 1u) && (num_arrays * 2u >= sizeof...(Args)),
+        WL_ERROR_OUTER_LEVEL_SPEC);
+    auto valargs = _outer_get_valargs(std::tie(args...),
+        std::make_index_sequence<sizeof...(args)>{});
+    auto args_info = _parse_outer_args(valargs,
+        std::make_index_sequence<num_arrays>{},
+        std::make_index_sequence<sizeof...(Args) - num_arrays>{},
+        std::make_index_sequence<num_arrays * 2u - sizeof...(Args)>{});
+    using InnerType = _outer_item_type_t<Function, decltype(args_info)>;
+    constexpr auto InnerRank = array_rank_v<InnerType>;
+    auto outer_dims = _outer_get_outer_dims(args_info,
+        std::make_index_sequence<num_arrays>{});
+    constexpr auto OuterRank = outer_dims.size();
+    const auto outer_size = utils::size_of_dims(outer_dims);
+    if constexpr (InnerRank == 0u)
+    {
+        ndarray<InnerType, OuterRank> ret(outer_dims);
+        if (outer_size == 0u)
+            return ret;
+        auto ret_data = ret.data();
+        _outer_impl_scalar<0u>(f, ret_data, args_info);
+        return ret;
+    }
+    else
+    {
+        using ValueType = value_type_t<InnerType>;
+        constexpr auto Rank = InnerRank + OuterRank;
+        std::array<size_t, Rank> ret_dims{};
+        std::copy_n(outer_dims.data(), OuterRank, ret_dims.data());
+        ndarray<ValueType, Rank> ret(ret_dims);
+        ValueType* ret_data = nullptr;
+        size_t item_size = 0;
+        _outer_impl_array<0u>(f, ret, ret_data, ret_dims.data() + OuterRank,
+            item_size, args_info);
+        return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

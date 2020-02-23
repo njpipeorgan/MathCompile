@@ -76,6 +76,7 @@ MCLink::bigrank="The rank of an argument exceeds the maximum rank.";
 MCLink::badtype="Cannot infer the type id \"`1`\"returned by the library.";
 MCLink::workdir="The working directory does not exist.";
 MCLink::libdir="The library directory does not exist.";
+MCLink::includes="The additional include files should be specified as a list of strings.";
 MCLink::genfail="Failed to generate the library.";
 MCLink::noheader="The header file \"math_compile.h\" cannot be found.";
 MCCxx::compilerver="An incompatible version of the C++ compiler is used, see MathCompiler wiki for more information.";
@@ -1126,7 +1127,11 @@ Options[compilelink]={
   "WorkingDirectory"->Automatic,
   "Debug"->False,
   "MonitorAbort"->True,
-  "CompileOptions"->""
+  "CompileOptions"->"",
+  "Includes"->{},
+  "IncludeDirectories"->{},
+  "Libraries"->{},
+  "LibraryDirectories"->{}
 };
 Options[CompileToBinary]=Options[compilelink];
 
@@ -1146,8 +1151,13 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
       Message[MCLink::workdir];Return[$Failed]];
     If[!StringQ[libdir],
       Message[MCLink::libdir];Return[$Failed]];
+    opterror=Null;
     MathCompile`$CppSource=
       TemplateApply[$template,<|
+          "includes"->(If[MatchQ[#,{_String...}],
+              StringJoin["#include \""<>#<>"\"\n"&/@#],
+              Message[MCLink::includes];opterror=True;""
+            ]&@Flatten@{OptionValue["Includes"]}),
           "funcbody"->toexportbinary@output,
           "argsv"->StringRiffle[#<>"{}"&/@types,", "],
           "args"->StringRiffle[
@@ -1158,6 +1168,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           "kernelfuncnames"->StringJoin[
             ToString@CForm[#]<>",\n        "&/@Keys@$kernelfunctiontable]
         |>];
+    If[opterror=!=Null,Return[$Failed]];
     If[FileExistsQ[$packagepath<>"/IncludeFiles/math_compile.h"]=!=True,
       Message[MCLink::noheader];Return[$Failed]];
     mldir=$InstallationDirectory<>
@@ -1178,9 +1189,11 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           OptionValue["CompileOptions"]
         },
       "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
-      "IncludeDirectories"->{mldir,$packagepath<>"/IncludeFiles"},
-      "LibraryDirectories"->{mldir,$packagepath<>"/LibraryResources/"<>$SystemID},
-      "Libraries"->{mllib,"pcre2-8"},
+      "IncludeDirectories"->Join[{mldir,$packagepath<>"/IncludeFiles"},
+        Flatten@{OptionValue["IncludeDirectories"]}],
+      "LibraryDirectories"->Join[{mldir,$packagepath<>"/LibraryResources/"<>$SystemID},
+        Flatten@{OptionValue["LibraryDirectories"]}],
+      "Libraries"->Join[{mllib,"pcre2-8"},Flatten@{OptionValue["Libraries"]}],
       "WorkingDirectory"->workdir,
       "TargetDirectory"->libdir,
       "ShellCommandFunction"->((MathCompile`$CompilerCommand=#)&),

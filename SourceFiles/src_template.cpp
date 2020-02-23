@@ -15,7 +15,7 @@
 // limitations under the License.
 //
 
-#include "librarylink.h"
+`includes`#include "librarylink.h"
 
 wl::random_engine wl::global_random_engine;
 WolframLibraryData wl::librarylink::lib_data;

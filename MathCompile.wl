@@ -1123,7 +1123,7 @@ loadfunction[libpath_String,funcid_String,args_]:=
 $template=Import[$packagepath<>"/SourceFiles/src_template.cpp","Text"];
 
 Options[compilelink]={
-  "LibraryDirectory"->"TargetDirectory"/.Options[CCompilerDriver`CreateLibrary],
+  "TargetDirectory"->Automatic,
   "WorkingDirectory"->Automatic,
   "Debug"->False,
   "MonitorAbort"->True,
@@ -1146,7 +1146,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     types=codegen@*type/@f["types"];
     funcid="f"<>ToString@RandomInteger[{10^12,10^13-1}];
     workdir=OptionValue["WorkingDirectory"];
-    libdir=OptionValue["LibraryDirectory"];
+    libdir=OptionValue["TargetDirectory"];
     If[workdir=!=Automatic&&!(StringQ[workdir]&&DirectoryQ[workdir]),
       Message[MCLink::workdir];Return[$Failed]];
     If[!StringQ[libdir],

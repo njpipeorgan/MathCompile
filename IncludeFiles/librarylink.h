@@ -17,7 +17,7 @@
 
 #pragma once
 
-//#define WL_USE_MATHLINK
+#define WL_USE_MATHLINK
 #if defined(WL_USE_MATHLINK)
 
 #include <cstddef>
@@ -177,7 +177,7 @@ mint get_return_type_id()
 }
 
 template<typename T>
-numericarray_data_t get_numeric_array_type()
+constexpr numericarray_data_t get_numeric_array_type()
 {
     if constexpr (std::is_same_v<T, int8_t>)
         return MNumericArray_Type_Bit8;
@@ -209,7 +209,7 @@ numericarray_data_t get_numeric_array_type()
         static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
 }
 
-template<typename T, size_t R>
+template<typename T, size_t R, bool GetArrayView = false>
 auto mtensor_to_ndarray(const MTensor& tensor,
     const int mtensor_value_type)
 {
@@ -225,41 +225,78 @@ auto mtensor_to_ndarray(const MTensor& tensor,
     std::array<size_t, R> dims;
     std::copy_n(input_dims, R, dims.data());
     const size_t size = utils::size_of_dims(dims);
-    ndarray<T, R> ret(dims);
-
-    const void* input_ptr = nullptr;
-    if (mtensor_value_type == MType_Integer)
+    if constexpr (GetArrayView)
     {
-        const auto* input_ptr =
-            (const mint*)lib_data->MTensor_getIntegerData(tensor);
-        if constexpr (is_integral_v<T>)
-            utils::restrict_copy_n(input_ptr, size, ret.data());
-    }
-    else if (mtensor_value_type == MType_Real)
-    {
-        const auto* input_ptr =
-            (const mreal*)lib_data->MTensor_getRealData(tensor);
-        if constexpr (is_float_v<T>)
-            utils::restrict_copy_n(input_ptr, size, ret.data());
-    }
-    else if (mtensor_value_type == MType_Complex)
-    {
-        const auto* input_ptr =
-            (const complex<mreal>*)lib_data->MTensor_getComplexData(tensor);
-        if constexpr (is_complex_v<T>)
-            utils::restrict_copy_n(input_ptr, size, ret.data());
+        if constexpr (is_integral_v<T> && sizeof(T) == sizeof(mint))
+        {
+            if (mtensor_value_type != MType_Integer)
+                throw std::logic_error("type error");
+        }
+        else if constexpr (is_float_v<T> && sizeof(T) == sizeof(mreal))
+        {
+            if (mtensor_value_type != MType_Real)
+                throw std::logic_error("type error");
+        }
+        else if constexpr (is_complex_v<T> && sizeof(T) == sizeof(mcomplex))
+        {
+            if (mtensor_value_type != MType_Complex)
+                throw std::logic_error("type error");
+        }
+        else
+        {
+            static_assert(always_false_v<T>, WL_ERROR_INTERNAL);
+        }
+        const void* input_ptr;
+        if (mtensor_value_type == MType_Integer)
+            input_ptr = (const void*)lib_data->MTensor_getIntegerData(tensor);
+        else if (mtensor_value_type == MType_Real)
+            input_ptr = (const void*)lib_data->MTensor_getRealData(tensor);
+        else
+            input_ptr = (const void*)lib_data->MTensor_getComplexData(tensor);
+        return simple_view<T, R, R, true>(
+            (const void*)input_dims, (const T*)input_ptr, dims.data());
     }
     else
     {
-        throw LIBRARY_TYPE_ERROR;
+        ndarray<T, R> ret(dims);
+        if (ret.size() == 0u)
+            return ret;
+        if (mtensor_value_type == MType_Integer)
+        {
+            const auto* input_ptr = lib_data->MTensor_getIntegerData(tensor);
+            WL_THROW_ERROR_IF_NULLPTR(input_ptr, LIBRARY_TYPE_ERROR);
+            if constexpr (is_integral_v<T>)
+                utils::restrict_copy_n(input_ptr, size, ret.data());
+        }
+        else if (mtensor_value_type == MType_Real)
+        {
+            const auto* input_ptr = lib_data->MTensor_getRealData(tensor);
+            WL_THROW_ERROR_IF_NULLPTR(input_ptr, LIBRARY_TYPE_ERROR);
+            if constexpr (is_float_v<T>)
+                utils::restrict_copy_n(input_ptr, size, ret.data());
+        }
+        else if (mtensor_value_type == MType_Complex)
+        {
+            const auto* input_ptr = (const complex<mreal>*)
+                lib_data->MTensor_getComplexData(tensor);
+            WL_THROW_ERROR_IF_NULLPTR(input_ptr, LIBRARY_TYPE_ERROR);
+            if constexpr (is_complex_v<T>)
+                utils::restrict_copy_n(input_ptr, size, ret.data());
+        }
+        else
+        {
+            throw LIBRARY_TYPE_ERROR;
+        }
+        return ret;
     }
-    return ret;
 }
 
-template<typename T, size_t R>
-void ndarray_to_mtensor(const ndarray<T, R>& val, MTensor& tensor,
+template<typename X>
+void ndarray_to_mtensor(const X& val, MTensor& tensor,
     const int mtensor_value_type)
 {
+    using T = value_type_t<X>;
+    constexpr auto R = array_rank_v<X>;
     std::array<mint, R> output_dims;
     std::copy_n(val.dims().data(), R, output_dims.data());
 
@@ -277,12 +314,15 @@ void ndarray_to_mtensor(const ndarray<T, R>& val, MTensor& tensor,
         mtensor_value_type, R, output_dims.data(), &tensor);
     if (error)
         throw error;
+    if (val.size() == 0u)
+        return;
     if (mtensor_value_type == MType_Integer)
     {
         if constexpr (is_integral_v<T>)
         {
             auto* output_ptr = (mint*)lib_data->MTensor_getIntegerData(tensor);
-            utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+            WL_THROW_ERROR_IF_NULLPTR(output_ptr, LIBRARY_TYPE_ERROR);
+            val.copy_to(output_ptr);
         }
     }
     else if (mtensor_value_type == MType_Real)
@@ -290,7 +330,8 @@ void ndarray_to_mtensor(const ndarray<T, R>& val, MTensor& tensor,
         if constexpr (is_float_v<T>)
         {
             auto* output_ptr = (mreal*)lib_data->MTensor_getRealData(tensor);
-            utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+            WL_THROW_ERROR_IF_NULLPTR(output_ptr, LIBRARY_TYPE_ERROR);
+            val.copy_to(output_ptr);
         }
     }
     else
@@ -299,7 +340,8 @@ void ndarray_to_mtensor(const ndarray<T, R>& val, MTensor& tensor,
         {
             auto* output_ptr =
                 (complex<mreal>*)lib_data->MTensor_getComplexData(tensor);
-            utils::restrict_copy_n(val.data(), val.size(), output_ptr);
+            WL_THROW_ERROR_IF_NULLPTR(output_ptr, LIBRARY_TYPE_ERROR);
+            val.copy_to(output_ptr);
         }
     }
 }
@@ -307,7 +349,7 @@ void ndarray_to_mtensor(const ndarray<T, R>& val, MTensor& tensor,
 template<typename T, size_t R>
 auto get_array(MArgument arg)
 {
-    const numericarray_data_t type = get_numeric_array_type<T>();
+    constexpr numericarray_data_t type = get_numeric_array_type<T>();
     int mtensor_value_type = 0;
     switch (type)
     {
@@ -324,10 +366,12 @@ auto get_array(MArgument arg)
         throw int(LIBRARY_TYPE_ERROR);
     }
 
-    if (mtensor_value_type != 0)
+    if constexpr (type == MNumericArray_Type_Bit64 ||
+        type == MNumericArray_Type_Real64 ||
+        type == MNumericArray_Type_Complex_Real64)
     {
         auto tensor = MArgument_getMTensor(arg);
-        return mtensor_to_ndarray<T, R>(tensor, mtensor_value_type);
+        return mtensor_to_ndarray<T, R, true>(tensor, mtensor_value_type);
     }
     else // pass by numeric array
     {
@@ -663,7 +707,7 @@ struct kernel_function
     template<typename... Args>
     auto operator()(const Args&... args) const
     {
-        //int (*evaluateFunctionExpression)(struct st_WolframLibraryData*, void *, mint, mint, mint, int *, void **, int, mint, void *);
+        //int (*evaluateFunctionExpression)(zstruct st_WolframLibraryData*, void *, mint, mint, mint, int *, void **, int, mint, void *);
         constexpr size_t NArgs = sizeof...(Args);
         using storage_t = char[sizeof(complex<double>)];
         std::array<int, NArgs> arg_types;

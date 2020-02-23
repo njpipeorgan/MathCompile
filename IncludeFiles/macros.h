@@ -103,6 +103,8 @@ namespace wl
 #define WL_CHECK_ABORT_PERIOD 100 // milliseconds
 #define WL_CHECK_ABORT_LENGTH 1024
 
+#define WL_THROW_ERROR_IF_NULLPTR(ptr, error)   \
+(!(ptr) ? throw (error) : ((void)0))
 
 // static assertion error messages
 

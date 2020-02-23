@@ -108,6 +108,8 @@ namespace wl
 #define WL_BASE_RANDOM_ENGINE std::mt19937_64
 #define WL_CHECK_ABORT_PERIOD 100 // milliseconds
 #define WL_CHECK_ABORT_LENGTH 1024
+#define WL_THROW_ERROR_IF_NULLPTR(ptr, error)   \
+(!(ptr) ? throw (error) : ((void)0))
 #define WL_ERROR_INTERNAL \
 "An internal error is encountered."
 #define WL_ERROR_SIZEOF_CHAR \
@@ -7786,14 +7788,15 @@ auto total(const Array& a)
     if constexpr (array_rank_v<Array> == 0u)
         return a;
     else
-    return total(a, const_int<1>{}, const_int<1>{});
+        return total(a, const_int<1>{}, const_int<1>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Array>
 auto mean(const Array& a)
 {
     WL_TRY_BEGIN()
-    return divide(total(a), a.template dimension<1>());
+    static_assert(array_rank_v<Array> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return divide(total(a), a.dims()[0]);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename Ret = int64_t, typename Array>

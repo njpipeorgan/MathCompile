@@ -35,8 +35,8 @@ MCRuntime
 Begin["`Private`"];
 
 
-CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"]]&@compile[Hold[Function[func]]]
-CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]]],Function[func],opts]
+CompileToCode[Function[func___]]:=If[#===$Failed,$Failed,toexportcode@#["output"]]&@compile[Hold[Function[func]],True]
+CompileToBinary[Function[func___],opts:OptionsPattern[]]:=compilelink[compile[Hold[Function[func]],False],Function[func],opts]
 LevelTag[i_Integer]:=Sequence[]
 SetAttributes[Extern,HoldFirst];
 Extern[f_,type_]:=Unevaluated[f]
@@ -84,7 +84,7 @@ MCCxx::error="`1`";
 MCRuntime::error="`1`";
 
 
-compile[code_]:=
+compile[code_,tocode_]:=
   Module[{parsed,sourceidx,precodegen,output,types,error},
     $variabletable=Association[];
     $kernelfunctiontable=Association[];
@@ -94,7 +94,7 @@ compile[code_]:=
         precodegen=alloptim@semantics@allsyntax@parsed;
         types=getargtypes[precodegen];
         If[MemberQ[types,nil],Message[MCCodegen::notype];Throw["codegen"]];
-        output=maincodegen@precodegen;
+        output=maincodegen[precodegen,tocode];
       ];
     Clear[$variabletable];
     If[error===Null,<|
@@ -106,6 +106,7 @@ compile[code_]:=
 newid:=SymbolName@Unique["id"]
 newvar:=SymbolName@Unique["v"]
 newvarpack:=SymbolName@Unique["vp"]
+newtype:=SymbolName@Unique["T"]
 
 
 parse[Hold[head_[args___]]]:=
@@ -963,6 +964,15 @@ stringtransform[str_String]:=FromCharacterCode@Flatten[Map[
     ToCharacterCode[ToString@CForm@str,"Unicode"]
   ]]
 
+codegen[mainargs[vars_,types_,False],___]:=
+  Module[{templatetypes={}},
+    <|"Code"->MapThread["const "<>If[MatchQ[#1,"array"[___]],
+          Last@AppendTo[templatetypes,newtype],codegen[type[#1]]]<>"& "<>#2&,
+        {types,vars}],
+      "Template"->If[Length@templatetypes==0,
+        "",StringRiffle[templatetypes,{"template<typename ",", typename ",">\n"}]]
+    |>]
+codegen[mainargs[vars_,types_,True],___]:=<|"Code"->codegen[args[vars,types]],"Template"->""|>;
 codegen[args[vars_,types_],___]:=
   MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
 codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString@CForm[i-1]<>")"
@@ -1050,9 +1060,11 @@ codegen[native[name_,p_][args___],any___]:=
 
 codegen[any_,rest___]:=(Message[MCCodegen::bad,tostring[any]];"<codegen>")
 
-initcodegen[function[p_][vars_,types_,expr_]]:=
-  Flatten@{annotatebegin[p],"auto main_function(",
-    Riffle[codegen[args[vars,types]],", "],")",codegen[expr,"Return"],annotateend[p]}
+initcodegen[function[p_][vars_,types_,expr_],tocode_]:=
+  Module[{typecode=codegen[mainargs[vars,types,tocode]]},
+    Flatten@{annotatebegin[p],typecode["Template"]<>"auto main_function(",
+      Riffle[typecode["Code"],", "],")",codegen[expr,"Return"],annotateend[p]}
+  ]
   
 codeformat[segments_List]:=
   StringRiffle[#,{"","\n","\n"}]&@
@@ -1061,7 +1073,7 @@ codeformat[segments_List]:=
        {If[pad<=0,"",StringRepeat[" ",4pad]]<>#2,pad+Boole[StringTake[#2,-1]=="{"]}]&,
       0,StringJoin/@SplitBy[segments/.{"{"->Sequence[" {","\n"],";"->Sequence[";","\n"]},#=="\n"&][[;;;;2]]
     ]
-maincodegen[code_]:=codeformat@initcodegen[code]
+maincodegen[code_,tocode_]:=codeformat@initcodegen[code,tocode]
 
 
 $numerictypes={

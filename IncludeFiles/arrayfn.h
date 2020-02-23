@@ -595,7 +595,7 @@ auto total(const Array& a)
     if constexpr (array_rank_v<Array> == 0u)
         return a;
     else
-    return total(a, const_int<1>{}, const_int<1>{});
+        return total(a, const_int<1>{}, const_int<1>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -603,7 +603,8 @@ template<typename Array>
 auto mean(const Array& a)
 {
     WL_TRY_BEGIN()
-    return divide(total(a), a.template dimension<1>());
+    static_assert(array_rank_v<Array> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    return divide(total(a), a.dims()[0]);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

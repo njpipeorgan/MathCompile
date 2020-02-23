@@ -41,6 +41,7 @@ LevelTag[i_Integer]:=Sequence[]
 SetAttributes[Extern,HoldFirst];
 Extern[f_,type_]:=Unevaluated[f]
 IndirectReturn[f_][any___]:=Block[{linkreturn=$Failed},f[any];linkreturn]
+IndirectReturn/:LibraryFunctionUnload[IndirectReturn[f_]]:=LibraryFunctionUnload[f]
 
 
 $packagepath=DirectoryName[$InputFileName];
@@ -1147,10 +1148,10 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     funcid="f"<>ToString@RandomInteger[{10^12,10^13-1}];
     workdir=OptionValue["WorkingDirectory"];
     libdir=OptionValue["TargetDirectory"];
-    If[workdir=!=Automatic&&!(StringQ[workdir]&&DirectoryQ[workdir]),
+    If[libdir===Automatic,libdir="TargetDirectory"/.Options[CCompilerDriver`CreateLibrary]];
+    If[(workdir=!=Automatic)&&!(StringQ[workdir]&&DirectoryQ[workdir]),
       Message[MCLink::workdir];Return[$Failed]];
-    If[!StringQ[libdir],
-      Message[MCLink::libdir];Return[$Failed]];
+    If[!(StringQ[libdir]&&DirectoryQ[libdir]),Message[MCLink::libdir];Return[$Failed]];
     opterror=Null;
     MathCompile`$CppSource=
       TemplateApply[$template,<|

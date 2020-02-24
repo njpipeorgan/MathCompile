@@ -282,6 +282,8 @@ namespace wl
 "The rank of new elements should be consistent with the level of positions."
 #define WL_ERROR_OUTER_LEVEL_SPEC \
 "Array and level specifications to Outer is not appropriate."
+#define WL_ERROR_DIFFERENCES_ORDER \
+"Orders of differences should be an integer or a list of integers."
 #define WL_ERROR_LIBRARYLINK \
 "An error has occurred during a LibraryLink operation."
 #define WL_ERROR_CALLBACK \
@@ -398,6 +400,10 @@ namespace wl
 "The call to kernel function has failed."
 #define WL_ERROR_REPLACE_PART_DIMS \
 "The replacing array should have the same dimensions as other elements."
+#define WL_ERROR_DIFFERENCES_ORDER_COUNT \
+"The number of orders specifications should not be greater than the rank."
+#define WL_ERROR_DIFFERENCES_ORDER_NEGATIVE \
+"The orders of differences should be non-negative."
 }
 namespace wl
 {
@@ -1956,7 +1962,7 @@ struct span
                 else // this->begin_ < 0
                     begin = ptrdiff_t(this->begin_) + ptrdiff_t(dim + 1u);
                 //check out-of-range
-                if (begin < 1 || begin > ptrdiff_t(dim))
+                if (begin < 1 || begin > ptrdiff_t(dim) + 1)
                     throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_end)
@@ -1968,7 +1974,7 @@ struct span
                 else // this->end_ < 0
                     end = ptrdiff_t(this->end_) + ptrdiff_t(dim + 1u);
                 //check out-of-range
-                if (end < 1 || end > ptrdiff_t(dim))
+                if (end < 0 || end > ptrdiff_t(dim))
                     throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_step)
@@ -2981,8 +2987,10 @@ struct _small_vector
         {
             WL_THROW_IF_ABORT()
             data_.dynamic_.resize(new_size);
-            if (new_size < prev_size)
+            if (new_size * 2u < data_.dynamic_.capacity())
+            { // shrink capacity only when it saves a lot of memory
                 data_.dynamic_.shrink_to_fit();
+            }
         }
         else if (new_size > N)
         {
@@ -10126,6 +10134,197 @@ auto outer(Function f, const Args&... args)
             item_size, args_info);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename XV>
+auto _accumulate_impl(XV* data, const size_t total_size,
+    const size_t inner_size)
+{
+    if (total_size == 0u)
+        return;
+    if (inner_size == 1u)
+    {
+        for (size_t i = 1u; i < total_size; ++i)
+            data[i] += data[i - 1];
+    }
+    else if (inner_size > 1u)
+    {
+        for (size_t i = inner_size; i < total_size; ++i)
+            data[i] += data[i - inner_size];
+    }
+}
+template<typename XV>
+auto _accumulate_impl(const XV* input_data, XV* output_data,
+    const size_t total_size, const size_t inner_size)
+{
+    WL_THROW_IF_ABORT();
+    if (total_size == 0u)
+        return;
+    if (inner_size == 1u)
+    {
+        output_data[0] = input_data[0];
+        for (size_t i = 1u; i < total_size; ++i)
+            output_data[i] = output_data[i - 1] + input_data[i];
+    }
+    else if (inner_size > 1u)
+    {
+        for (size_t i = 0; i < inner_size; ++i)
+            output_data[i] = input_data[i];
+        for (size_t i = inner_size; i < total_size; ++i)
+            output_data[i] = output_data[i - inner_size] + input_data[i];
+    }
+}
+template<typename X>
+auto accumulate(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    if constexpr (XT::category == view_category::Array ||
+        XT::category == view_category::Simple)
+    {
+        const auto total_size = x.size();
+        const auto inner_size = (XR == 1u) ?
+            size_t(1) : utils::size_of_dims<XR - 1u>(&x.dims()[1]);
+        auto input_data = x.data();
+        if constexpr (is_array_v<XT> && is_movable_v<X&&>)
+        {
+            _accumulate_impl(input_data, total_size, inner_size);
+            return std::move(x);
+        }
+        else
+        {
+            ndarray<XV, XR> ret(x.dims());
+            auto output_data = ret.data();
+            _accumulate_impl(input_data, output_data, total_size, inner_size);
+            return ret;
+        }
+    }
+    else
+    {
+        return accumulate(x.to_array());
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<size_t XR, typename Any>
+auto _differences_get_orders(const Any& any)
+{
+    std::array<int64_t, XR> orders{};
+    if constexpr (is_integral_v<Any>)
+    {
+        orders[0] = int64_t(any);
+    }
+    else if constexpr (array_rank_v<Any> == 1u &&
+        is_integral_v<value_type_t<Any>>)
+    {
+        if (any.size() > XR)
+            throw std::logic_error(WL_ERROR_DIFFERENCES_ORDER_COUNT);
+        any.copy_to(orders.data());
+    }
+    else
+    {
+        static_assert(always_false_v<Any>, WL_ERROR_DIFFERENCES_ORDER);
+    }
+    for (size_t i = 0; i < XR; ++i)
+    {
+        if (orders[i] < 0)
+            throw std::logic_error(WL_ERROR_DIFFERENCES_ORDER_NEGATIVE);
+    }
+    return orders;
+}
+template<size_t XR>
+auto _differences_get_strides(const std::array<size_t, XR>& dims)
+{
+    std::array<int64_t, XR + 1u> strides{};
+    strides[XR] = 1u;
+    for (size_t i = XR; i > 0; --i)
+        strides[i - 1u] = strides[i] * dims[i - 1u];
+    return strides;
+}
+template<typename XV>
+void _differences_impl(XV* data, const size_t total_size,
+    const size_t mid_size, const size_t diff_size, const size_t inner_size)
+{
+    WL_THROW_IF_ABORT()
+    const auto data_end = data + total_size;
+    if (inner_size == 1u)
+    {
+        for (; data < data_end; data += mid_size)
+            for (size_t i = 0; i < diff_size; ++i)
+                data[i] = data[i + 1u] - data[i];
+    }
+    else if (inner_size > 1u)
+    {
+        for (; data < data_end; data += mid_size)
+            for (size_t i = 0; i < diff_size; ++i)
+                data[i] = data[i + inner_size] - data[i];
+    }
+}
+template<typename XV, size_t XR, size_t... Is>
+auto _differences_crop(ndarray<XV, XR>&& x,
+    const std::array<int64_t, XR>& orders, std::index_sequence<Is...>)
+{
+    auto x_dims = x.dims();
+    for (size_t i = 0; i < XR; ++i)
+    {
+        if (x_dims[i] > size_t(orders[i]))
+            x_dims[i] -= size_t(orders[i]);
+        else
+            x_dims[i] = 0u;
+    }
+    return val(part(x, make_span(size_t(1), x_dims[Is])...));
+}
+template<typename X, typename Any>
+auto differences(X&& x, const Any& any)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    if constexpr (is_array_v<XT> && is_movable_v<X&&>)
+    {
+        const auto total_size = x.size();
+        const auto orders = _differences_get_orders<XR>(any);
+        const auto strides = _differences_get_strides(x.dims());
+        auto x_data = x.data();
+        for (size_t level = 0u; level < XR; ++level)
+        {
+            if (size_t(orders[level]) >= x.dims()[level])
+                continue;
+            const auto mid_size = strides[level];
+            const auto inner_size = strides[level + 1u];
+            auto diff_size = mid_size;
+            for (int64_t order = 0; order < orders[level]; ++order)
+            {
+                diff_size -= inner_size;
+                if (diff_size == 0u)
+                    break;
+                _differences_impl(x_data, total_size, mid_size, diff_size,
+                    inner_size);
+            }
+        }
+        return _differences_crop(std::move(x), orders,
+            std::make_index_sequence<XR>{});
+    }
+    else if constexpr (is_array_v<XT>)
+    { // x is an l-value reference
+        auto x_copy = x;
+        return differences(std::move(x_copy), any);
+    }
+    else
+    {
+        return differences(x.to_array(), any);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto differences(X&& x)
+{
+    WL_TRY_BEGIN()
+    return differences(std::forward<decltype(x)>(x), 1);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }

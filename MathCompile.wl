@@ -609,6 +609,9 @@ $builtinfunctions=
   "MemberQ"         ->"member_q",
   "FreeQ"           ->"free_q",
   "Normal"          ->"normal",
+(*statistics*)
+  "Accumulate"      ->"accumulate",
+  "Differences"     ->"differences",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

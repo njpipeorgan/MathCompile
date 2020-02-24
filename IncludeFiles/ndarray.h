@@ -266,8 +266,10 @@ struct _small_vector
         {
             WL_THROW_IF_ABORT()
             data_.dynamic_.resize(new_size);
-            if (new_size < prev_size)
+            if (new_size * 2u < data_.dynamic_.capacity())
+            { // shrink capacity only when it saves a lot of memory
                 data_.dynamic_.shrink_to_fit();
+            }
         }
         else if (new_size > N)
         {

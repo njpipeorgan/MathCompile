@@ -402,7 +402,7 @@ struct span
                 else // this->begin_ < 0
                     begin = ptrdiff_t(this->begin_) + ptrdiff_t(dim + 1u);
                 //check out-of-range
-                if (begin < 1 || begin > ptrdiff_t(dim))
+                if (begin < 1 || begin > ptrdiff_t(dim) + 1)
                     throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_end)
@@ -414,7 +414,7 @@ struct span
                 else // this->end_ < 0
                     end = ptrdiff_t(this->end_) + ptrdiff_t(dim + 1u);
                 //check out-of-range
-                if (end < 1 || end > ptrdiff_t(dim))
+                if (end < 0 || end > ptrdiff_t(dim))
                     throw std::logic_error(WL_ERROR_SPAN_OUT_OF_RANGE);
             }
             if constexpr (!default_step)

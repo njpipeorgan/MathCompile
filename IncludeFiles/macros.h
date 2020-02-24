@@ -366,6 +366,9 @@ namespace wl
 #define WL_ERROR_OUTER_LEVEL_SPEC \
 "Array and level specifications to Outer is not appropriate."
 
+#define WL_ERROR_DIFFERENCES_ORDER \
+"Orders of differences should be an integer or a list of integers."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \
@@ -541,5 +544,11 @@ namespace wl
 
 #define WL_ERROR_REPLACE_PART_DIMS \
 "The replacing array should have the same dimensions as other elements."
+
+#define WL_ERROR_DIFFERENCES_ORDER_COUNT \
+"The number of orders specifications should not be greater than the rank."
+
+#define WL_ERROR_DIFFERENCES_ORDER_NEGATIVE \
+"The orders of differences should be non-negative."
 
 }

@@ -31,6 +31,7 @@
 #include "boolean.h"
 #include "random.h"
 #include "arrayfn.h"
+#include "arraymath.h"
 #include "linalgebra.h"
 #include "functional.h"
 #include "stringfn.h"

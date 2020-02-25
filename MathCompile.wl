@@ -615,6 +615,8 @@ $builtinfunctions=
   "Ratios"          ->"ratios",
   "Norm"            ->"norm",
   "Normalize"       ->"normalize",
+  "Variance"        ->"variance",
+  "StandardDeviation"->"standard_deviation",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

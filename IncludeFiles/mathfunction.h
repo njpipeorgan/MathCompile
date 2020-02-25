@@ -67,6 +67,17 @@ WL_INLINE auto _scalar_square(const X x)
     return X(x * x);
 }
 
+template<typename X>
+WL_INLINE auto _scalar_abs_square(const X x)
+{
+    if constexpr (is_real_v<X>)
+        return _scalar_square(promote_integral_t<X>(x));
+    else if constexpr (is_complex_v<X>)
+        return x.real() * x.real() + x.imag() * x.imag();
+    else
+        static_assert(always_false_v<X>, WL_ERROR_INTERNAL);
+}
+
 template<typename X, typename Y>
 WL_INLINE auto _scalar_power(const X& x, const Y& y)
 {

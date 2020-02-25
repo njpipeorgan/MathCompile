@@ -557,4 +557,7 @@ namespace wl
 #define WL_ERROR_DIFFERENCES_ORDER_NEGATIVE \
 "The orders of differences should be non-negative."
 
+#define WL_ERROR_VARIANCE_ELEMENTS \
+"The list should have at least two elements."
+
 }

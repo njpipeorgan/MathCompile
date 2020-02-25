@@ -614,6 +614,7 @@ $builtinfunctions=
   "Differences"     ->"differences",
   "Ratios"          ->"ratios",
   "Norm"            ->"norm",
+  "Normalize"       ->"normalize",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

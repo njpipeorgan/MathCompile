@@ -372,6 +372,9 @@ namespace wl
 #define WL_ERROR_NORM_P \
 "The parameter p should be a real number greater than 1."
 
+#define WL_ERROR_NORMALIZE_NORM \
+"The norm function should return a real number."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

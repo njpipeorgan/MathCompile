@@ -20,11 +20,13 @@
 #include <algorithm>
 #include <complex>
 #include <exception>
+#include <functional>
 #include <type_traits>
 
 #include "types.h"
 #include "ndarray.h"
 #include "arrayview.h"
+#include "arithmetic.h"
 #include "numerical.h"
 #include "utils.h"
 
@@ -3384,7 +3386,7 @@ auto _norm_impl_complex(const XV* begin, const XV* end, const UX abs2_max, P p)
 }
 
 template<typename X, typename P>
-auto norm(const X& x, const P& p)
+auto _norm_list(const X& x, const P& p)
 {
     static_assert(array_rank_v<X> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"1.");
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
@@ -3394,7 +3396,6 @@ auto norm(const X& x, const P& p)
     else if (!(p >= P(1)))
         throw std::logic_error(WL_ERROR_NORM_P);
     using XV = value_type_t<X>;
-
     bool calculate_total = false;
     if constexpr (is_const_int_v<P>)
         calculate_total = (P::value == 1);
@@ -3478,10 +3479,51 @@ auto norm(const X& x, const P& p)
     }
 }
 
+template<typename X, typename P>
+auto norm(const X& x, const P& p)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> <= 1u, WL_ERROR_REQUIRE_ARRAY_RANK"1.");
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_const_int_v<P> || is_arithmetic_v<P>, WL_ERROR_NORM_P);
+    if constexpr (is_const_int_v<P>)
+        static_assert(P::value >= 1, WL_ERROR_NORM_P);
+    else if (!(p >= P(1)))
+        throw std::logic_error(WL_ERROR_NORM_P);
+
+    if constexpr (array_rank_v<X> == 0u)
+        return wl::abs(x);
+    else
+        return _norm_list(x, p);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 template<typename X>
 auto norm(const X& x)
 {
     return norm(x, const_int<2>{});
+}
+
+template<typename X, typename Function>
+auto normalize(const X& x, Function f)
+{
+    static_assert(std::is_convertible_v<Function, std::function<double(X)>>,
+        WL_ERROR_NORMALIZE_NORM);
+    static_assert(array_rank_v<X> <= 1u, WL_ERROR_REQUIRE_ARRAY_RANK"1.");
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+
+    const auto x_norm = f(x);
+    if (x_norm == 0)
+        return cast<decltype(divide(x, x_norm))>(x);
+    else
+        return divide(x, x_norm);
+}
+
+template<typename X>
+auto normalize(const X& x)
+{
+    return normalize(x,
+        [](const auto& v) { return norm(v, const_int<2>{}); });
 }
 
 }

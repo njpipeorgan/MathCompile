@@ -369,6 +369,9 @@ namespace wl
 #define WL_ERROR_DIFFERENCES_ORDER \
 "Orders of differences should be an integer or a list of integers."
 
+#define WL_ERROR_NORM_P \
+"The parameter p should be a real number greater than 1."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

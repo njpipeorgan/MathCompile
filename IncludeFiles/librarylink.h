@@ -17,7 +17,6 @@
 
 #pragma once
 
-#define WL_USE_MATHLINK
 #if defined(WL_USE_MATHLINK)
 
 #include <cstddef>

@@ -3175,7 +3175,7 @@ auto accumulate(X&& x)
 }
 
 template<size_t XR, typename Any>
-auto _differences_get_orders(const Any& any)
+auto _differences_general_get_orders(const Any& any)
 {
     std::array<int64_t, XR> orders{};
     if constexpr (is_integral_v<Any>)
@@ -3202,7 +3202,7 @@ auto _differences_get_orders(const Any& any)
 }
 
 template<size_t XR>
-auto _differences_get_strides(const std::array<size_t, XR>& dims)
+auto _differences_general_get_strides(const std::array<size_t, XR>& dims)
 {
     std::array<int64_t, XR + 1u> strides{};
     strides[XR] = 1u;
@@ -3211,8 +3211,8 @@ auto _differences_get_strides(const std::array<size_t, XR>& dims)
     return strides;
 }
 
-template<typename XV>
-void _differences_impl(XV* data, const size_t total_size,
+template<bool UseRatio, typename XV>
+void _differences_general_impl(XV* data, const size_t total_size,
     const size_t mid_size, const size_t diff_size, const size_t inner_size)
 {
     WL_THROW_IF_ABORT()
@@ -3221,18 +3221,28 @@ void _differences_impl(XV* data, const size_t total_size,
     {
         for (; data < data_end; data += mid_size)
             for (size_t i = 0; i < diff_size; ++i)
-                data[i] = data[i + 1u] - data[i];
+            {
+                if constexpr (UseRatio)
+                    data[i] = data[i + 1u] / data[i];
+                else
+                    data[i] = data[i + 1u] - data[i];
+            }
     }
     else if (inner_size > 1u)
     {
         for (; data < data_end; data += mid_size)
             for (size_t i = 0; i < diff_size; ++i)
-                data[i] = data[i + inner_size] - data[i];
+            {
+                if constexpr (UseRatio)
+                    data[i] = data[i + inner_size] / data[i];
+                else
+                    data[i] = data[i + inner_size] - data[i];
+            }
     }
 }
 
 template<typename XV, size_t XR, size_t... Is>
-auto _differences_crop(ndarray<XV, XR>&& x,
+auto _differences_general_crop(ndarray<XV, XR>&& x,
     const std::array<int64_t, XR>& orders, std::index_sequence<Is...>)
 {
     auto x_dims = x.dims();
@@ -3246,47 +3256,46 @@ auto _differences_crop(ndarray<XV, XR>&& x,
     return val(part(x, make_span(size_t(1), x_dims[Is])...));
 }
 
+template<bool UseRatio, typename XV, size_t XR, typename Any>
+auto _differences_general(ndarray<XV, XR>&& x, const Any& any)
+{
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    const auto total_size = x.size();
+    const auto orders = _differences_general_get_orders<XR>(any);
+    const auto strides = _differences_general_get_strides(x.dims());
+    auto x_data = x.data();
+    for (size_t level = 0u; level < XR; ++level)
+    {
+        if (size_t(orders[level]) >= x.dims()[level])
+            continue;
+        const auto mid_size = strides[level];
+        const auto inner_size = strides[level + 1u];
+        auto diff_size = mid_size;
+        for (int64_t order = 0; order < orders[level]; ++order)
+        {
+            diff_size -= inner_size;
+            if (diff_size == 0u)
+                break;
+            _differences_general_impl<UseRatio>(x_data, total_size, mid_size,
+                diff_size, inner_size);
+        }
+    }
+    return _differences_general_crop(std::move(x), orders,
+        std::make_index_sequence<XR>{});
+}
+
 template<typename X, typename Any>
 auto differences(X&& x, const Any& any)
 {
     WL_TRY_BEGIN()
-    using XT = remove_cvref_t<X>;
-    constexpr auto XR = array_rank_v<XT>;
-    using XV = value_type_t<XT>;
-    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    if constexpr (is_array_v<XT> && is_movable_v<X&&>)
+    if constexpr (is_array_v<remove_cvref_t<X>> && is_movable_v<X&&>)
     {
-        const auto total_size = x.size();
-        const auto orders = _differences_get_orders<XR>(any);
-        const auto strides = _differences_get_strides(x.dims());
-        auto x_data = x.data();
-        for (size_t level = 0u; level < XR; ++level)
-        {
-            if (size_t(orders[level]) >= x.dims()[level])
-                continue;
-            const auto mid_size = strides[level];
-            const auto inner_size = strides[level + 1u];
-            auto diff_size = mid_size;
-            for (int64_t order = 0; order < orders[level]; ++order)
-            {
-                diff_size -= inner_size;
-                if (diff_size == 0u)
-                    break;
-                _differences_impl(x_data, total_size, mid_size, diff_size,
-                    inner_size);
-            }
-        }
-        return _differences_crop(std::move(x), orders,
-            std::make_index_sequence<XR>{});
-    }
-    else if constexpr (is_array_v<XT>)
-    { // x is an l-value reference
-        auto x_copy = x;
-        return differences(std::move(x_copy), any);
+        return _differences_general<false>(std::move(x), any);
     }
     else
     {
-        return differences(x.to_array(), any);
+        auto x_copy = x.to_array();
+        return _differences_general<false>(std::move(x_copy), any);
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -3297,6 +3306,182 @@ auto differences(X&& x)
     WL_TRY_BEGIN()
     return differences(std::forward<decltype(x)>(x), 1);
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Any>
+auto ratios(X&& x, const Any& any)
+{
+    WL_TRY_BEGIN()
+    if constexpr (is_array_v<remove_cvref_t<X>> && is_movable_v<X&&> &&
+        !is_integral_v<value_type_t<remove_cvref_t<X>>>)
+    {
+        return _differences_general<true>(std::move(x), any);
+    }
+    else
+    { // need to copy
+        using XT = remove_cvref_t<X>;
+        constexpr auto XR = array_rank_v<XT>;
+        using PV = wl::promote_integral_t<value_type_t<XT>>;
+        auto x_copy = cast<ndarray<PV, XR>>(x);
+        return _differences_general<true>(std::move(x_copy), any);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto ratios(X&& x)
+{
+    WL_TRY_BEGIN()
+    return ratios(std::forward<decltype(x)>(x), 1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename XV, typename UX, typename P>
+auto _norm_impl_real(const XV* begin, const XV* end, const UX max, P p)
+{
+    const auto max_inv = UX(1) / max;
+    UX total = 0.0;
+    for (auto iter = begin; iter < end; ++iter)
+        total += wl::power(std::abs(UX(*iter)) * max_inv, p);
+    if constexpr (is_const_int_v<P>)
+        return max * wl::power(total, UX(1) / UX(P::value));
+    else
+        return max * wl::power(total, UX(1) / UX(p));
+}
+
+template<typename XV, typename UX, typename P>
+auto _norm_impl_complex(const XV* begin, const XV* end, const UX abs2_max, P p)
+{
+    const auto max_inv = UX(1) / abs2_max;
+    UX total = 0.0;
+    if constexpr (is_const_int_v<P>)
+    {
+        for (auto iter = begin; iter < end; ++iter)
+        {
+            if constexpr (!(P::value & int64_t(1)))
+                total += wl::power(*iter * max_inv, UX(P::value) / UX(2));
+            else
+                total += wl::power(*iter * max_inv,
+                    const_int<P::value / 2>{});
+        }
+    }
+    else if (is_integral_v<P> && !(p & P(1)))
+    { // p is even integer
+        const auto p2 = p / 2;
+        for (auto iter = begin; iter < end; ++iter)
+            total += wl::power(*iter * max_inv, p2);
+    }
+    else
+    {
+        const auto p2 = UX(p) / UX(2);
+        for (auto iter = begin; iter < end; ++iter)
+            total += wl::power(*iter * max_inv, p2);
+    }
+    if constexpr (is_const_int_v<P>)
+        return std::sqrt(abs2_max) * wl::power(total, UX(1) / UX(P::value));
+    else
+        return std::sqrt(abs2_max) * wl::power(total, UX(1) / UX(p));
+}
+
+template<typename X, typename P>
+auto norm(const X& x, const P& p)
+{
+    static_assert(array_rank_v<X> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"1.");
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_const_int_v<P> || is_arithmetic_v<P>, WL_ERROR_NORM_P);
+    if constexpr (is_const_int_v<P>)
+        static_assert(P::value >= 1, WL_ERROR_NORM_P);
+    else if (!(p >= P(1)))
+        throw std::logic_error(WL_ERROR_NORM_P);
+    using XV = value_type_t<X>;
+
+    bool calculate_total = false;
+    if constexpr (is_const_int_v<P>)
+        calculate_total = (P::value == 1);
+    else
+        calculate_total = (p == 1);
+
+    if (calculate_total)
+    {
+        using Ret = promote_integral_t<value_type_t<XV>>;
+        Ret ret = 0;
+        if constexpr (is_real_v<XV>)
+            x.for_each([&](const auto& a) { ret += wl::abs(Ret(a)); });
+        else
+            x.for_each([&](const auto& a) { ret += wl::abs(a); });
+        return ret;
+    }
+
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto x_data = valx.data();
+    const auto x_size = valx.size();
+    
+    if constexpr (is_integral_v<XV>)
+    {
+        using UX = decltype(std::make_unsigned_t<XV>{} + unsigned{});
+        UX abs_max = 0u;
+        for (size_t i = 0; i < x_size; ++i)
+        {
+            if constexpr (std::is_unsigned_v<XV>)
+            {
+                if (x_data[i] > abs_max)
+                    abs_max = x_data[i];
+            }
+            else
+            {
+                auto ux = UX(x_data[i]);
+                if (ux >= UX(std::numeric_limits<XV>::min()))
+                    ux = ~ux + UX(1);
+                if (ux > abs_max)
+                    abs_max = ux;
+            }
+        }
+        if (abs_max == UX(0))
+            return double(0.0);
+        else
+            return _norm_impl_real(x_data, x_data + x_size,
+                double(abs_max), p);
+    }
+    else if constexpr (is_float_v<XV>)
+    {
+        XV abs_max = 0;
+        for (size_t i = 0; i < x_size; ++i)
+        {
+            auto ux = std::abs(x_data[i]);
+            if (ux > abs_max)
+                abs_max = ux;
+        }
+        if (abs_max == XV(0))
+            return XV(0.0);
+        else
+            return _norm_impl_real(x_data, x_data + x_size, abs_max, p);
+    }
+    else // complex
+    {
+        using XRV = value_type_t<XV>;
+        ndarray<XRV, 1u> abs2(valx.dims());
+        const auto abs2_data = abs2.data();
+        XRV abs2_max = 0;
+        for (size_t i = 0; i < x_size; ++i)
+        {
+            const auto re = x_data[i].real();
+            const auto im = x_data[i].imag();
+            const auto abs2 = re * re + im * im;
+            abs2_data[i] = abs2;
+            if (abs2 > abs2_max)
+                abs2_max = abs2;
+        }
+        if (abs2_max == XRV(0))
+            return XRV(0.0);
+        else
+            return _norm_impl_complex(abs2.begin(), abs2.end(), abs2_max, p);
+    }
+}
+
+template<typename X>
+auto norm(const X& x)
+{
+    return norm(x, const_int<2>{});
 }
 
 }

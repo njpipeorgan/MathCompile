@@ -38,7 +38,7 @@ template<typename Array, int64_t I1, int64_t I2>
 auto total(const Array& a, const_int<I1>, const_int<I2>)
 {
     WL_TRY_BEGIN()
-        constexpr auto rank = array_rank_v<Array>;
+    constexpr auto rank = array_rank_v<Array>;
     static_assert(rank >= 1u, WL_ERROR_REQUIRE_ARRAY);
     using XV = value_type_t<Array>;
     constexpr int64_t L1 = I1 >= 0 ? I1 : I1 + int64_t(rank) + 1;
@@ -124,7 +124,7 @@ template<typename Array, int64_t I>
 auto total(const Array& a, const_int<I>)
 {
     WL_TRY_BEGIN()
-        return total(a, const_int<1>{}, const_int<I>{});
+    return total(a, const_int<1>{}, const_int<I>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -132,19 +132,45 @@ template<typename Array>
 auto total(const Array& a)
 {
     WL_TRY_BEGIN()
-        if constexpr (array_rank_v<Array> == 0u)
-            return a;
-        else
-            return total(a, const_int<1>{}, const_int<1>{});
+    if constexpr (array_rank_v<Array> == 0u)
+        return a;
+    else
+        return total(a, const_int<1>{}, const_int<1>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename Array>
-auto mean(const Array& a)
+template<typename X>
+auto mean(const X& x)
 {
     WL_TRY_BEGIN()
-        static_assert(array_rank_v<Array> >= 1u, WL_ERROR_REQUIRE_ARRAY);
-    return divide(total(a), a.dims()[0]);
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    using RV = promote_integral_t<value_type_t<X>>;
+
+    if constexpr (XR == 1u)
+    {
+        RV total = 0;
+        x.for_each([&](const auto& a) { total += RV(a); });
+        return total / RV(x.size());
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Simple>(x);
+        ndarray<RV, XR - 1u> ret(utils::dims_take<2u, XR>(valx.dims()), 0);
+        const auto row_size = valx.dims()[0];
+        const auto col_size = ret.size();
+        WL_THROW_IF_ABORT();
+        auto x_data = valx.data();
+        auto ret_data = ret.data();
+        for (size_t i = 0; i < row_size; ++i, x_data += col_size)
+            for (size_t j = 0; j < col_size; ++j)
+                ret_data[j] += RV(x_data[j]);
+        const auto row_size_inv = RV(1) / RV(row_size);
+        for (size_t j = 0; j < col_size; ++j)
+            ret_data[j] *= row_size_inv;
+        return ret;
+    }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
@@ -655,8 +681,153 @@ template<typename X>
 auto standard_deviation(const X& x)
 {
     WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     return sqrt(variance(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+
+template<typename RV, typename Var, typename Avg>
+auto _standardize_impl(RV* ret_data, Var* var_data, const Avg* avg_data,
+    const size_t size, const size_t stride)
+{
+    WL_THROW_IF_ABORT();
+    for (size_t j = 0; j < stride; ++j)
+        var_data[j] = Var(1) / std::sqrt(var_data[j]);
+
+    for (size_t i = 0; i < size; ++i, ret_data += stride)
+    {
+        for (size_t j = 0; j < stride; ++j)
+            ret_data[j] = (ret_data[j] - avg_data[j]) * var_data[j];
+    }
+}
+
+template<typename RV, typename Var, typename Avg>
+auto _standardize_impl(RV* ret_data, Var var, const Avg avg, const size_t size)
+{
+    WL_THROW_IF_ABORT();
+    var = Var(1) / std::sqrt(var);
+    for (size_t i = 0; i < size; ++i)
+        ret_data[i] = (ret_data[i] - avg) * var;
+}
+
+template<typename X>
+auto standardize(const X& x)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    using RV = promote_integral_t<value_type_t<X>>;
+    auto ret = cast<ndarray<RV, XR>>(x);
+    auto var = variance(ret);
+    auto avg = mean(ret);
+    if constexpr (XR == 1u)
+        _standardize_impl(ret.data(), var, avg, ret.size());
+    else
+        _standardize_impl(ret.data(), var.data(), avg.data(), ret.dims()[0],
+            var.size());
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto mean_deviation(const X& x)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    using RV = promote_integral_t<value_type_t<X>>;
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto avg = mean(valx);
+
+    if constexpr (XR == 1u)
+    {
+        RV total = 0;
+        valx.for_each([&](const auto& a) { total += std::abs(RV(a) - avg); });
+        return total / RV(valx.size());
+    }
+    else
+    {
+        ndarray<RV, XR - 1u> ret(utils::dims_take<2u, XR>(valx.dims()), 0);
+        const auto row_size = valx.dims()[0];
+        const auto col_size = ret.size();
+        WL_THROW_IF_ABORT();
+        auto x_data = valx.data();
+        auto ret_data = ret.data();
+        auto avg_data = avg.data();
+        for (size_t i = 0; i < row_size; ++i, x_data += col_size)
+            for (size_t j = 0; j < col_size; ++j)
+                ret_data[j] += std::abs(RV(x_data[j]) - avg_data[j]);
+        const auto row_size_inv = RV(1) / RV(row_size);
+        for (size_t j = 0; j < col_size; ++j)
+            ret_data[j] *= row_size_inv;
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+
+template<typename XV>
+auto _median_impl(XV* data, const size_t size)
+{
+    WL_THROW_IF_ABORT();
+    using RV = promote_integral_t<XV>;
+    if (size == 0u)
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
+    else if (size == 1u)
+        return RV(data[0]);
+    else if (size == 2u)
+        return RV(0.5) * RV(data[0]) + RV(0.5) * RV(data[1]);
+    else
+    {
+        const auto size2 = size >> 1;
+        std::nth_element(data, data + size2, data + size);
+        if (size & size_t(1))
+            return RV(data[size2]);
+        else
+            return RV(0.5) * RV(data[size2]) + RV(0.5) *
+                RV(*std::min_element(data + (size2 + 1u), data + size));
+    }
+}
+
+template<typename X>
+auto median(const X& x)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    using XV = value_type_t<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
+    
+    if constexpr (XR == 1u)
+    {
+        auto valx = x.to_array();
+        return _median_impl(valx.data(), valx.size());
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Simple>(x);
+        using RV = promote_integral_t<XV>;
+        ndarray<RV, 1u> ret(utils::dims_take<2u, XR>(valx.dims()));
+        const size_t col_size = ret.size();
+        const size_t row_size = valx.dims()[0];
+        ndarray<XV, 1u> slice(std::array<size_t, 1u>{row_size});
+
+        auto ret_data = ret.data();
+        auto x_data = valx.data();
+        auto slice_data = slice.data();
+        for (size_t i = 0; i < col_size; ++i, ++x_data, ++ret_data)
+        {
+            for (size_t j = 0; j < row_size; ++j)
+                slice_data[j] = x_data[j * col_size];
+            *ret_data = _median_impl(slice_data, row_size);
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 
 }

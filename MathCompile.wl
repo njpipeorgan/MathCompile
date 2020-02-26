@@ -617,6 +617,9 @@ $builtinfunctions=
   "Normalize"       ->"normalize",
   "Variance"        ->"variance",
   "StandardDeviation"->"standard_deviation",
+  "Standardize"     ->"standardize",
+  "Median"          ->"median",
+  "MeanDeviation"   ->"mean_deviation",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

@@ -27,8 +27,12 @@
 namespace wl
 {
 
+#if !defined(WL_L1_CACHE_SIZE)
+#  define WL_L1_CACHE_SIZE 32768
+#endif
+
 template<typename Z, typename X, typename Y>
-void _dot_vv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+WL_INLINE void _dot_vv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t K)
 {
     auto z = Z(0);
@@ -42,8 +46,16 @@ void _dot_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K)
 {
     WL_THROW_IF_ABORT()
-    for (size_t m = 0u; m < M; ++m)
-        _dot_vv(pz + m, px + m * K, py, K);
+    for (size_t m = 0u; m < M; ++m, ++pz, px += K)
+        _dot_vv(pz, px, py, K);
+}
+
+template<typename Z, typename Y>
+WL_INLINE auto _dot_sv(Z* WL_RESTRICT pz, const Z x, const Y* WL_RESTRICT py,
+    const size_t N)
+{
+    for (size_t n = 0u; n < N; ++n)
+        pz[n] += x * py[n];
 }
 
 template<typename Z, typename X, typename Y>
@@ -51,13 +63,8 @@ auto _dot_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t K, const size_t N)
 {
     WL_THROW_IF_ABORT()
-    for (size_t k = 0u; k < K; k += 1)
-    {
-        const auto xk = Z(px[k]);
-        const auto* WL_RESTRICT pyk = py + k * N;
-        for (size_t n = 0u; n < N; ++n)
-            pz[n] += xk * Z(pyk[n]);
-    }
+    for (size_t k = 0u; k < K; ++k, py += N)
+        _dot_sv(pz, Z(px[k]), py, N);
 }
 
 template<typename Z, typename X, typename Y>

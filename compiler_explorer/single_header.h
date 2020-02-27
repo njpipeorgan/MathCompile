@@ -17689,7 +17689,7 @@ auto mean_deviation(const X& x)
 template<typename XV>
 auto _median_impl(XV* data, const size_t size)
 {
-    WL_THROW_IF_ABORT();
+    WL_THROW_IF_ABORT()
     using RV = promote_integral_t<XV>;
     if (size == 0u)
         throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
@@ -17701,30 +17701,34 @@ auto _median_impl(XV* data, const size_t size)
     {
         const auto size2 = size >> 1;
         std::nth_element(data, data + size2, data + size);
-        if (size & size_t(1))
-            return RV(data[size2]);
-        else
-            return RV(0.5) * RV(data[size2]) + RV(0.5) *
-                RV(*std::min_element(data + (size2 + 1u), data + size));
+        auto median = RV(data[size2]);
+        if (!(size & size_t(1)))
+        {
+            auto prev = std::max_element(data, data + size2);
+            median = RV(0.5) * median + RV(0.5) * RV(*prev);
+        }
+        return median;
     }
 }
 template<typename X>
-auto median(const X& x)
+auto median(X&& x)
 {
     WL_TRY_BEGIN()
-    constexpr auto XR = array_rank_v<X>;
-    using XV = value_type_t<X>;
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
     
     if constexpr (XR == 1u)
     {
-        auto valx = x.to_array();
+        auto valx = std::forward<decltype(x)>(x).to_array();
         return _median_impl(valx.data(), valx.size());
     }
     else
     {
-        const auto& valx = allows<view_category::Simple>(x);
+        const auto& valx = allows<view_category::Simple>(
+            std::forward<decltype(x)>(x));
         using RV = promote_integral_t<XV>;
         ndarray<RV, 1u> ret(utils::dims_take<2u, XR>(valx.dims()));
         const size_t col_size = ret.size();
@@ -17743,11 +17747,76 @@ auto median(const X& x)
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+template<typename RV>
+auto _median_deviation_impl(RV* data, const size_t size)
+{
+    WL_THROW_IF_ABORT()
+    if (size == 0u)
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
+    else if (size == 1u)
+        return RV(0);
+    else if (size == 2u)
+        return std::abs(RV(0.5) * data[0] - RV(0.5) * data[1]);
+    else
+    {
+        const auto size2 = size >> 1;
+        std::nth_element(data, data + size2, data + size);
+        auto median = data[size2];
+        if (!(size & size_t(1)))
+        {
+            auto prev = std::max_element(data, data + size2);
+            median = RV(0.5) * median + RV(0.5) * (*prev);
+            std::swap(data[size2 - 1u], *prev);
+        }
+        for (size_t i = 0; i < size2; ++i)
+            data[i] = median - data[i];
+        for (size_t i = size2; i < size; ++i)
+            data[i] = data[i] - median;
+        return _median_impl(data, size);
+    }
+}
+template<typename X>
+auto median_deviation(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
+    using RV = promote_integral_t<XV>;
+    auto valx = cast<ndarray<RV, XR>>(std::forward<decltype(x)>(x));
+    if constexpr (XR == 1u)
+    {
+        return _median_deviation_impl(valx.data(), valx.size());
+    }
+    else
+    {
+        ndarray<RV, 1u> ret(utils::dims_take<2u, XR>(valx.dims()));
+        const size_t col_size = ret.size();
+        const size_t row_size = valx.dims()[0];
+        ndarray<RV, 1u> slice(std::array<size_t, 1u>{row_size});
+        auto ret_data = ret.data();
+        auto x_data = valx.data();
+        auto slice_data = slice.data();
+        for (size_t i = 0; i < col_size; ++i, ++x_data, ++ret_data)
+        {
+            for (size_t j = 0; j < row_size; ++j)
+                slice_data[j] = x_data[j * col_size];
+            *ret_data = _median_deviation_impl(slice_data, row_size);
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
 }
 namespace wl
 {
+#if !defined(WL_L1_CACHE_SIZE)
+#  define WL_L1_CACHE_SIZE 32768
+#endif
 template<typename Z, typename X, typename Y>
-void _dot_vv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+WL_INLINE void _dot_vv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t K)
 {
     auto z = Z(0);
@@ -17760,28 +17829,40 @@ void _dot_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K)
 {
     WL_THROW_IF_ABORT()
-    for (size_t m = 0u; m < M; ++m)
-        _dot_vv(pz + m, px + m * K, py, K);
+    for (size_t m = 0u; m < M; ++m, ++pz, px += K)
+        _dot_vv(pz, px, py, K);
+}
+template<typename Z, typename Y>
+WL_INLINE auto _dot_sv(Z* WL_RESTRICT pz, const Z x, const Y* WL_RESTRICT py,
+    const size_t N)
+{
+    for (size_t n = 0u; n < N; ++n)
+        pz[n] += x * py[n];
 }
 template<typename Z, typename X, typename Y>
 auto _dot_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t K, const size_t N)
 {
     WL_THROW_IF_ABORT()
-    for (size_t k = 0u; k < K; k += 1)
-    {
-        const auto xk = Z(px[k]);
-        const auto* WL_RESTRICT pyk = py + k * N;
-        for (size_t n = 0u; n < N; ++n)
-            pz[n] += xk * Z(pyk[n]);
-    }
+    for (size_t k = 0u; k < K; ++k, py += N)
+        _dot_sv(pz, Z(px[k]), py, N);
 }
 template<typename Z, typename X, typename Y>
 auto _dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
 {
+    // x: M * K, y : K * M
     for (size_t m = 0; m < M; ++m)
         _dot_vm(pz + m * N, px + m * K, py, K, N);
+}
+template<typename Z, typename X, typename Y>
+auto _dot_mmt(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
+{
+    // x: M * K, y : N * K
+    for (size_t m = 0; m < M; ++m)
+        for (size_t n = 0; n < N; ++n, ++pz, *pz = Z(0))
+            _dot_vv(pz, px + m * K, py + n * K, K);
 }
 template<typename X, typename Y>
 auto dot(const X& x, const Y& y)

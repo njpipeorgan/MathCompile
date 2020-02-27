@@ -620,6 +620,7 @@ $builtinfunctions=
   "Standardize"     ->"standardize",
   "Median"          ->"median",
   "MeanDeviation"   ->"mean_deviation",
+  "MedianDeviation" ->"median_deviation",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

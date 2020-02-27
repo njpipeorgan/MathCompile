@@ -768,11 +768,10 @@ auto mean_deviation(const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-
 template<typename XV>
 auto _median_impl(XV* data, const size_t size)
 {
-    WL_THROW_IF_ABORT();
+    WL_THROW_IF_ABORT()
     using RV = promote_integral_t<XV>;
     if (size == 0u)
         throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
@@ -784,31 +783,35 @@ auto _median_impl(XV* data, const size_t size)
     {
         const auto size2 = size >> 1;
         std::nth_element(data, data + size2, data + size);
-        if (size & size_t(1))
-            return RV(data[size2]);
-        else
-            return RV(0.5) * RV(data[size2]) + RV(0.5) *
-                RV(*std::min_element(data + (size2 + 1u), data + size));
+        auto median = RV(data[size2]);
+        if (!(size & size_t(1)))
+        {
+            auto prev = std::max_element(data, data + size2);
+            median = RV(0.5) * median + RV(0.5) * RV(*prev);
+        }
+        return median;
     }
 }
 
 template<typename X>
-auto median(const X& x)
+auto median(X&& x)
 {
     WL_TRY_BEGIN()
-    constexpr auto XR = array_rank_v<X>;
-    using XV = value_type_t<X>;
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
     static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
     static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
     
     if constexpr (XR == 1u)
     {
-        auto valx = x.to_array();
+        auto valx = std::forward<decltype(x)>(x).to_array();
         return _median_impl(valx.data(), valx.size());
     }
     else
     {
-        const auto& valx = allows<view_category::Simple>(x);
+        const auto& valx = allows<view_category::Simple>(
+            std::forward<decltype(x)>(x));
         using RV = promote_integral_t<XV>;
         ndarray<RV, 1u> ret(utils::dims_take<2u, XR>(valx.dims()));
         const size_t col_size = ret.size();
@@ -829,5 +832,70 @@ auto median(const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename RV>
+auto _median_deviation_impl(RV* data, const size_t size)
+{
+    WL_THROW_IF_ABORT()
+    if (size == 0u)
+        throw std::logic_error(WL_ERROR_REQUIRE_NON_EMPTY);
+    else if (size == 1u)
+        return RV(0);
+    else if (size == 2u)
+        return std::abs(RV(0.5) * data[0] - RV(0.5) * data[1]);
+    else
+    {
+        const auto size2 = size >> 1;
+        std::nth_element(data, data + size2, data + size);
+        auto median = data[size2];
+        if (!(size & size_t(1)))
+        {
+            auto prev = std::max_element(data, data + size2);
+            median = RV(0.5) * median + RV(0.5) * (*prev);
+            std::swap(data[size2 - 1u], *prev);
+        }
+        for (size_t i = 0; i < size2; ++i)
+            data[i] = median - data[i];
+        for (size_t i = size2; i < size; ++i)
+            data[i] = data[i] - median;
+        return _median_impl(data, size);
+    }
+}
+
+template<typename X>
+auto median_deviation(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
+
+    using RV = promote_integral_t<XV>;
+    auto valx = cast<ndarray<RV, XR>>(std::forward<decltype(x)>(x));
+    if constexpr (XR == 1u)
+    {
+        return _median_deviation_impl(valx.data(), valx.size());
+    }
+    else
+    {
+        ndarray<RV, 1u> ret(utils::dims_take<2u, XR>(valx.dims()));
+        const size_t col_size = ret.size();
+        const size_t row_size = valx.dims()[0];
+        ndarray<RV, 1u> slice(std::array<size_t, 1u>{row_size});
+
+        auto ret_data = ret.data();
+        auto x_data = valx.data();
+        auto slice_data = slice.data();
+        for (size_t i = 0; i < col_size; ++i, ++x_data, ++ret_data)
+        {
+            for (size_t j = 0; j < row_size; ++j)
+                slice_data[j] = x_data[j * col_size];
+            *ret_data = _median_deviation_impl(slice_data, row_size);
+        }
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
 
 }

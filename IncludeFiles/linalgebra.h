@@ -64,8 +64,19 @@ template<typename Z, typename X, typename Y>
 auto _dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
 {
+    // x: M * K, y : K * M
     for (size_t m = 0; m < M; ++m)
         _dot_vm(pz + m * N, px + m * K, py, K, N);
+}
+
+template<typename Z, typename X, typename Y>
+auto _dot_mmt(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
+{
+    // x: M * K, y : N * K
+    for (size_t m = 0; m < M; ++m)
+        for (size_t n = 0; n < N; ++n, ++pz, *pz = Z(0))
+            _dot_vv(pz, px + m * K, py + n * K, K);
 }
 
 template<typename X, typename Y>

@@ -208,7 +208,6 @@ struct _small_vector
     }
     WL_INLINE void destroy_dynamic()
     {
-        WL_THROW_IF_ABORT()
         data_.dynamic_.~dynamic_t();
     }
 

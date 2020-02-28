@@ -1508,15 +1508,16 @@ inline std::string extract_filename(const char* file)
 }
 extern volatile bool global_abort_in_progress;
 extern volatile bool global_stop_check_abort;
+extern std::unique_ptr<std::thread> abort_thread;
 template<typename AbortQ>
-void start_check_abort(std::unique_ptr<std::thread>& thread, AbortQ* abort_q)
+void start_check_abort(AbortQ* abort_q)
 {
 #if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
     global_stop_check_abort = false;
     global_abort_in_progress = false;
-    if (thread)
+    if (abort_thread)
         return;
-    thread = std::make_unique<std::thread>([=]
+    abort_thread = std::make_unique<std::thread>([=]
         {
             for (;;)
             {
@@ -1529,13 +1530,13 @@ void start_check_abort(std::unique_ptr<std::thread>& thread, AbortQ* abort_q)
         });
 #endif
 }
-inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
+inline void stop_check_abort()
 {
 #if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
     global_stop_check_abort = true;
     global_abort_in_progress = false;
-    if (thread)
-        thread.release()->join();
+    if (abort_thread)
+        abort_thread.release()->join();
 #endif
 }
 }
@@ -2944,7 +2945,6 @@ struct _small_vector
     }
     WL_INLINE void destroy_dynamic()
     {
-        WL_THROW_IF_ABORT()
         data_.dynamic_.~dynamic_t();
     }
     WL_INLINE void destroy()
@@ -14751,18 +14751,18 @@ namespace wl
 {
 #if defined(WL_USE_MATHLINK)
 template<typename X>
-auto print(const X& x);
+void_type print(const X& x);
 template<typename X>
-auto echo(X&& x);
+X&& echo(X&& x);
 #else
 template<typename X>
-auto print(const X& x)
+void_type print(const X& x)
 {
     std::cout << to_string(x)._ascii_string() << std::endl;
     return const_null;
 }
 template<typename X>
-auto echo(X&& x)
+X&& echo(X&& x)
 {
     std::cout << to_string(x)._ascii_string() << std::endl;
     return std::forward<decltype(x)>(x);
@@ -17852,17 +17852,22 @@ auto _dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
 {
     // x: M * K, y : K * M
-    for (size_t m = 0; m < M; ++m)
-        _dot_vm(pz + m * N, px + m * K, py, K, N);
-}
-template<typename Z, typename X, typename Y>
-auto _dot_mmt(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
-    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
-{
-    // x: M * K, y : N * K
-    for (size_t m = 0; m < M; ++m)
-        for (size_t n = 0; n < N; ++n, ++pz, *pz = Z(0))
-            _dot_vv(pz, px + m * K, py + n * K, K);
+    constexpr size_t BM = 16;
+    constexpr size_t BN = 1024 / sizeof(Z);
+    constexpr size_t BK = 16;
+    for (size_t m1 = 0u; m1 < M; m1 += BM)
+    for (size_t k1 = 0u; k1 < K; k1 += BK)
+    for (size_t n1 = 0u; n1 < N; n1 += BN)
+    {
+        WL_THROW_IF_ABORT()
+        for (size_t m = m1; m < std::min(m1 + BM, M); ++m)
+        for (size_t k = k1; k < std::min(k1 + BK, K); ++k)
+        {
+            auto* WL_RESTRICT pz1 = pz + (m * N + n1);
+            auto* WL_RESTRICT py1 = py + (k * N + n1);
+            _dot_sv(pz1, Z(px[m * K + k]), py1, std::min(N - n1, BN));
+        }
+    }
 }
 template<typename X, typename Y>
 auto dot(const X& x, const Y& y)

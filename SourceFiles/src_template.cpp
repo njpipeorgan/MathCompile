@@ -22,9 +22,9 @@ WolframLibraryData wl::librarylink::lib_data;
 WolframCompileLibrary_Functions wl::librarylink::lib_functions;
 std::unique_ptr<void*[]> wl::librarylink::kernel_fptrs;
 
-volatile bool wl::librarylink::global_abort_in_progress;
-volatile bool wl::librarylink::global_stop_check_abort;
-std::unique_ptr<std::thread> abort_thread;
+volatile bool wl::librarylink::global_abort_in_progress = false;
+volatile bool wl::librarylink::global_stop_check_abort = true;
+std::unique_ptr<std::thread> wl::librarylink::abort_thread;
 
 EXTERN_C DLLEXPORT mint WolframLibrary_getVersion() {
     return WolframLibraryVersion;
@@ -56,13 +56,12 @@ EXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData lib_data) {
     wl::librarylink::lib_data = lib_data;
     wl::librarylink::lib_functions =
         wl::librarylink::lib_data->compileLibraryFunctions;
-    wl::librarylink::global_stop_check_abort = false;
     `funcid`_load_kernel_fptrs();
     return LIBRARY_NO_ERROR;
 }
 
 EXTERN_C DLLEXPORT void WolframLibrary_uninitialize() {
-    wl::librarylink::stop_check_abort(abort_thread);
+    wl::librarylink::stop_check_abort();
     wl::librarylink::lib_data = nullptr;
 }
 `funcbody`
@@ -79,31 +78,30 @@ return LIBRARY_NO_ERROR;
 EXTERN_C DLLEXPORT int `funcid`_func(WolframLibraryData lib_data,
 mint argc, MArgument *argv, MArgument res) {
     try {
-        wl::librarylink::start_check_abort(abort_thread, lib_data->AbortQ);
+        wl::librarylink::start_check_abort(lib_data->AbortQ);
         auto val = main_function(
             `args`
         );
         wl::librarylink::set(res, val);
     }
     catch (const std::logic_error& error) {
+        wl::librarylink::stop_check_abort();
         wl::librarylink::send_error(error.what());
-        wl::librarylink::stop_check_abort(abort_thread);
         return LIBRARY_FUNCTION_ERROR;
     }
     catch (const std::bad_alloc& error) {
+        wl::librarylink::stop_check_abort();
         wl::librarylink::send_error(error.what());
-        wl::librarylink::stop_check_abort(abort_thread);
         return LIBRARY_MEMORY_ERROR;
     }
-    catch (int error)
-    {
+    catch (int error) {
+        wl::librarylink::stop_check_abort();
         wl::librarylink::send_error(std::string(WL_ERROR_LIBRARYLINK));
-        wl::librarylink::stop_check_abort(abort_thread);
         return error;
     }
     catch (...) {
+        wl::librarylink::stop_check_abort();
         wl::librarylink::send_error(std::string(WL_ERROR_INTERNAL));
-        wl::librarylink::stop_check_abort(abort_thread);
         return LIBRARY_FUNCTION_ERROR;
     }
     return LIBRARY_NO_ERROR;

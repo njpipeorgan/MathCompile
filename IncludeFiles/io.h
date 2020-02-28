@@ -38,22 +38,22 @@ namespace wl
 #if defined(WL_USE_MATHLINK)
 
 template<typename X>
-auto print(const X& x);
+void_type print(const X& x);
 
 template<typename X>
-auto echo(X&& x);
+X&& echo(X&& x);
 
 #else
 
 template<typename X>
-auto print(const X& x)
+void_type print(const X& x)
 {
     std::cout << to_string(x)._ascii_string() << std::endl;
     return const_null;
 }
 
 template<typename X>
-auto echo(X&& x)
+X&& echo(X&& x)
 {
     std::cout << to_string(x)._ascii_string() << std::endl;
     return std::forward<decltype(x)>(x);

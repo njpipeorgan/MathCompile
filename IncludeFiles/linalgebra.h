@@ -72,18 +72,23 @@ auto _dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
 {
     // x: M * K, y : K * M
-    for (size_t m = 0; m < M; ++m)
-        _dot_vm(pz + m * N, px + m * K, py, K, N);
-}
+    constexpr size_t BM = 16;
+    constexpr size_t BN = 1024 / sizeof(Z);
+    constexpr size_t BK = 16;
 
-template<typename Z, typename X, typename Y>
-auto _dot_mmt(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
-    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
-{
-    // x: M * K, y : N * K
-    for (size_t m = 0; m < M; ++m)
-        for (size_t n = 0; n < N; ++n, ++pz, *pz = Z(0))
-            _dot_vv(pz, px + m * K, py + n * K, K);
+    for (size_t m1 = 0u; m1 < M; m1 += BM)
+    for (size_t k1 = 0u; k1 < K; k1 += BK)
+    for (size_t n1 = 0u; n1 < N; n1 += BN)
+    {
+        WL_THROW_IF_ABORT()
+        for (size_t m = m1; m < std::min(m1 + BM, M); ++m)
+        for (size_t k = k1; k < std::min(k1 + BK, K); ++k)
+        {
+            auto* WL_RESTRICT pz1 = pz + (m * N + n1);
+            auto* WL_RESTRICT py1 = py + (k * N + n1);
+            _dot_sv(pz1, Z(px[m * K + k]), py1, std::min(N - n1, BN));
+        }
+    }
 }
 
 template<typename X, typename Y>

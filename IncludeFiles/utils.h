@@ -388,16 +388,17 @@ inline std::string extract_filename(const char* file)
 
 extern volatile bool global_abort_in_progress;
 extern volatile bool global_stop_check_abort;
+extern std::unique_ptr<std::thread> abort_thread;
 
 template<typename AbortQ>
-void start_check_abort(std::unique_ptr<std::thread>& thread, AbortQ* abort_q)
+void start_check_abort(AbortQ* abort_q)
 {
 #if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
     global_stop_check_abort = false;
     global_abort_in_progress = false;
-    if (thread)
+    if (abort_thread)
         return;
-    thread = std::make_unique<std::thread>([=]
+    abort_thread = std::make_unique<std::thread>([=]
         {
             for (;;)
             {
@@ -411,13 +412,13 @@ void start_check_abort(std::unique_ptr<std::thread>& thread, AbortQ* abort_q)
 #endif
 }
 
-inline void stop_check_abort(std::unique_ptr<std::thread>& thread)
+inline void stop_check_abort()
 {
 #if defined(WL_USE_MATHLINK) && defined(WL_CHECK_ABORT)
     global_stop_check_abort = true;
     global_abort_in_progress = false;
-    if (thread)
-        thread.release()->join();
+    if (abort_thread)
+        abort_thread.release()->join();
 #endif
 }
 

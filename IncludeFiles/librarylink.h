@@ -746,7 +746,7 @@ auto extern_function(int64_t i, Ret)
 }
 
 template<typename X>
-auto print(const X& x)
+void_type print(const X& x)
 {
     WL_TRY_BEGIN()
     WL_THROW_IF_ABORT()
@@ -758,14 +758,14 @@ auto print(const X& x)
     else
         link.put(x);
     link.eof();
+    return const_null;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
-auto echo(X&& x)
+X&& echo(X&& x)
 {
     WL_TRY_BEGIN()
-    WL_THROW_IF_ABORT()
     librarylink::mathlink_t link;
     link.put("EvaluatePacket", 1).
         put("CompoundExpression", 2).

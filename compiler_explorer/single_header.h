@@ -288,6 +288,8 @@ namespace wl
 "The parameter p should be a real number greater than 1."
 #define WL_ERROR_NORMALIZE_NORM \
 "The norm function should return a real number."
+#define WL_ERROR_THRESHOLD_PARAMS \
+"The parameters of threshold function should be real numbers."
 #define WL_ERROR_LIBRARYLINK \
 "An error has occurred during a LibraryLink operation."
 #define WL_ERROR_CALLBACK \
@@ -3691,6 +3693,192 @@ auto name(X1&& x1, X2&& x2, X3&& x3, Xs&&... xs)                    \
 }
 namespace wl
 {
+#define WL_DEFINE_UNARY_MATH_FUNCTION(name, expr)                           \
+template<typename X>                                                        \
+WL_INLINE auto name(X&& x)                                                  \
+{                                                                           \
+    WL_TRY_BEGIN()                                                          \
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,                   \
+        WL_ERROR_NUMERIC_ONLY);                                             \
+    return utils::listable_function([](auto x) {                            \
+            using PX = promote_integral_t<decltype(x)>;                     \
+            return expr;                                                    \
+        }, std::forward<decltype(x)>(x));                                   \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
+}
+#define WL_DEFINE_BINARY_MATH_FUNCTION(name, expr)                          \
+template<typename X, typename Y>                                            \
+WL_INLINE auto name(X&& x, Y&& y)                                           \
+{                                                                           \
+    WL_TRY_BEGIN()                                                          \
+    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&                 \
+        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);     \
+    return utils::listable_function([](auto x, auto y)                      \
+        {                                                                   \
+            using PX = promote_integral_t<decltype(x)>;                     \
+            using PY = promote_integral_t<decltype(y)>;                     \
+            using PC = promote_integral_t<                                  \
+                common_type_t<decltype(x), decltype(y)>>;                   \
+            return expr;                                                    \
+        }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));     \
+    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
+}
+template<typename X>
+WL_INLINE auto _scalar_square(const X x)
+{
+    return X(x * x);
+}
+template<typename X>
+WL_INLINE auto _scalar_abs_square(const X x)
+{
+    if constexpr (is_real_v<X>)
+        return _scalar_square(promote_integral_t<X>(x));
+    else if constexpr (is_complex_v<X>)
+        return x.real() * x.real() + x.imag() * x.imag();
+    else
+        static_assert(always_false_v<X>, WL_ERROR_INTERNAL);
+}
+template<typename X, typename Y>
+WL_INLINE auto _scalar_power(const X& x, const Y& y)
+{
+    if constexpr (is_integral_v<Y>)
+    {
+        auto tmp = x;
+        auto count = y < 0 ? uint64_t(0) - uint64_t(y) :  uint64_t(y);
+        auto ret = X(1);
+        for (;; tmp *= tmp)
+        {
+            if ((count & uint64_t(1)) != 0u)
+                ret *= tmp;
+            if ((count >>= 1) == 0u)
+                return y < 0 ? X(1) / ret : ret;
+        }
+    }
+    else
+    {
+        return std::pow(x, y);
+    }
+}
+template<typename X, int64_t y>
+WL_INLINE auto _scalar_power(const X& x, const_int<y>)
+{
+    if constexpr (y < 0)
+        return X(1) / _scalar_power(x, const_int<-y>{});
+    else if constexpr (y == 0)
+        return X(1);
+    else if constexpr (y == 1)
+        return x;
+    else if constexpr (y == 2)
+        return X(x * x);
+    else if (y < 16)
+    {
+        X ret = _scalar_power(x, const_int<(y / 2)>{});
+        ret *= ret;
+        if constexpr ((y & int64_t(1)) != 0)
+            ret *= x;
+        return ret;
+    }
+    else
+        return _scalar_power(x, y);
+}
+template<typename X, int64_t I>
+WL_INLINE auto power(X&& x, const_int<I>)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    return utils::listable_function([](auto x)
+        {
+            using PC = promote_integral_t<common_type_t<decltype(x), int64_t>>;
+            return _scalar_power(PC(x), const_int<I>{});
+        }, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+WL_INLINE X _scalar_gamma(const X& x)
+{
+    static_assert(is_float_v<X>, WL_ERROR_INTERNAL);
+    return X(std::tgamma(x));
+}
+template<typename X>
+complex<X> _scalar_gamma(const complex<X>& x)
+{
+    constexpr size_t data_size = 9;
+    static const std::array<double, data_size> data ={
+        0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+        771.32342877765313, -176.61502916214059, 12.507343278686905,
+        -0.13857109526572012, 9.9843695780195716e-6,
+        1.5056327351493116e-7};
+    if (std::real(x) < X(0.5))
+    {
+        return X(const_pi) / (
+            std::sin(X(const_pi) * x) * _scalar_gamma(X(1) - x));
+    }
+    else
+    {
+        complex<X> z = x - X(1);
+        complex<X> y = data[0];
+        for (size_t i = 1; i < data_size; ++i)
+            y += data[i] / (z + X(i));
+        complex<X> t = z + X(7.5);
+        return std::sqrt(X(2 * const_pi)) *
+            std::pow(t, z + X(0.5)) * std::exp(-t) * y;
+    }
+}
+WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(log, std::log(PC(y)) / std::log(PC(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(log2, PX(1.4426950408889634074) * std::log(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(log10, PX(0.43429448190325182765) * std::log(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
+WL_DEFINE_BINARY_MATH_FUNCTION(power, _scalar_power(PC(x), y))
+WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(tan, std::tan(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(cot, PX(1) / std::tan(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sec, PX(1) / std::cos(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(csc, PX(1) / std::sin(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsin, std::asin(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccos, std::acos(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arctan, std::atan(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccot, std::atan(PX(1) / x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsec, std::acos(PX(1) / x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccsc, std::asin(PX(1) / x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sinh, std::sinh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(cosh, std::cosh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(tanh, std::tanh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(coth, PX(1) / std::tanh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sech, PX(1) / std::cosh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(csch, PX(1) / std::sinh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsinh, std::asinh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccosh, std::acosh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arctanh, std::atanh(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccoth, std::atanh(PX(1) / x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arcsech, std::acosh(PX(1) / x))
+WL_DEFINE_UNARY_MATH_FUNCTION(arccsch, std::asinh(PX(1) / x))
+WL_DEFINE_UNARY_MATH_FUNCTION(sinc, (x == PX(0) ? PX(1) : std::sin(x) / PX(x)))
+WL_DEFINE_BINARY_MATH_FUNCTION(arctan, std::atan2(PC(x), PC(y)))
+WL_DEFINE_UNARY_MATH_FUNCTION(haversine,
+    _scalar_square(std::sin(PX(0.5) * x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(inverse_haversine,
+    PX(2) * std::asin(std::sqrt(x)))
+WL_DEFINE_UNARY_MATH_FUNCTION(gudermannian,
+    PX(2) * std::atan(std::exp(x)) - PX(1.5707963267948966192))
+WL_DEFINE_UNARY_MATH_FUNCTION(inverse_gudermannian,
+    std::log(std::tan(PX(0.5) * x + PX(0.78539816339744830962))))
+WL_DEFINE_UNARY_MATH_FUNCTION(logistic_sigmoid,
+    PX(1) / (PX(1) + std::exp(-PX(x))))
+WL_DEFINE_UNARY_MATH_FUNCTION(gamma, _scalar_gamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
+WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
+#if !defined(WL_DISABLE_SPECIAL_FUNCTIONS)
+WL_DEFINE_BINARY_MATH_FUNCTION(beta, std::beta(x, y))
+WL_DEFINE_UNARY_MATH_FUNCTION(zeta, std::riemann_zeta(x))
+#endif
+}
+namespace wl
+{
 template<typename X>
 auto n(X&& x)
 {
@@ -4453,6 +4641,139 @@ auto chop(X&& x, const Y& y)
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Function>
+auto _threshold_general(X&& x, Function f)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    return utils::listable_function(f, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Delta>
+auto threshold_hard(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure = [delta = C(delta)](const auto& x)
+    {
+        return C(abs(x)) < delta ? XV(0) : x;
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Delta>
+auto threshold_soft(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<XV, Delta>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure = [delta = C(delta)](const auto& x)
+    {
+        const auto absx = C(abs(x));
+        return absx < delta ? RV(0) : RV(sign(x)) * RV(absx - delta);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Delta, typename R, typename P>
+auto threshold_firm(X&& x, const Delta& delta, const R& r, const P& p)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta> && is_real_v<R> && is_real_v<P>,
+        WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta, R, P>;
+    using C = common_type_t<value_type_t<promote_integral_t<XV>>, Delta, R, P>;
+    auto pure = [delta = C(delta), r = C(r), p = C(p)](const auto& x)
+    {
+        const auto absx = abs(RV(x)) / delta - (1 - p * r);
+        if (absx <= 0)
+            return RV(0);
+        else if (absx <= r)
+            return RV(sign(x)) * absx * delta * ((1 - p * r) / r + 1);
+        else
+            return RV(x);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Delta>
+auto threshold_piecewise_garrote(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure =[delta = C(delta)](const auto& x)
+    {
+        if (C(abs(x)) <= delta)
+            return RV(0);
+        else
+            return RV(x) - delta * delta / RV(x);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Delta, typename N>
+auto threshold_smooth_garrote(X&& x, const Delta& delta, const N& n)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta> && is_real_v<N>,
+        WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta>;
+    using C = value_type_t<RV>;
+    auto pure = [delta = C(delta), n = n](const auto& x)
+    {
+        return x == 0 ? RV(0) : RV(x) / (C(1) + power(delta / x, 2 * n));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Delta>
+auto threshold_hyperbola(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure = [delta = C(delta)](const auto& x)
+    {
+        if (C(abs(x)) <= delta)
+            return RV(0);
+        else
+            return RV(sign(x)) * std::sqrt(x * x - delta * delta);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto threshold(X&& x)
+{
+    WL_TRY_BEGIN()
+    constexpr double default_threshold = double(1.0e-10);
+    return threshold_hard(std::forward<decltype(x)>(x), default_threshold);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
@@ -5235,192 +5556,6 @@ auto abs_arg(X&& x)
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-}
-namespace wl
-{
-#define WL_DEFINE_UNARY_MATH_FUNCTION(name, expr)                           \
-template<typename X>                                                        \
-WL_INLINE auto name(X&& x)                                                  \
-{                                                                           \
-    WL_TRY_BEGIN()                                                          \
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>,                   \
-        WL_ERROR_NUMERIC_ONLY);                                             \
-    return utils::listable_function([](auto x) {                            \
-            using PX = promote_integral_t<decltype(x)>;                     \
-            return expr;                                                    \
-        }, std::forward<decltype(x)>(x));                                   \
-    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
-}
-#define WL_DEFINE_BINARY_MATH_FUNCTION(name, expr)                          \
-template<typename X, typename Y>                                            \
-WL_INLINE auto name(X&& x, Y&& y)                                           \
-{                                                                           \
-    WL_TRY_BEGIN()                                                          \
-    static_assert(is_numerical_type_v<remove_cvref_t<X>> &&                 \
-        is_numerical_type_v<remove_cvref_t<Y>>, WL_ERROR_NUMERIC_ONLY);     \
-    return utils::listable_function([](auto x, auto y)                      \
-        {                                                                   \
-            using PX = promote_integral_t<decltype(x)>;                     \
-            using PY = promote_integral_t<decltype(y)>;                     \
-            using PC = promote_integral_t<                                  \
-                common_type_t<decltype(x), decltype(y)>>;                   \
-            return expr;                                                    \
-        }, std::forward<decltype(x)>(x), std::forward<decltype(y)>(y));     \
-    WL_TRY_END(__func__, __FILE__, __LINE__)                                \
-}
-template<typename X>
-WL_INLINE auto _scalar_square(const X x)
-{
-    return X(x * x);
-}
-template<typename X>
-WL_INLINE auto _scalar_abs_square(const X x)
-{
-    if constexpr (is_real_v<X>)
-        return _scalar_square(promote_integral_t<X>(x));
-    else if constexpr (is_complex_v<X>)
-        return x.real() * x.real() + x.imag() * x.imag();
-    else
-        static_assert(always_false_v<X>, WL_ERROR_INTERNAL);
-}
-template<typename X, typename Y>
-WL_INLINE auto _scalar_power(const X& x, const Y& y)
-{
-    if constexpr (is_integral_v<Y>)
-    {
-        auto tmp = x;
-        auto count = y < 0 ? uint64_t(0) - uint64_t(y) :  uint64_t(y);
-        auto ret = X(1);
-        for (;; tmp *= tmp)
-        {
-            if ((count & uint64_t(1)) != 0u)
-                ret *= tmp;
-            if ((count >>= 1) == 0u)
-                return y < 0 ? X(1) / ret : ret;
-        }
-    }
-    else
-    {
-        return std::pow(x, y);
-    }
-}
-template<typename X, int64_t y>
-WL_INLINE auto _scalar_power(const X& x, const_int<y>)
-{
-    if constexpr (y < 0)
-        return X(1) / _scalar_power(x, const_int<-y>{});
-    else if constexpr (y == 0)
-        return X(1);
-    else if constexpr (y == 1)
-        return x;
-    else if constexpr (y == 2)
-        return X(x * x);
-    else if (y < 16)
-    {
-        X ret = _scalar_power(x, const_int<(y / 2)>{});
-        ret *= ret;
-        if constexpr ((y & int64_t(1)) != 0)
-            ret *= x;
-        return ret;
-    }
-    else
-        return _scalar_power(x, y);
-}
-template<typename X, int64_t I>
-WL_INLINE auto power(X&& x, const_int<I>)
-{
-    WL_TRY_BEGIN()
-    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
-        WL_ERROR_NUMERIC_ONLY);
-    return utils::listable_function([](auto x)
-        {
-            using PC = promote_integral_t<common_type_t<decltype(x), int64_t>>;
-            return _scalar_power(PC(x), const_int<I>{});
-        }, std::forward<decltype(x)>(x));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X>
-WL_INLINE X _scalar_gamma(const X& x)
-{
-    static_assert(is_float_v<X>, WL_ERROR_INTERNAL);
-    return X(std::tgamma(x));
-}
-template<typename X>
-complex<X> _scalar_gamma(const complex<X>& x)
-{
-    constexpr size_t data_size = 9;
-    static const std::array<double, data_size> data ={
-        0.99999999999980993, 676.5203681218851, -1259.1392167224028,
-        771.32342877765313, -176.61502916214059, 12.507343278686905,
-        -0.13857109526572012, 9.9843695780195716e-6,
-        1.5056327351493116e-7};
-    if (std::real(x) < X(0.5))
-    {
-        return X(const_pi) / (
-            std::sin(X(const_pi) * x) * _scalar_gamma(X(1) - x));
-    }
-    else
-    {
-        complex<X> z = x - X(1);
-        complex<X> y = data[0];
-        for (size_t i = 1; i < data_size; ++i)
-            y += data[i] / (z + X(i));
-        complex<X> t = z + X(7.5);
-        return std::sqrt(X(2 * const_pi)) *
-            std::pow(t, z + X(0.5)) * std::exp(-t) * y;
-    }
-}
-WL_DEFINE_UNARY_MATH_FUNCTION(log, std::log(x))
-WL_DEFINE_BINARY_MATH_FUNCTION(log, std::log(PC(y)) / std::log(PC(x)))
-WL_DEFINE_UNARY_MATH_FUNCTION(log2, PX(1.4426950408889634074) * std::log(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(log10, PX(0.43429448190325182765) * std::log(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(exp, std::exp(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(sqrt, std::sqrt(x))
-WL_DEFINE_BINARY_MATH_FUNCTION(power, _scalar_power(PC(x), y))
-WL_DEFINE_UNARY_MATH_FUNCTION(sin, std::sin(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(cos, std::cos(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(tan, std::tan(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(cot, PX(1) / std::tan(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(sec, PX(1) / std::cos(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(csc, PX(1) / std::sin(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arcsin, std::asin(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arccos, std::acos(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arctan, std::atan(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arccot, std::atan(PX(1) / x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arcsec, std::acos(PX(1) / x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arccsc, std::asin(PX(1) / x))
-WL_DEFINE_UNARY_MATH_FUNCTION(sinh, std::sinh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(cosh, std::cosh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(tanh, std::tanh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(coth, PX(1) / std::tanh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(sech, PX(1) / std::cosh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(csch, PX(1) / std::sinh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arcsinh, std::asinh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arccosh, std::acosh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arctanh, std::atanh(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arccoth, std::atanh(PX(1) / x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arcsech, std::acosh(PX(1) / x))
-WL_DEFINE_UNARY_MATH_FUNCTION(arccsch, std::asinh(PX(1) / x))
-WL_DEFINE_UNARY_MATH_FUNCTION(sinc, (x == PX(0) ? PX(1) : std::sin(x) / PX(x)))
-WL_DEFINE_BINARY_MATH_FUNCTION(arctan, std::atan2(PC(x), PC(y)))
-WL_DEFINE_UNARY_MATH_FUNCTION(haversine,
-    _scalar_square(std::sin(PX(0.5) * x)))
-WL_DEFINE_UNARY_MATH_FUNCTION(inverse_haversine,
-    PX(2) * std::asin(std::sqrt(x)))
-WL_DEFINE_UNARY_MATH_FUNCTION(gudermannian,
-    PX(2) * std::atan(std::exp(x)) - PX(1.5707963267948966192))
-WL_DEFINE_UNARY_MATH_FUNCTION(inverse_gudermannian,
-    std::log(std::tan(PX(0.5) * x + PX(0.78539816339744830962))))
-WL_DEFINE_UNARY_MATH_FUNCTION(logistic_sigmoid,
-    PX(1) / (PX(1) + std::exp(-PX(x))))
-WL_DEFINE_UNARY_MATH_FUNCTION(gamma, _scalar_gamma(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(log_gamma, std::lgamma(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(erf, std::erf(x))
-WL_DEFINE_UNARY_MATH_FUNCTION(erfc, std::erfc(x))
-#if !defined(WL_DISABLE_SPECIAL_FUNCTIONS)
-WL_DEFINE_BINARY_MATH_FUNCTION(beta, std::beta(x, y))
-WL_DEFINE_UNARY_MATH_FUNCTION(zeta, std::riemann_zeta(x))
-#endif
 }
 namespace wl
 {

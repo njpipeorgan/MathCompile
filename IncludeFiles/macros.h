@@ -375,6 +375,9 @@ namespace wl
 #define WL_ERROR_NORMALIZE_NORM \
 "The norm function should return a real number."
 
+#define WL_ERROR_THRESHOLD_PARAMS \
+"The parameters of threshold function should be real numbers."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

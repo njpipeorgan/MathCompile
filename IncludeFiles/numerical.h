@@ -25,6 +25,7 @@
 #include "ndarray.h"
 #include "utils.h"
 #include "listable.h"
+#include "mathfunction.h"
 
 namespace wl
 {
@@ -838,6 +839,147 @@ auto chop(X&& x, const Y& y)
         };
         return utils::listable_function(pure, std::forward<decltype(x)>(x));
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Function>
+auto _threshold_general(X&& x, Function f)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    return utils::listable_function(f, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Delta>
+auto threshold_hard(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure = [delta = C(delta)](const auto& x)
+    {
+        return C(abs(x)) < delta ? XV(0) : x;
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Delta>
+auto threshold_soft(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<XV, Delta>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure = [delta = C(delta)](const auto& x)
+    {
+        const auto absx = C(abs(x));
+        return absx < delta ? RV(0) : RV(sign(x)) * RV(absx - delta);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Delta, typename R, typename P>
+auto threshold_firm(X&& x, const Delta& delta, const R& r, const P& p)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta> && is_real_v<R> && is_real_v<P>,
+        WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta, R, P>;
+    using C = common_type_t<value_type_t<promote_integral_t<XV>>, Delta, R, P>;
+    auto pure = [delta = C(delta), r = C(r), p = C(p)](const auto& x)
+    {
+        const auto absx = abs(RV(x)) / delta - (1 - p * r);
+        if (absx <= 0)
+            return RV(0);
+        else if (absx <= r)
+            return RV(sign(x)) * absx * delta * ((1 - p * r) / r + 1);
+        else
+            return RV(x);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Delta>
+auto threshold_piecewise_garrote(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure =[delta = C(delta)](const auto& x)
+    {
+        if (C(abs(x)) <= delta)
+            return RV(0);
+        else
+            return RV(x) - delta * delta / RV(x);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Delta, typename N>
+auto threshold_smooth_garrote(X&& x, const Delta& delta, const N& n)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta> && is_real_v<N>,
+        WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta>;
+    using C = value_type_t<RV>;
+    auto pure = [delta = C(delta), n = n](const auto& x)
+    {
+        return x == 0 ? RV(0) : RV(x) / (C(1) + power(delta / x, 2 * n));
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Delta>
+auto threshold_hyperbola(X&& x, const Delta& delta)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_numerical_type_v<remove_cvref_t<X>>,
+        WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Delta>, WL_ERROR_THRESHOLD_PARAMS);
+    using XV = value_type_t<remove_cvref_t<X>>;
+    using RV = common_type_t<promote_integral_t<XV>, Delta>;
+    using C = common_type_t<value_type_t<XV>, Delta>;
+    auto pure = [delta = C(delta)](const auto& x)
+    {
+        if (C(abs(x)) <= delta)
+            return RV(0);
+        else
+            return RV(sign(x)) * std::sqrt(x * x - delta * delta);
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto threshold(X&& x)
+{
+    WL_TRY_BEGIN()
+    constexpr double default_threshold = double(1.0e-10);
+    return threshold_hard(std::forward<decltype(x)>(x), default_threshold);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

@@ -468,8 +468,8 @@ $builtinfunctions=
   "Min"             ->"min",
   "Max"             ->"max",
   "Ramp"            ->"ramp",
-  "LogisticSigmoid" ->"logistic_sigmoid",(*
-  "Threshold"       ->"threshold",
+  "LogisticSigmoid" ->"logistic_sigmoid",
+  "Threshold"       ->"threshold",(*
   "NumericalOrder"  ->"numerical_order",*)
 (* integral functions *)
   "EvenQ"           ->"even_q",
@@ -764,6 +764,12 @@ functionmacro[code_]:=code//.{
     id["Total",p_][array_,list[_][literal[i1_Integer,_],literal[i2_Integer,_]]]:>native["total",p][array,const[i1],const[i2]],
     id["Clip",p_][any_,list[_][min_,max_]]:>native["clip",p][any,vargtag,min,max],
     id["Clip",p_][any_,list[_][min_,max_],list[_][vmin_,vmax_]]:>native["clip",p][any,vargtag,min,max,vmin,vmax],
+    id["Threshold",p_][any_,list[_][literal["Hard",_],delta_]]:>native["threshold_hard",p][any,delta],
+    id["Threshold",p_][any_,list[_][literal["Soft",_],delta_]]:>native["threshold_soft",p][any,delta],
+    id["Threshold",p_][any_,list[_][literal["Firm",_],delta_,r_,pp_]]:>native["threshold_firm",p][any,delta,r,pp],
+    id["Threshold",p_][any_,list[_][literal["PiecewiseGarrote",_],delta_]]:>native["threshold_piecewise_garrote",p][any,delta],
+    id["Threshold",p_][any_,list[_][literal["SmoothGarrote",_],delta_,n_]]:>native["threshold_smooth_garrote",p][any,delta,n],
+    id["Threshold",p_][any_,list[_][literal["Hyperbola",_],delta_]]:>native["threshold_hyperbola",p][any,delta],
     id["Map",p_][func_,array_,list[_][literal[i_Integer,_]]]:>native["map",p][func,array,const[i]],
     id["Scan",p_][func_,array_,list[_][literal[i_Integer,_]]]:>native["scan",p][func,array,const[i]],
     id["Reverse",p_][array_,literal[i_Integer,_]]:>native["reverse",p][array,const[i]],

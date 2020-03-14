@@ -432,6 +432,11 @@ template<bool AlwaysPrintSign = false>
 auto double_to_string(char* const first, char* const last, double x)
 {
     assert(first + double_buffer_size <= last);
+#ifdef WL_DOUBLE_TO_STRING_SHORT
+        int nchar = snprintf(first, last - first,
+            AlwaysPrintSign ? "%+g" : "%g", x);
+    return string_view(first, first + nchar);
+#endif
     char* ptr = first;
     int fpclass = std::fpclassify(x);
     int signbit = std::signbit(x);

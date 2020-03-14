@@ -36,7 +36,8 @@ constexpr auto const_byte      = byte_type{};
 constexpr auto const_character = character_type{};
 constexpr auto const_word      = word_type{};
 constexpr auto const_record    = record_type{};
-constexpr auto const_i         = complex<double>(0.f, 1.f);
+constexpr auto const_i         = complex<double>(0., 1.);
+constexpr auto const_i_f       = complex<float>(0.f, 1.f);
 constexpr auto const_true      = boolean(true);
 constexpr auto const_false     = boolean(false);
 

@@ -30,6 +30,7 @@
 #    define __AVX__ 1
 #    define __BMI__ 1
 #    define __BMI2__ 1
+#    define __FMA__ 1
 #  endif
 #  ifdef __AVX__
 #    define __POPCNT__ 1

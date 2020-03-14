@@ -2038,7 +2038,7 @@ auto to_string(const X& x)
         auto ret = string();
         const auto& valx = allows<view_category::Simple>(x);
         const auto x_dims = valx.dims();
-        auto x_data = valx.data();
+        const auto* x_data = valx.data();
         _to_string_array_impl<0u>(x_data, x_dims, ret, buffer);
         return ret;
     }

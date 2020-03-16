@@ -19,6 +19,7 @@
 
 #include <immintrin.h>
 
+// compiler specific settings
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 #  if _MSC_VER < 1920
 #    pragma message (": error cxx::compilerver")
@@ -89,6 +90,12 @@
 #if defined(__MINGW64__)
 #  define WL_NO_RANDOM_DEVICE 1
 #endif
+
+// BLAS
+#if !defined(WL_USE_CBLAS) && !defined(WL_USE_NATIVE_BLAS)
+#  define WL_BLAS_USE_EIGEN
+#endif
+
 
 namespace wl
 {
@@ -563,5 +570,8 @@ namespace wl
 
 #define WL_ERROR_VARIANCE_ELEMENTS \
 "The list should have at least two elements."
+
+#define WL_ERROR_BLAS_SIZE \
+"The dimensions of the array is too large for the BLAS subroutine."
 
 }

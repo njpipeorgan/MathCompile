@@ -25,7 +25,7 @@
 #include "utils.h"
 
 #if defined(WL_BLAS_USE_EIGEN)
-#include "Eigen/Dense"
+#include <Eigen/Dense>
 #endif
 
 namespace wl

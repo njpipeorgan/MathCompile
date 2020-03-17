@@ -42,8 +42,18 @@ enum : int
     ConjTrans = 113
 };
 
+#if !defined(WL_USE_LAPACKE)
+#  define LAPACK_ROW_MAJOR               101
+#  define LAPACK_COL_MAJOR               102
+#  define LAPACK_WORK_MEMORY_ERROR       -1010
+#  define LAPACK_TRANSPOSE_MEMORY_ERROR  -1011
+#endif
+
 template<typename T>
 constexpr T const_one[2] = {T(1), T(0)};
+
+template<typename T>
+using EigenMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;
 
 template<typename T, typename... Sizes>
 WL_INLINE void check_sizes(const Sizes&... sizes)
@@ -229,6 +239,48 @@ auto gemm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     }
 #endif
 }
+
+template<typename Z>
+auto getri(Z* WL_RESTRICT pz, const size_t N)
+{
+    WL_THROW_IF_ABORT()
+    static_assert(is_float_v<Z> || is_complex_v<Z>);
+#if defined(WL_USE_LAPACKE)
+    check_sizes<lapack_int>(N);
+    const auto iN = lapack_int(N);
+    lapack_int info = 0;
+    ndarray<lapack_int, 1> ipiv(std::array<size_t, 1u>{N});
+
+    if constexpr (std::is_same_v<Z, float>)
+        info = LAPACKE_sgetrf(LAPACK_COL_MAJOR, iN, iN, pz, iN, ipiv.data());
+    else if constexpr (std::is_same_v<Z, double>)
+        info = LAPACKE_dgetrf(LAPACK_COL_MAJOR, iN, iN, pz, iN, ipiv.data());
+    else if constexpr (std::is_same_v<Z, complex<float>>)
+        info = LAPACKE_cgetrf(LAPACK_COL_MAJOR, iN, iN,
+            (lapack_complex_float*)pz, iN, ipiv.data());
+    else if constexpr (std::is_same_v<Z, complex<double>>)
+        info = LAPACKE_zgetrf(LAPACK_COL_MAJOR, iN, iN,
+            (lapack_complex_double*)pz, iN, ipiv.data());
+    if (info < 0) throw std::logic_error(WL_ERROR_INTERNAL);
+
+    if constexpr (std::is_same_v<Z, float>)
+        info = LAPACKE_sgetri(LAPACK_COL_MAJOR, iN, pz, iN, ipiv.data());
+    else if constexpr (std::is_same_v<Z, double>)
+        info = LAPACKE_dgetri(LAPACK_COL_MAJOR, iN, pz, iN, ipiv.data());
+    else if constexpr (std::is_same_v<Z, complex<float>>)
+        info = LAPACKE_cgetri(LAPACK_COL_MAJOR, iN,
+            (lapack_complex_float*)pz, iN, ipiv.data());
+    else if constexpr (std::is_same_v<Z, complex<double>>)
+        info = LAPACKE_zgetri(LAPACK_COL_MAJOR, iN,
+            (lapack_complex_double*)pz, iN, ipiv.data());
+    if (info < 0) throw std::logic_error(WL_ERROR_INTERNAL);
+    if (info > 0) throw std::logic_error(WL_ERROR_LAPACKE_MATRIX_SINGULAR);
+#else
+    Eigen::Map<EigenMatrix<Z>> mapz(pz, N, N);
+    mapz = mapz.inverse();
+#endif
+}
+
 
 template<typename B, bool Conjugate = false, typename X>
 auto get_input_array(const X& x) -> decltype(auto)
@@ -558,6 +610,27 @@ auto tr(const X& x)
 {
     WL_TRY_BEGIN()
     return tr(x, WL_FUNCTION(plus), const_int<array_rank_v<X>>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto inverse(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_SQUARE_MATRIX);
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<value_type_t<XT>>;
+
+    auto ret = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
+    const auto M = ret.dims()[0];
+    const auto N = ret.dims()[1];
+    if (M != N)
+        throw std::logic_error(WL_ERROR_SQUARE_MATRIX);
+    if (N == 0)
+        return ret;
+    blas::getri(ret.data(), N);
+    return ret;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

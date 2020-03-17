@@ -610,6 +610,7 @@ $builtinfunctions=
   "Inner"           ->"inner",
   "Outer"           ->"outer",
   "Tr"              ->"tr",
+  "Inverse"         ->"inverse",
   "Accumulate"      ->"accumulate",
   "Differences"     ->"differences",
   "Ratios"          ->"ratios",

@@ -381,6 +381,9 @@ namespace wl
 #define WL_ERROR_THRESHOLD_PARAMS \
 "The parameters of threshold function should be real numbers."
 
+#define WL_ERROR_SQUARE_MATRIX \
+"The argument should be a square matrix."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \
@@ -571,5 +574,8 @@ namespace wl
 
 #define WL_ERROR_BLAS_SIZE \
 "The dimensions of the array is too large for the BLAS subroutine."
+
+#define WL_ERROR_LAPACKE_MATRIX_SINGULAR \
+"The matrix to be factorized is singular."
 
 }

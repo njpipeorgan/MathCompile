@@ -46,35 +46,50 @@ template<typename T>
 constexpr T const_one[2] = {T(1), T(0)};
 
 template<typename T, typename... Sizes>
-void check_sizes(const Sizes&... sizes)
+WL_INLINE void check_sizes(const Sizes&... sizes)
 {
     if (((size_t(sizes) > size_t(std::numeric_limits<T>::max())) || ...))
         throw std::logic_error(WL_ERROR_BLAS_SIZE);
 }
 
-template<typename Z, typename X, typename Y>
+template<typename Z, typename X, typename Y, typename Alpha>
 WL_INLINE void dot(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
-    const Y* WL_RESTRICT py, const size_t K, const Z alpha = Z(1))
+    const Y* WL_RESTRICT py, const size_t K, const Alpha alpha)
 {
     WL_THROW_IF_ABORT()
     auto z = Z(0);
     for (size_t k = 0u; k < K; ++k)
-        z += alpha * px[k] * py[k];
+        z += Z(alpha * px[k] * py[k]);
     *pz += z;
 }
 
 template<typename Z, typename X, typename Y>
-WL_INLINE void gevv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+WL_INLINE void dot(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t K)
+{
+    WL_THROW_IF_ABORT()
+    dot(pz, px, py, K, 1);
+}
+
+template<typename Z, typename X, typename Y, typename Alpha>
+inline void gevv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t N,
-    const Z alpha = Z(1))
+    const Alpha alpha)
 {
     WL_THROW_IF_ABORT()
     for (size_t m = 0u; m < M; ++m, pz += N)
     {
-        const auto xm = alpha * Z(px[m]);
+        const auto xm = alpha * px[m];
         for (size_t n = 0u; n < N; ++n)
-            pz[n] += xm * py[n];
+            pz[n] += Z(xm * py[n]);
     }
+}
+
+template<typename Z, typename X, typename Y, typename Alpha>
+WL_INLINE void gevv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t N)
+{
+    gevv(pz, px, py, M, N, 1);
 }
 
 template<typename Z, typename X, typename Y>

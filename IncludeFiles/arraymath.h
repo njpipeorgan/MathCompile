@@ -995,6 +995,28 @@ auto covariance(const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename X, typename Y>
+auto correlation(const X& x, const Y& y)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR == 1u || XR == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"1 or 2.");
+    static_assert(XR == YR, WL_ERROR_OPERAND_RANK);
+    static_assert(is_numerical_type_v<X> && is_numerical_type_v<Y>,
+        WL_ERROR_NUMERIC_ONLY);
+    return covariance(standardize(x), standardize(y));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
 
+template<typename X>
+auto correlation(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"2.");
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    return covariance(standardize(x));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
 
 }

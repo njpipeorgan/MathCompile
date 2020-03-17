@@ -91,11 +91,6 @@
 #  define WL_NO_RANDOM_DEVICE 1
 #endif
 
-// BLAS
-#if !defined(WL_USE_CBLAS) && !defined(WL_USE_NATIVE_BLAS)
-#  define WL_BLAS_USE_EIGEN
-#endif
-
 
 namespace wl
 {
@@ -570,6 +565,9 @@ namespace wl
 
 #define WL_ERROR_VARIANCE_ELEMENTS \
 "The list should have at least two elements."
+
+#define WL_ERROR_COVARIANCE_DIMS \
+"The two lists should have the same number of elements that is at least two."
 
 #define WL_ERROR_BLAS_SIZE \
 "The dimensions of the array is too large for the BLAS subroutine."

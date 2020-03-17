@@ -22,9 +22,10 @@
 #include "arrayview.h"
 #include "numerical.h"
 #include "functional.h"
+#include "listable.h"
 #include "utils.h"
 
-#if defined(WL_BLAS_USE_EIGEN)
+#if !defined(WL_USE_CBLAS)
 #include <Eigen/Dense>
 #endif
 
@@ -34,8 +35,15 @@ namespace wl
 namespace blas
 {
 
-template<typename T> constexpr T const_one [2] = {T(1), T(0)};
-template<typename T> constexpr T const_zero[2] = {T(0), T(0)};
+enum : int
+{
+    NoTrans   = 111,
+    Trans     = 112,
+    ConjTrans = 113
+};
+
+template<typename T>
+constexpr T const_one[2] = {T(1), T(0)};
 
 template<typename T, typename... Sizes>
 void check_sizes(const Sizes&... sizes)
@@ -45,29 +53,37 @@ void check_sizes(const Sizes&... sizes)
 }
 
 template<typename Z, typename X, typename Y>
-WL_INLINE void dot_vv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
-    const Y* WL_RESTRICT py, const size_t K)
+WL_INLINE void dot(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t K, const Z alpha = Z(1))
 {
+    WL_THROW_IF_ABORT()
     auto z = Z(0);
     for (size_t k = 0u; k < K; ++k)
-        z += Z(px[k]) * Z(py[k]);
+        z += alpha * px[k] * py[k];
     *pz += z;
 }
 
 template<typename Z, typename X, typename Y>
-void dot_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
-    const Y* WL_RESTRICT py, const size_t M, const size_t K)
+WL_INLINE void gevv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t N,
+    const Z alpha = Z(1))
 {
-#if defined(WL_BLAS_USE_EIGEN)
-    using namespace Eigen;
-    using lhs = ::Eigen::internal::blas_data_mapper<
-        const X, ptrdiff_t, RowMajor>;
-    using rhs = ::Eigen::internal::blas_data_mapper<
-        const Y, ptrdiff_t, RowMajor>;
-    ::Eigen::internal::general_matrix_vector_product<
-        ptrdiff_t, X, lhs, RowMajor, false, Y, rhs, false>::run(
-            M, K, lhs(px, K), rhs(py, 1), pz, 1, 1);
-#elif defined(WL_USE_CBLAS)
+    WL_THROW_IF_ABORT()
+    for (size_t m = 0u; m < M; ++m, pz += N)
+    {
+        const auto xm = alpha * Z(px[m]);
+        for (size_t n = 0u; n < N; ++n)
+            pz[n] += xm * py[n];
+    }
+}
+
+template<typename Z, typename X, typename Y>
+void gemv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K,
+    const Z alpha = Z(1))
+{
+    WL_THROW_IF_ABORT()
+#if defined(WL_USE_CBLAS)
     if constexpr (is_float_v<Z> || is_complex_v<Z>)
     {
         check_sizes<int>(M, K);
@@ -75,53 +91,41 @@ void dot_mv(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
         const auto iK = int(K);
         if constexpr (std::is_same_v<Z, float>)
             cblas_sgemv(CblasRowMajor, CblasNoTrans,
-                iM, iK, 1, px, iK, py, 1, 0, pz, 1);
+                iM, iK, alpha, px, iK, py, 1, 1, pz, 1);
         else if constexpr (std::is_same_v<Z, double>)
             cblas_dgemv(CblasRowMajor, CblasNoTrans,
-                iM, iK, 1, px, iK, py, 1, 0, pz, 1);
+                iM, iK, alpha, px, iK, py, 1, 1, pz, 1);
         else if constexpr (std::is_same_v<Z, complex<float>>)
             cblas_sgemv(CblasRowMajor, CblasNoTrans,
-                iM, iK, &const_one<float>, px, iK, py, 1,
-                &const_zero<float>, pz, 1);
+                iM, iK, &alpha, px, iK, py, 1,
+                &const_one<float>, pz, 1);
         else if constexpr (std::is_same_v<Z, complex<double>>)
             cblas_zgemv(CblasRowMajor, CblasNoTrans,
-                iM, iK, &const_one<double>, px, iK, py, 1,
-                &const_zero<double>, pz, 1);
+                iM, iK, &alpha, px, iK, py, 1,
+                &const_one<double>, pz, 1);
     }
     else
     {
 #endif
-#if !defined(WL_BLAS_USE_EIGEN)
-    for (size_t m = 0u; m < M; ++m, ++pz, px += K)
-        dot_vv(pz, px, py, K);
-#endif
+    using lhs = Eigen::internal::blas_data_mapper<
+        const X, ptrdiff_t, Eigen::RowMajor>;
+    using rhs = Eigen::internal::blas_data_mapper<
+        const Y, ptrdiff_t, Eigen::RowMajor>;
+    Eigen::internal::general_matrix_vector_product<
+        ptrdiff_t, X, lhs, Eigen::RowMajor, false, Y, rhs, false>::run(
+            M, K, lhs(px, K), rhs(py, 1), pz, 1, alpha);
 #if defined(WL_USE_CBLAS)
     }
 #endif
 }
 
-template<typename Z, typename Y>
-WL_INLINE auto dot_sv(Z* WL_RESTRICT pz, const Z x, const Y* WL_RESTRICT py,
-    const size_t N)
-{
-    for (size_t n = 0u; n < N; ++n)
-        pz[n] += x * py[n];
-}
-
 template<typename Z, typename X, typename Y>
-auto dot_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
-    const Y* WL_RESTRICT py, const size_t K, const size_t N)
+auto gevm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t K, const size_t N,
+    const Z alpha = Z(1))
 {
-#if defined(WL_BLAS_USE_EIGEN)
-    using namespace Eigen;
-    using lhs = ::Eigen::internal::blas_data_mapper<
-        const Y, ptrdiff_t, ColMajor>;
-    using rhs = ::Eigen::internal::blas_data_mapper<
-        const X, ptrdiff_t, RowMajor>;
-    ::Eigen::internal::general_matrix_vector_product<
-        ptrdiff_t, Y, lhs, ColMajor, false, X, rhs, false>::run(
-            N, K, lhs(py, N), rhs(px, 1), pz, 1, 1);
-#elif defined(WL_USE_CBLAS)
+    WL_THROW_IF_ABORT()
+#if defined(WL_USE_CBLAS)
     if constexpr (is_float_v<Z> || is_complex_v<Z>)
     {
         check_sizes<int>(K, N);
@@ -129,115 +133,120 @@ auto dot_vm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
         const auto iN = int(N);
         if constexpr (std::is_same_v<Z, float>)
             cblas_sgemv(CblasColMajor, CblasNoTrans,
-                iN, iK, 1, py, iN, px, 1, 0, pz, 1);
+                iN, iK, alpha, py, iN, px, 1, 1, pz, 1);
         else if constexpr (std::is_same_v<Z, double>)
             cblas_dgemv(CblasColMajor, CblasNoTrans,
-                iN, iK, 1, py, iN, px, 1, 0, pz, 1);
+                iN, iK, alpha, py, iN, px, 1, 1, pz, 1);
         else if constexpr (std::is_same_v<Z, complex<float>>)
             cblas_cgemv(CblasColMajor, CblasNoTrans,
-                iN, iK, &const_one<float>, py, iN, px, 1,
-                &const_zero<double>, pz, 1);
+                iN, iK, &alpha, py, iN, px, 1,
+                &const_one<double>, pz, 1);
         else if constexpr (std::is_same_v<Z, complex<double>>)
             cblas_zgemv(CblasColMajor, CblasNoTrans,
-                iN, iK, &const_one<double>, py, iN, px, 1,
-                &const_zero<double>, pz, 1);
+                iN, iK, &alpha, py, iN, px, 1,
+                &const_one<double>, pz, 1);
     }
     else
     {
 #endif
-#if !defined(WL_BLAS_USE_EIGEN)
-    for (size_t k = 0u; k < K; ++k, py += N)
-        dot_sv(pz, Z(px[k]), py, N);
-#endif
+    using lhs = Eigen::internal::blas_data_mapper<
+        const Y, ptrdiff_t, Eigen::ColMajor>;
+    using rhs = Eigen::internal::blas_data_mapper<
+        const X, ptrdiff_t, Eigen::RowMajor>;
+    Eigen::internal::general_matrix_vector_product<
+        ptrdiff_t, Y, lhs, Eigen::ColMajor, false, X, rhs, false>::run(
+            N, K, lhs(py, N), rhs(px, 1), pz, 1, alpha);
 #if defined(WL_USE_CBLAS)
     }
 #endif
 }
 
-template<typename Z, typename X, typename Y>
-auto dot_mm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
-    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N)
+template<int TX = NoTrans, int TY = NoTrans,
+    typename Z, typename X, typename Y>
+auto gemm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
+    const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N,
+    const Z alpha = Z(1))
 {
-#if defined(WL_BLAS_USE_EIGEN)
-    using namespace Eigen;
-    auto blocking = ::Eigen::internal::gemm_blocking_space<
-        ColMajor, Y, X, Dynamic, Dynamic, Dynamic>(N, M, K, 1, true);
-    Eigen::internal::general_matrix_matrix_product<
-        ptrdiff_t, Y, ColMajor, false, X, ColMajor, false, ColMajor>::run(
-            N, M, K, py, N, px, K, pz, N, 1, blocking, 0);
-#elif defined(WL_USE_CBLAS)
+    WL_THROW_IF_ABORT()
+    const size_t LDX = TX == NoTrans ? K : M;
+    const size_t LDY = TY == NoTrans ? N : K;
+#if defined(WL_USE_CBLAS)
     if constexpr (is_float_v<Z> || is_complex_v<Z>)
     {
         check_sizes<int>(M, K, N);
-        const auto iM = int(M);
-        const auto iK = int(K);
-        const auto iN = int(N);
+        const auto iM = int(M), iK = int(K), iN = int(N);
+        const auto iLDX = int(LDX), iLDY = int(LDY);
         if constexpr (std::is_same_v<Z, float>)
-            cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-                iN, iM, iK, 1, py, iN, px, iK, 0, pz, iN);
+            cblas_sgemm(CblasRowMajor,
+                TX == NoTrans ? CblasNoTrans : CBlasTrans,
+                TY == NoTrans ? CblasNoTrans : CBlasTrans,
+                iM, iN, iK, alpha, px, iLDX, py, iLDY, 1, pz, iN);
         else if constexpr (std::is_same_v<Z, double>)
-            cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-                iN, iM, iK, 1, py, iN, px, iK, 0, pz, iN);
+            cblas_dgemm(CblasRowMajor,
+                TX == NoTrans ? CblasNoTrans : CBlasTrans,
+                TY == NoTrans ? CblasNoTrans : CBlasTrans,
+                iM, iN, iK, alpha, px, iLDX, py, iLDY, 1, pz, iN);
         else if constexpr (std::is_same_v<Z, complex<float>>)
-            cblas_cgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-                iN, iM, iK, &const_one<float>, py, iN, px, iK,
-                &const_zero<float>, pz, iN);
+            cblas_cgemm(CblasRowMajor,
+                CBLAS_TRANSPOSE(TX), CBLAS_TRANSPOSE(TY),
+                iM, iN, iK, &alpha, px, iLDX, py, iLDY,
+                &const_one<float>, pz, iN);
         else if constexpr (std::is_same_v<Z, complex<double>>)
-            cblas_zgemm(CblasColMajor, CblasNoTrans, CblasNoTrans,
-                iN, iM, iK, &const_one<double>, py, iN, px, iK,
-                &const_zero<double>, pz, iN);
+            cblas_zgemm(CblasRowMajor,
+                CBLAS_TRANSPOSE(TX), CBLAS_TRANSPOSE(TY),
+                iM, iN, iK, &alpha, px, iLDX, py, iLDY,
+                &const_one<double>, pz, iN);
     }
     else
     {
 #endif
-#if !defined (WL_BLAS_USE_EIGEN)
-        constexpr size_t BM = 16;
-        constexpr size_t BN = 1024 / sizeof(Z);
-        constexpr size_t BK = 16;
-        for (size_t m1 = 0u; m1 < M; m1 += BM)
-        for (size_t k1 = 0u; k1 < K; k1 += BK)
-        for (size_t n1 = 0u; n1 < N; n1 += BN)
-        {
-            WL_THROW_IF_ABORT()
-            for (size_t m = m1; m < std::min(m1 + BM, M); ++m)
-            for (size_t k = k1; k < std::min(k1 + BK, K); ++k)
-            {
-                auto* WL_RESTRICT pz1 = pz + (m * N + n1);
-                auto* WL_RESTRICT py1 = py + (k * N + n1);
-                dot_sv(pz1, Z(px[m * K + k]), py1, std::min(N - n1, BN));
-            }
-        }
-#endif
+    using blocking_t = Eigen::internal::gemm_blocking_space<Eigen::RowMajor,
+        X, Y, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic>;
+    auto blocking = blocking_t(M, N, K, 1, true);
+    Eigen::internal::general_matrix_matrix_product<ptrdiff_t,
+        X, TX == NoTrans ? Eigen::RowMajor : Eigen::ColMajor,
+        is_complex_v<X> && TX == ConjTrans,
+        Y, TY == NoTrans ? Eigen::RowMajor : Eigen::ColMajor,
+        is_complex_v<Y> && TY == ConjTrans,
+        Eigen::RowMajor>::run(
+            M, N, K, px, LDX, py, LDY, pz, N, alpha, blocking, 0);
 #if defined(WL_USE_CBLAS)
     }
 #endif
 }
 
-}
-
-template<typename B, typename X>
-auto _dot_get_array(const X& x) -> decltype(auto)
+template<typename B, bool Conjugate = false, typename X>
+auto get_input_array(const X& x) -> decltype(auto)
 {
     constexpr auto XR = array_rank_v<X>;
     using XV = value_type_t<X>;
 #if defined(WL_USE_CBLAS)
     using C = std::conditional_t<is_complex_v<XV>,
         complex<value_type_t<B>>, value_type_t<B>>;
-#else // native or Eigen
+#else // Eigen
     using C = B;
 #endif
     static_assert(XR >= 1u && is_arithmetic_v<B> && is_convertible_v<XV, C>,
         WL_ERROR_INTERNAL);
+    constexpr bool same_type = std::is_same_v<XV, C> ||
+        is_integral_v<XV> && is_integral_v<C> && sizeof(XV) == sizeof(C);
     if constexpr ((X::category == view_category::Array ||
-        X::category == view_category::Simple) && (std::is_same_v<XV, C> ||
-            is_integral_v<XV> && is_integral_v<C> && sizeof(XV) == sizeof(C)))
+        X::category == view_category::Simple) && same_type &&
+        !(is_complex_v<C> && Conjugate))
     {
         return x;
+    }
+    else if constexpr (Conjugate)
+    {
+        return utils::listable_function(
+            [](const auto& a) { return conjugate(C(a)); }, x);
     }
     else
     {
         return cast<ndarray<C, XR>>(x);
     }
+}
+
 }
 
 template<typename X, typename Y>
@@ -252,8 +261,8 @@ auto dot(const X& x, const Y& y)
     using C = common_type_t<value_type_t<X>, value_type_t<Y>>;
 
     WL_THROW_IF_ABORT()
-    const auto& valx = _dot_get_array<C>(x);
-    const auto& valy = _dot_get_array<C>(y);
+    const auto& valx = blas::get_input_array<C>(x);
+    const auto& valy = blas::get_input_array<C>(y);
     const auto* px = valx.data();
     const auto* py = valy.data();
     using XV = remove_cvref_t<decltype(*px)>;
@@ -268,7 +277,7 @@ auto dot(const X& x, const Y& y)
         if constexpr (YR == 1u)
         {
             auto z = C(0);
-            blas::dot_vv(&z, px, py, K);
+            blas::dot(&z, px, py, K);
             return z;
         }
         else
@@ -277,7 +286,7 @@ auto dot(const X& x, const Y& y)
             ndarray<C, YR - 1u> ret(ret_dims, C(0));
             const auto N = ret.size();
             auto* pz = ret.data();
-            blas::dot_vm(pz, px, py, K, N);
+            blas::gevm(pz, px, py, K, N);
             return ret;
         }
     }
@@ -289,7 +298,7 @@ auto dot(const X& x, const Y& y)
             ndarray<C, XR - 1u> ret(ret_dims, C(0));
             const auto M = ret.size();
             auto* pz = ret.data();
-            blas::dot_mv(pz, px, py, M, K);
+            blas::gemv(pz, px, py, M, K);
             return ret;
         }
         else
@@ -301,7 +310,7 @@ auto dot(const X& x, const Y& y)
             ndarray<C, XR + YR - 2u> ret(
                 utils::dims_join(M_dims, N_dims), C(0));
             auto* pz = ret.data();
-            blas::dot_mm(pz, px, py, M, K, N);
+            blas::gemm(pz, px, py, M, K, N);
             return ret;
         }
     }

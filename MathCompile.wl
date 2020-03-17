@@ -621,6 +621,7 @@ $builtinfunctions=
   "Median"          ->"median",
   "MeanDeviation"   ->"mean_deviation",
   "MedianDeviation" ->"median_deviation",
+  "Covariance"      ->"covariance",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

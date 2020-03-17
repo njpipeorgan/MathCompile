@@ -28,7 +28,9 @@
 #include "arithmetic.h"
 #include "numerical.h"
 #include "arrayfn.h"
+#include "complex.h"
 #include "mathfunction.h"
+#include "linalgebra.h"
 #include "utils.h"
 
 namespace wl
@@ -897,5 +899,102 @@ auto median_deviation(X&& x)
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+
+template<typename X, typename Y>
+auto covariance(const X& x, const Y& y)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR == 1u || XR == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"1 or 2.");
+    static_assert(XR == YR, WL_ERROR_OPERAND_RANK);
+    static_assert(is_numerical_type_v<X> && is_numerical_type_v<Y>,
+        WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<
+        common_type_t<value_type_t<X>, value_type_t<Y>>>;
+
+    if constexpr (XR == 1u)
+    {
+        const auto& valx = allows<view_category::Simple>(x);
+        const auto& valy = allows<view_category::Simple>(y);
+        const size_t K = valx.size();
+        if (K != valy.size() || K < 2u)
+            throw std::logic_error(WL_ERROR_COVARIANCE_DIMS);
+        auto x_data = valx.data();
+        auto y_data = valy.data();
+        P total_xy = 0, total_x = 0, total_y = 0;
+        for (size_t i = 0; i < K; ++i, ++x_data, ++y_data)
+        {
+            auto px = P(*x_data);
+            auto py = P(*y_data);
+            total_xy += px * conjugate(py);
+            total_x += px;
+            total_y += py;
+        }
+        const auto k1 = P(1.0 / (K - 1));
+        return total_xy * k1 - total_x * total_y * (k1 / P(K));
+    }
+    else
+    {
+        const auto& valx = blas::get_input_array<P>(x);
+        const auto& valy = blas::get_input_array<P, true>(y);
+        const size_t M = valx.dims()[1];
+        const size_t K = valx.dims()[0];
+        const size_t N = valy.dims()[1];
+        if (K != valy.dims()[0] || K < 2u)
+            throw std::logic_error(WL_ERROR_COVARIANCE_DIMS);
+        ndarray<P, 2u> ret(std::array<size_t, 2u>{M, N}, P(0));
+        if (M == 0u || N == 0u)
+            return ret;
+
+        const auto k1 = P(1.0 / (K - 1));
+        blas::gemm<blas::Trans, blas::NoTrans>(
+            ret.data(), valx.data(), valy.data(), M, K, N, k1);
+        const auto avg_x = mean(valx);
+        const auto avg_y = mean(valy);
+        blas::gevv(ret.data(), avg_x.data(), avg_y.data(), M, N, -P(K) * k1);
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto covariance(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"2.");
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<value_type_t<X>>;
+
+    const auto& valx = blas::get_input_array<P>(x);
+    const size_t M = valx.dims()[1];
+    const size_t K = valx.dims()[0];
+    if (K < 2u)
+        throw std::logic_error(WL_ERROR_COVARIANCE_DIMS);
+    ndarray<P, 2u> ret(std::array<size_t, 2u>{M, M}, P(0));
+    if (M == 0u)
+        return ret;
+    const auto k1 = P(1.0 / (K - 1));
+    const auto avg_x = mean(valx);
+
+    if constexpr (is_complex_v<P>)
+    {
+        blas::gemm<blas::ConjTrans, blas::NoTrans>(
+            ret.data(), valx.data(), valx.data(), M, K, M, k1);
+        const auto avg_xc = conjugate(avg_x);
+        blas::gevv(ret.data(), avg_x.data(), avg_xc.data(), M, M, -P(K) * k1);
+        return ret;
+    }
+    else
+    {
+        blas::gemm<blas::Trans, blas::NoTrans>(
+            ret.data(), valx.data(), valx.data(), M, K, M, k1);
+        blas::gevv(ret.data(), avg_x.data(), avg_x.data(), M, M, -P(K) * k1);
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+
 
 }

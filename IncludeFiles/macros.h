@@ -385,7 +385,10 @@ namespace wl
 "The argument should be a square matrix."
 
 #define WL_ERROR_LINEAR_SOLVE_A \
-"The coefficient matrix should be square."
+"The coefficients should be a square matrix."
+
+#define WL_ERROR_LEAST_SQUARES_A \
+"The coefficients should be a matrix with more rows than columns."
 
 #define WL_ERROR_LINEAR_SOLVE_B \
 "The target array should have compatible dimension with the coefficients'."

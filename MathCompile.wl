@@ -612,6 +612,7 @@ $builtinfunctions=
   "Tr"              ->"tr",
   "Inverse"         ->"inverse",
   "LinearSolve"     ->"linear_solve",
+  "LeastSquares"    ->"least_squares",
   "Accumulate"      ->"accumulate",
   "Differences"     ->"differences",
   "Ratios"          ->"ratios",

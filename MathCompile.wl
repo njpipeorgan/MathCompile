@@ -611,6 +611,7 @@ $builtinfunctions=
   "Outer"           ->"outer",
   "Tr"              ->"tr",
   "Inverse"         ->"inverse",
+  "LinearSolve"     ->"linear_solve",
   "Accumulate"      ->"accumulate",
   "Differences"     ->"differences",
   "Ratios"          ->"ratios",

@@ -747,8 +747,13 @@ auto linear_solve(A&& a, B&& b)
 
     auto vala = cast<ndarray<P, 2u>>(std::forward<decltype(a)>(a));
     auto valb = cast<ndarray<P, BR>>(std::forward<decltype(b)>(b));
-
     const auto M = vala.dims()[0];
+    const auto N = BR == 1u ? size_t(1) : valb.dims()[1];
+    if (M != vala.dims()[1])
+        throw std::logic_error(WL_ERROR_LINEAR_SOLVE_A);
+    if (M != valb.dims()[0])
+        throw std::logic_error(WL_ERROR_LINEAR_SOLVE_B);
+    blas::gesv(vala.data(), valb.data(), M, N);
     return valb;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

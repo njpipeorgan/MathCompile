@@ -385,10 +385,10 @@ namespace wl
 "The argument should be a square matrix."
 
 #define WL_ERROR_LINEAR_SOLVE_A \
-"The l.h.s. of LinearSolve should be a square matrix."
+"The coefficient matrix should be square."
 
 #define WL_ERROR_LINEAR_SOLVE_B \
-"The r.h.s. of LinearSolve should be an array of rank one or two."
+"The target array should have compatible dimension with the coefficients'."
 
 // runtime error messages
 

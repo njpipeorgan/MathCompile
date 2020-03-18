@@ -23,6 +23,7 @@
 #include "numerical.h"
 #include "functional.h"
 #include "listable.h"
+#include "complex.h"
 #include "utils.h"
 
 #if !defined(WL_USE_CBLAS)
@@ -52,14 +53,77 @@ enum : int
 template<typename T>
 constexpr T const_one[2] = {T(1), T(0)};
 
-template<typename T>
-using EigenMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;
+template<typename T, int Storage = Eigen::ColMajor>
+using EigenMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Storage>;
 
 template<typename T, typename... Sizes>
 WL_INLINE void check_sizes(const Sizes&... sizes)
 {
     if (((size_t(sizes) > size_t(std::numeric_limits<T>::max())) || ...))
         throw std::logic_error(WL_ERROR_BLAS_SIZE);
+}
+
+template<bool Trans, bool Conj, typename X, typename Y>
+WL_INLINE void omatcopy(const X* WL_RESTRICT px, Y* WL_RESTRICT py,
+    const size_t M, const size_t N)
+{
+    if constexpr (Trans)
+    {
+        for (size_t m = 0u; m < M; ++m, px += N, ++py)
+            for (size_t n = 0u; n < N; ++n)
+            {
+                if constexpr (Conj && !is_real_v<X>)
+                    py[n * M] = conjugate(px[n]);
+                else
+                    py[n * M] = px[n];
+            }
+    }
+    else
+    {
+        const auto size = M * N;
+        for (size_t i = 0; i < size; ++i)
+        {
+            if constexpr (Conj && !is_real_v<X>)
+                py[i] = conjugate(px[i]);
+            else
+                py[i] = px[i];
+        }
+    }
+}
+
+template<bool Trans, bool Conj, typename X>
+WL_INLINE void imatcopy(X* px, const size_t M, const size_t N)
+{
+    if constexpr (Trans)
+    {
+        assert(M == N);
+        if constexpr (Conj && !is_real_v<X>)
+        {
+            for (size_t n = 0u; n < N; ++n)
+            {
+                for (size_t m = 0u; m < n; ++m)
+                {
+                    auto x1 = conjugate(px[n * M + m]);
+                    auto x2 = conjugate(px[m * M + n]);
+                    px[n * M + m] = x2;
+                    px[m * M + n] = x1;
+                }
+                px[n * M + n] = conjugate(px[n * M + n]);
+            }
+        }
+        else
+        {
+            for (size_t n = 1u; n < N; ++n)
+                for (size_t m = 0u; m < n; ++m)
+                    std::swap(px[n * M + m], px[m * M + n]);
+        }
+    }
+    else if constexpr (Conj && !is_real_v<X>)
+    {
+        const auto size = M * N;
+        for (size_t i = 0; i < size; ++i)
+            px[i] = conjugate(px[i]);
+    }
 }
 
 template<typename Z, typename X, typename Y, typename Alpha>
@@ -249,7 +313,7 @@ auto getri(Z* WL_RESTRICT pz, const size_t N)
     check_sizes<lapack_int>(N);
     const auto iN = lapack_int(N);
     lapack_int info = 0;
-    ndarray<lapack_int, 1> ipiv(std::array<size_t, 1u>{N});
+    ndarray<lapack_int, 1u> ipiv(std::array<size_t, 1u>{N});
 
     if constexpr (std::is_same_v<Z, float>)
         info = LAPACKE_sgetrf(LAPACK_COL_MAJOR, iN, iN, pz, iN, ipiv.data());
@@ -281,6 +345,40 @@ auto getri(Z* WL_RESTRICT pz, const size_t N)
 #endif
 }
 
+template<typename A, typename B>
+auto gesv(A* pa, B* pb, const size_t M, const size_t N)
+{
+    WL_THROW_IF_ABORT()
+    static_assert(is_float_v<A> || is_complex_v<A>);
+#if defined(WL_USE_LAPACKE)
+    check_sizes<lapack_int>(M, N);
+    const auto iM = lapack_int(M), iN = lapack_int(N);
+    lapack_int info = 0;
+    ndarray<lapack_int, 1u> ipiv(std::array<size_t, 1u>{M});
+
+    if constexpr (std::is_same_v<A, float>)
+        info = LAPACKE_sgesv(LAPACK_ROW_MAJOR, iM, iN, pa, iM, ipiv.data(),
+            pb, iN);
+    else if constexpr (std::is_same_v<A, double>)
+        info = LAPACKE_dgesv(LAPACK_ROW_MAJOR, iM, iN, pa, iM, ipiv.data(),
+            pb, iN);
+    else if constexpr (std::is_same_v<A, complex<float>>)
+        info = LAPACKE_cgesv(LAPACK_ROW_MAJOR, iM, iN,
+            (lapack_complex_float*)pa, iM, ipiv.data(),
+            (lapack_complex_float*)pb, iN);
+    else if constexpr (std::is_same_v<A, complex<double>>)
+        info = LAPACKE_zgesv(LAPACK_ROW_MAJOR, iM, iN,
+            (lapack_complex_double*)pa, iM, ipiv.data(),
+            (lapack_complex_double*)pb, iN);
+    if (info < 0) throw std::logic_error(WL_ERROR_INTERNAL);
+    if (info > 0) throw std::logic_error(WL_ERROR_LAPACKE_MATRIX_SINGULAR);
+#else
+    Eigen::Map<EigenMatrix<A, Eigen::RowMajor>> mapa(pa, M, M);
+    Eigen::Map<EigenMatrix<B, Eigen::RowMajor>> mapb(pb, M, N);
+    Eigen::PartialPivLU<Eigen::Ref<decltype(mapa)>> lu(mapa);
+    mapb = lu.solve(mapb);
+#endif
+}
 
 template<typename B, bool Conjugate = false, typename X>
 auto get_input_array(const X& x) -> decltype(auto)
@@ -631,6 +729,27 @@ auto inverse(X&& x)
         return ret;
     blas::getri(ret.data(), N);
     return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename A, typename B>
+auto linear_solve(A&& a, B&& b)
+{
+    WL_TRY_BEGIN()
+    using AT = remove_cvref_t<A>;
+    using BT = remove_cvref_t<B>;
+    constexpr auto BR = array_rank_v<BT>;
+    static_assert(array_rank_v<AT> == 2u, WL_ERROR_LINEAR_SOLVE_A);
+    static_assert(BR == 1u || BR == 2u, WL_ERROR_LINEAR_SOLVE_B);
+    static_assert(is_numerical_type_v<AT> && is_numerical_type_v<BT>,
+        WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<common_type_t<value_type_t<AT>, value_type_t<AT>>>;
+
+    auto vala = cast<ndarray<P, 2u>>(std::forward<decltype(a)>(a));
+    auto valb = cast<ndarray<P, BR>>(std::forward<decltype(b)>(b));
+
+    const auto M = vala.dims()[0];
+    return valb;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

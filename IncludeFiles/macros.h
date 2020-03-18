@@ -384,6 +384,12 @@ namespace wl
 #define WL_ERROR_SQUARE_MATRIX \
 "The argument should be a square matrix."
 
+#define WL_ERROR_LINEAR_SOLVE_A \
+"The l.h.s. of LinearSolve should be a square matrix."
+
+#define WL_ERROR_LINEAR_SOLVE_B \
+"The r.h.s. of LinearSolve should be an array of rank one or two."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

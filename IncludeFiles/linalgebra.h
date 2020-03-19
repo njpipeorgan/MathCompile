@@ -391,7 +391,7 @@ auto gels(A* pa, B* pb, const size_t M, const size_t K, const size_t N)
     lapack_int info = 0;
 
     if constexpr (std::is_same_v<A, float>)
-        info = LAPACKE_sgels(LAPACK_ROW_MAJOR, 'N', iM, iK, iN, pa, iK,
+        info = LAPACKE_sgelss(LAPACK_ROW_MAJOR, 'N', iM, iK, iN, pa, iK,
             pb, iN);
     else if constexpr (std::is_same_v<A, double>)
         info = LAPACKE_dgels(LAPACK_ROW_MAJOR, 'N', iM, iK, iN, pa, iK,
@@ -407,8 +407,8 @@ auto gels(A* pa, B* pb, const size_t M, const size_t K, const size_t N)
 #else
     Eigen::Map<EigenMatrix<A, Eigen::RowMajor>> mapa(pa, M, K);
     Eigen::Map<EigenMatrix<B, Eigen::RowMajor>> mapb(pb, M, N);
-    Eigen::ColPivHouseholderQR<Eigen::Ref<decltype(mapa)>> lu(mapa);
-    mapb = lu.solve(mapb);
+    Eigen::ColPivHouseholderQR<Eigen::Ref<decltype(mapa)>> qr(mapa);
+    mapb = qr.solve(mapb);
 #endif
 }
 
@@ -764,6 +764,31 @@ auto inverse(X&& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename X>
+auto pseudo_inverse(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_SQUARE_MATRIX);
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<value_type_t<XT>>;
+
+    auto valx = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
+    const auto M = valx.dims()[0];
+    const auto N = valx.dims()[1];
+    WL_THROW_IF_ABORT()
+    ndarray<P, 2u> ret(std::array<size_t, 2u>{N, M});
+    if (M == 0u || N == 0u)
+        return ret;
+    Eigen::Map<blas::EigenMatrix<P, Eigen::RowMajor>> mapx(valx.data(), M, N);
+    Eigen::Map<blas::EigenMatrix<P, Eigen::RowMajor>> mapy(ret.data(), N, M);
+    Eigen::CompleteOrthogonalDecomposition<
+        Eigen::Ref<decltype(mapx)>> co(mapx);
+    mapy = co.pseudoInverse();
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 template<typename A, typename B>
 auto linear_solve(A&& a, B&& b)
 {
@@ -812,17 +837,25 @@ auto least_squares(A&& a, B&& b)
     const auto M = vala.dims()[0];
     const auto K = vala.dims()[1];
     const auto N = BR == 1u ? size_t(1) : valb.dims()[1];
-    if (!(M >= K))
-        throw std::logic_error(WL_ERROR_LEAST_SQUARES_A);
     if (M != valb.dims()[0])
         throw std::logic_error(WL_ERROR_LINEAR_SOLVE_B);
     if (M == 0u || K == 0u || N == 0u)
         return valb;
+    if (M < K)
+    {
+        if constexpr (BR == 1u)
+            valb.uninitialized_resize(std::array<size_t, 1u>{K});
+        else
+            valb.uninitialized_resize(std::array<size_t, 2u>{K, N});
+    }
     blas::gels(vala.data(), valb.data(), M, K, N);
-    if constexpr (BR == 1u)
-        valb.uninitialized_resize(std::array<size_t, 1u>{K});
-    else
-        valb.uninitialized_resize(std::array<size_t, 2u>{K, N});
+    if (M > K)
+    {
+        if constexpr (BR == 1u)
+            valb.uninitialized_resize(std::array<size_t, 1u>{K});
+        else
+            valb.uninitialized_resize(std::array<size_t, 2u>{K, N});
+    }
     return valb;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

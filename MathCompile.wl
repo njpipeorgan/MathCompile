@@ -16,6 +16,7 @@ LevelTag
 Extern
 IndirectReturn
 CXX
+Ignored
 
 
 $CppSource="";
@@ -61,6 +62,7 @@ MCSyntax::farg="`1` does not have a correct syntax for a function argument.";
 MCSyntax::slotmax="#`1` exceeds the maximum value of slot number allowed.";
 MCSyntax::fpure="`1` does not have a correct syntax for a pure function.";
 MCSyntax::scopevar="`1` does not have a correct syntax for a local variable.";
+MCSyntax::multiassign="Multiple assignment to `1` should be enclosed in a scope.";
 MCSyntax::badbreak="Break[] cannot be called in `1`.";
 MCSyntax::breakloc="Break[] in `1` is not correctly enclosed by a loop.";
 MCSemantics::bad="`1` does not have correct semantics.";
@@ -172,6 +174,8 @@ totypespec[any___]:=Missing[]
 istypename[name_]:=!MissingQ@totypespec[name]
 istypespec[spec_]:=!MissingQ@totypename[spec]
 
+
+headerseries[expr_,pos_]:=Table[Extract[expr,ReplacePart[Take[pos,n],-1->0]],{n,Length@pos}]
 
 syntax[list][code_]:=code//.{
     id["List",p_][exprs___]:>list[p][exprs]
@@ -326,17 +330,37 @@ syntax[loop][code_]:=code//.{
     any:id["While",_][___]:>(Message[MCSyntax::bad,tostring[any],"While"];Throw["syntax"])
   }
 
-syntax[sequence][code_]:=code//.{
-    id["CompoundExpression",_][exprs__]:>sequence[exprs]}//.{
-    sequence[before___,sequence[exprs___],after___]:>sequence[before,exprs,after]}/.{
-    sequence[]:>sequence[id["Null",0]]
-  }
+syntax[multiassign][code_]:=Module[{poss,scopepos,varpos,var,code2=code},
+    poss=Position[code2,id["Set",_][list[_][(id[_,_]|id["Part",_][id[_,_],___])..],_]];
+    Do[
+      scopepos=Flatten@Position[headerseries[code,pos],scope[_],1,Heads->False];
+      If[Length@scopepos==0,Message[MCSyntax::multiassign,tostring@Extract[code2,pos~Join~{1}]];Throw["syntax"]];
+      var=newvar;
+      varpos=pos[[;;Max[scopepos]-1]]~Join~{1};
+      code2=ReplacePart[code2,{
+          varpos->Append[Extract[code2,varpos],var],
+          pos->sequence[
+            id["Set",0][id[var,0],Replace[Extract[code2,pos~Join~{2}],list[p_][any___]:>maketuple[p][any]]],
+            Sequence@@MapThread[
+              If[MatchQ[#1,id["MathCompile`Ignored",_]],Nothing,id["Set",0][#1,tupletake[0][id[var,0],#2]]]&,
+              {List@@#,Range@Length@#}&@Extract[code2,pos~Join~{1}]],
+            id["Null",0]]
+        }];
+    ,{pos,poss}];
+    code2
+  ]
 
 syntax[assign][code_]:=code//.{
     id["Set",p0_][target:id[_,_],expr_]:>assign[p0][target,expr],
     id["Set",p0_][target:id["Part",_][id[_,_],___],expr_]:>assign[p0][target,expr]
   }/.{
     any:id["Set",_][___]:>(Message[MCSyntax::bad,tostring[any],"Set"];Throw["syntax"])
+  }
+
+syntax[sequence][code_]:=code//.{
+    id["CompoundExpression",_][exprs__]:>sequence[exprs]}//.{
+    sequence[before___,sequence[exprs___],after___]:>sequence[before,exprs,after]}/.{
+    sequence[]:>sequence[id["Null",0]]
   }
 
 syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
@@ -363,7 +387,8 @@ syntax[loopbreak][code_]:=Module[{heads,headspos,breakpos},
       }
   ]
 
-$syntaxpasses={list,type,extern,embedcxx,clause,mutable,function,scope,branch,loop,sequence,assign,loopbreak};
+$syntaxpasses={list,type,extern,embedcxx,clause,mutable,function,
+  scope,branch,loop,multiassign,assign,sequence,loopbreak};
 allsyntax[code_]:=Fold[syntax[#2][#1]&,code,$syntaxpasses];
 
 
@@ -710,8 +735,6 @@ $builtinfunctions=
 |>;
 
 
-headerseries[expr_,pos_]:=Table[Extract[expr,ReplacePart[Take[pos,n],-1->0]],{n,Length@pos}]
-
 variablerename[code_]:=
   Module[{renamerules={
       scope[p0_][ids_,expr_]:>
@@ -1021,6 +1044,8 @@ codegen[scope[p_][_,sequence[exprs___]],any___]:=
 codegen[initialize[var_,expr_],___]:={"auto ",codegen[var]," = ",codegen[native["val",0][expr]]}
 
 codegen[assign[p_][var_,expr_],___]:=codegen[native["set",p][var,expr]]
+codegen[tupletake[p_][var_,i_],___]:=codegen[native["tuple_take",p][var,const[i]]]
+codegen[maketuple[p_][any___],___]:=codegen[native["make_tuple",p][any]]
 
 codegen[literal[s_String,p_],___]:={annotatebegin[p],"wl::string(u8",stringtransform[s],annotateend[p],")"}
 codegen[literal[i_Integer,p_],___]:={annotatebegin[p],"int64_t(",ToString@CForm[i],annotateend[p],")"}

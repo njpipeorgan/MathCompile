@@ -1216,29 +1216,6 @@ namespace strexp
 template<typename Expression>
 auto compile(Expression);
 }
-template<typename... Any>
-auto make_tuple(Any&&... any)
-{
-    return std::make_tuple(val(std::forward<decltype(any)>(any))...);
-}
-template<typename... Any, int64_t I>
-auto tuple_take(std::tuple<Any...>& tuple, const_int<I>)
-{
-    static_assert(I >= 1u, WL_ERROR_INTERNAL);
-    return std::get<I - 1>(std::move(tuple));
-}
-template<typename... Any, int64_t I>
-auto tuple_take(const std::tuple<Any...>& tuple, const_int<I>)
-{
-    static_assert(I >= 1u, WL_ERROR_INTERNAL);
-    return std::get<I - 1>(tuple);
-}
-template<typename Tuple, int64_t I>
-auto tuple_take(Tuple&& tuple, const_int<I>)
-{
-    static_assert(I >= 1u, WL_ERROR_INTERNAL);
-    return wl::part(std::forward<decltype(tuple)>(tuple), size_t(I));
-}
 template<typename Any>
 auto val(Any&& any) -> decltype(auto)
 {
@@ -7761,6 +7738,29 @@ auto part(Array&& a, Specs&&... specs) -> decltype(auto)
     else
         return part(a.to_array(), std::forward<decltype(specs)>(specs)...);
     WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename... Any>
+auto make_tuple(Any&&... any)
+{
+    return std::make_tuple(val(std::forward<decltype(any)>(any))...);
+}
+template<typename... Any, int64_t I>
+auto tuple_take(std::tuple<Any...>& tuple, const_int<I>)
+{
+    static_assert(I >= 1u, WL_ERROR_INTERNAL);
+    return std::get<I - 1>(std::move(tuple));
+}
+template<typename... Any, int64_t I>
+auto tuple_take(const std::tuple<Any...>& tuple, const_int<I>)
+{
+    static_assert(I >= 1u, WL_ERROR_INTERNAL);
+    return std::get<I - 1>(tuple);
+}
+template<typename Tuple, int64_t I>
+auto tuple_take(Tuple&& tuple, const_int<I>)
+{
+    static_assert(I >= 1u, WL_ERROR_INTERNAL);
+    return wl::part(std::forward<decltype(tuple)>(tuple), size_t(I));
 }
 template<typename Array>
 auto first(Array&& a)

@@ -638,6 +638,7 @@ $builtinfunctions=
   "Inverse"         ->"inverse",
   "LinearSolve"     ->"linear_solve",
   "LeastSquares"    ->"least_squares",
+  "LUDecomposition" ->"lu_decomposition",
   "Accumulate"      ->"accumulate",
   "Differences"     ->"differences",
   "Ratios"          ->"ratios",
@@ -1282,7 +1283,7 @@ $compileroptionsbase=<|
     "Optimize"-><|0->"-O0",1->"-O1",2->"-O2",3->"-O3 -ffast-math"|>,
     "Define"->("-D"<>#&/@#&)|>,
   "MSVC"-><|
-    "Base"->"/std:c++17 /EHsc /MD",
+    "Base"->"/std:c++17 /EHsc /MD /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
     "Optimize"-><|0->"/O0",1->"/O1",2->"/O2",3->"/Ox /Gy /fp:fast"|>,
     "Define"->("/D"<>#&/@#&)|>
 |>;

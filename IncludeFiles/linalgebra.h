@@ -26,9 +26,7 @@
 #include "complex.h"
 #include "utils.h"
 
-#if !defined(WL_USE_CBLAS)
 #include <Eigen/Dense>
-#endif
 
 namespace wl
 {
@@ -305,7 +303,7 @@ auto gemm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
 }
 
 template<typename Z>
-auto getri(Z* WL_RESTRICT pz, const size_t N)
+auto getri(Z* pz, const size_t N)
 {
     WL_THROW_IF_ABORT()
     static_assert(is_float_v<Z> || is_complex_v<Z>);
@@ -342,6 +340,85 @@ auto getri(Z* WL_RESTRICT pz, const size_t N)
 #else
     Eigen::Map<EigenMatrix<Z>> mapz(pz, N, N);
     mapz = mapz.inverse();
+#endif
+}
+
+template<typename Z, typename P, typename C>
+auto getrf(Z* pz, P* piv, C* cond, const size_t M, const size_t N)
+{
+    static_assert(is_float_v<Z> || is_complex_v<Z>);
+    static_assert(is_integral_v<P>);
+    static_assert(std::is_same_v<value_type_t<Z>, C>);
+#if defined(WL_USE_LAPACKE)
+    check_sizes<lapack_int>(M, N);
+    const auto K = std::min(M, N);
+    const auto iM = lapack_int(M), iN = lapack_int(N);
+    lapack_int info = 0;
+    lapack_int* ipiv = (lapack_int*)malloc(K * sizeof(lapack_int));
+    if (!ipiv) throw std::bad_alloc{};
+    C norm = 0;
+    if (M == N)
+    {
+        if constexpr (std::is_same_v<Z, float>)
+            norm = LAPACKE_slange(LAPACK_ROW_MAJOR, 'I', iM, iN, pz, iN);
+        else if constexpr (std::is_same_v<Z, double>)
+            norm = LAPACKE_dlange(LAPACK_ROW_MAJOR, 'I', iM, iN, pz, iN);
+        else if constexpr (std::is_same_v<Z, complex<float>>)
+            norm = LAPACKE_clange(LAPACK_ROW_MAJOR, 'I', iM, iN,
+                (lapack_complex_float*)pz, iN);
+        else if constexpr (std::is_same_v<Z, complex<double>>)
+            norm = LAPACKE_zlange(LAPACK_ROW_MAJOR, 'I', iM, iN,
+                (lapack_complex_double*)pz, iN);
+    }
+    if constexpr (std::is_same_v<Z, float>)
+        info = LAPACKE_sgetrf(LAPACK_ROW_MAJOR, iM, iN, pz, iN, ipiv);
+    else if constexpr (std::is_same_v<Z, double>)
+        info = LAPACKE_dgetrf(LAPACK_ROW_MAJOR, iM, iN, pz, iN, ipiv);
+    else if constexpr (std::is_same_v<Z, complex<float>>)
+        info = LAPACKE_cgetrf(LAPACK_ROW_MAJOR, iM, iN,
+            (lapack_complex_float*)pz, iN, ipiv);
+    else if constexpr (std::is_same_v<Z, complex<double>>)
+        info = LAPACKE_zgetrf(LAPACK_ROW_MAJOR, iM, iN,
+            (lapack_complex_double*)pz, iN, ipiv);
+    if constexpr (sizeof(lapack_int) != sizeof(P))
+    {
+        for (size_t i = 0u; i < K; ++i)
+            piv[i] = P(i + 1);
+        for (size_t i = 0u; i < K; ++i)
+            std::swap(piv[i], piv[ipiv[i] - 1]);
+        free(ipiv);
+    }
+    if (info < 0) throw std::logic_error(WL_ERROR_INTERNAL);
+    if (M == N)
+    {
+        if constexpr (std::is_same_v<Z, float>)
+            info = LAPACKE_dgecon(LAPACK_ROW_MAJOR, 'I', iM,
+                pz, iN, norm, cond);
+        else if constexpr (std::is_same_v<Z, double>)
+            info = LAPACKE_dgecon(LAPACK_ROW_MAJOR, 'I', iM,
+                pz, iN, norm, cond);
+        else if constexpr (std::is_same_v<Z, complex<float>>)
+            info = LAPACKE_dgecon(LAPACK_ROW_MAJOR, 'I', iM,
+                (lapack_complex_float*)pz, iN, norm, cond);
+        else if constexpr (std::is_same_v<Z, complex<double>>)
+            info = LAPACKE_dgecon(LAPACK_ROW_MAJOR, 'I', iM,
+                (lapack_complex_double*)pz, iN, norm, cond);
+        if (info < 0) throw std::logic_error(WL_ERROR_INTERNAL);
+        *cond = C(1) / *cond;
+    }
+    else
+    {
+        *cond = C(0);
+    }
+#else
+    Eigen::Map<EigenMatrix<Z, Eigen::RowMajor>> mapz(pz, M, N);
+    Eigen::PartialPivLU<Eigen::Ref<decltype(mapz)>> lu(mapz);
+    const auto& ipiv = lu.permutationP().indices();
+    const auto K = std::min(M, N);
+    for (size_t i = 0u; i < K; ++i)
+        piv[ipiv[i]] = P(i + 1);
+    *cond = C(1) / C(lu.rcond());
+    mapz = lu.matrixLU();
 #endif
 }
 
@@ -857,6 +934,27 @@ auto least_squares(A&& a, B&& b)
             valb.uninitialized_resize(std::array<size_t, 2u>{K, N});
     }
     return valb;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto lu_decomposition(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"2.");
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<value_type_t<XT>>;
+
+    auto lu = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
+    const auto M = lu.dims()[0];
+    const auto N = lu.dims()[1];
+    ndarray<int64_t, 1u> ipiv(std::array<size_t, 1u>{std::min(M, N)});
+    value_type_t<P> cond{};
+    if (ipiv.size() == 0)
+        return std::make_tuple(lu, ipiv, cond);
+    blas::getrf(lu.data(), ipiv.data(), &cond, M, N);
+    return std::make_tuple(lu, ipiv, cond);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

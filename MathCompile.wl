@@ -639,6 +639,8 @@ $builtinfunctions=
   "LinearSolve"     ->"linear_solve",
   "LeastSquares"    ->"least_squares",
   "LUDecomposition" ->"lu_decomposition",
+  "CholeskyDecomposition"->"cholesky_decomposition",
+  "SchurDecomposition"->"schur_decomposition",
   "Accumulate"      ->"accumulate",
   "Differences"     ->"differences",
   "Ratios"          ->"ratios",

@@ -393,6 +393,12 @@ namespace wl
 #define WL_ERROR_LINEAR_SOLVE_B \
 "The target array should have compatible dimension with the coefficients'."
 
+#define WL_ERROR_CHOLESKY \
+"The argument should be a Hermitian positive-definite matrix."
+
+#define WL_ERROR_SCHUR \
+"The argument should be a square matrix."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

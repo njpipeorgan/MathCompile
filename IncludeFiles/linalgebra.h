@@ -265,13 +265,13 @@ auto gemm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
         const auto iLDX = int(LDX), iLDY = int(LDY);
         if constexpr (std::is_same_v<Z, float>)
             cblas_sgemm(CblasRowMajor,
-                TX == NoTrans ? CblasNoTrans : CBlasTrans,
-                TY == NoTrans ? CblasNoTrans : CBlasTrans,
+                TX == NoTrans ? CblasNoTrans : CblasTrans,
+                TY == NoTrans ? CblasNoTrans : CblasTrans,
                 iM, iN, iK, alpha, px, iLDX, py, iLDY, 1, pz, iN);
         else if constexpr (std::is_same_v<Z, double>)
             cblas_dgemm(CblasRowMajor,
-                TX == NoTrans ? CblasNoTrans : CBlasTrans,
-                TY == NoTrans ? CblasNoTrans : CBlasTrans,
+                TX == NoTrans ? CblasNoTrans : CblasTrans,
+                TY == NoTrans ? CblasNoTrans : CblasTrans,
                 iM, iN, iK, alpha, px, iLDX, py, iLDY, 1, pz, iN);
         else if constexpr (std::is_same_v<Z, complex<float>>)
             cblas_cgemm(CblasRowMajor,
@@ -419,6 +419,77 @@ auto getrf(Z* pz, P* piv, C* cond, const size_t M, const size_t N)
         piv[ipiv[i]] = P(i + 1);
     *cond = C(1) / C(lu.rcond());
     mapz = lu.matrixLU();
+#endif
+}
+
+template<typename Z>
+auto potrf(Z* pz, const size_t N)
+{
+    WL_THROW_IF_ABORT()
+    static_assert(is_float_v<Z> || is_complex_v<Z>);
+#if defined(WL_USE_LAPACKE)
+    check_sizes<lapack_int>(N);
+    const auto iN = lapack_int(N);
+    lapack_int info = 0;
+
+    if constexpr (std::is_same_v<Z, float>)
+        info = LAPACKE_spotrf(LAPACK_COL_MAJOR, 'L', iN, pz, iN);
+    else if constexpr (std::is_same_v<Z, double>)
+        info = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', iN, pz, iN);
+    else if constexpr (std::is_same_v<Z, complex<float>>)
+        info = LAPACKE_cpotrf(LAPACK_COL_MAJOR, 'L', iN,
+            (lapack_complex_float*)pz, iN);
+    else if constexpr (std::is_same_v<Z, complex<double>>)
+        info = LAPACKE_zpotrf(LAPACK_COL_MAJOR, 'L', iN,
+            (lapack_complex_double*)pz, iN);
+    if (info < 0) throw std::logic_error(WL_ERROR_INTERNAL);
+    for (size_t i = 0u; i < N; ++i, pz += N)
+        for (size_t j = 0u; j < i; ++j)
+            pz[j] = Z(0);
+#else
+    Eigen::Map<EigenMatrix<Z>> mapz(pz, N, N);
+    Eigen::LLT<Eigen::Ref<decltype(mapz)>> llt(mapz);
+    mapz = llt.matrixL();
+#endif
+}
+
+template<typename Z, typename Q>
+auto gees(Z* pz, Q* pq, const size_t N)
+{
+    WL_THROW_IF_ABORT()
+    static_assert(is_float_v<Z> || is_complex_v<Z>);
+#if defined(WL_USE_LAPACKE)
+    check_sizes<lapack_int>(N);
+    const auto iN = lapack_int(N);
+    lapack_int info = 0;
+    lapack_int sdim = 0;
+    Z* pw = (Z*)malloc(N * sizeof(Z));
+    if (!pw) throw std::bad_alloc{};
+
+    if constexpr (std::is_same_v<Z, float>)
+        info = LAPACKE_sgees(LAPACK_ROW_MAJOR, 'V', 'N', nullptr, iN,
+            pz, iN, &sdim, pw, pw, pq, iN);
+    else if constexpr (std::is_same_v<Z, double>)
+        info = LAPACKE_dgees(LAPACK_ROW_MAJOR, 'V', 'N', nullptr, iN,
+            pz, iN, &sdim, pw, pw, pq, iN);
+    else if constexpr (std::is_same_v<Z, complex<float>>)
+        info = LAPACKE_cgees(LAPACK_ROW_MAJOR, 'V', 'N', nullptr, iN,
+            (lapack_complex_float*)pz, iN, &sdim,
+            (lapack_complex_float*)pw, (lapack_complex_float*)pq, iN);
+    else if constexpr (std::is_same_v<Z, complex<double>>)
+        info = LAPACKE_zgees(LAPACK_ROW_MAJOR, 'V', 'N', nullptr, iN,
+            (lapack_complex_double*)pz, iN, &sdim,
+            (lapack_complex_double*)pw, (lapack_complex_double*)pq, iN);
+    free(pw);
+#else
+    using EigenSchur = std::conditional_t<is_float_v<Z>,
+        Eigen::RealSchur<EigenMatrix<Z, Eigen::RowMajor>>,
+        Eigen::ComplexSchur<EigenMatrix<Z, Eigen::RowMajor>>>;
+    Eigen::Map<EigenMatrix<Z, Eigen::RowMajor>> mapz(pz, N, N);
+    Eigen::Map<EigenMatrix<Q, Eigen::RowMajor>> mapq(pq, N, N);
+    EigenSchur schur(mapz, true);
+    mapz = schur.matrixT();
+    mapq = schur.matrixU();
 #endif
 }
 
@@ -955,6 +1026,47 @@ auto lu_decomposition(X&& x)
         return std::make_tuple(lu, ipiv, cond);
     blas::getrf(lu.data(), ipiv.data(), &cond, M, N);
     return std::make_tuple(lu, ipiv, cond);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto cholesky_decomposition(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_CHOLESKY);
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<value_type_t<XT>>;
+
+    auto l = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
+    const auto N = l.dims()[0];
+    if (N != l.dims()[1])
+        throw std::logic_error(WL_ERROR_CHOLESKY);
+    if (N == 0u)
+        return l;
+    blas::potrf(l.data(), N);
+    return l;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto schur_decomposition(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_SCHUR);
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<value_type_t<XT>>;
+
+    auto t = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
+    const auto N = t.dims()[0];
+    if (N != t.dims()[1])
+        throw std::logic_error(WL_ERROR_SCHUR);
+    ndarray<P, 2u> q(t.dims());
+    if (N == 0u)
+        return std::make_tuple(q, t);
+    blas::gees(t.data(), q.data(), N);
+    return std::make_tuple(q, t);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

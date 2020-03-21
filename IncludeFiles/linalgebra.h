@@ -493,6 +493,47 @@ auto gees(Z* pz, Q* pq, const size_t N)
 #endif
 }
 
+template<typename Z, typename S, typename P, typename Q>
+auto gesvd(Z* z, S* s, P* p, Q* q, const size_t M, const size_t N)
+{
+    WL_THROW_IF_ABORT()
+    static_assert(is_float_v<Z> || is_complex_v<Z>);
+    static_assert(std::is_same_v<value_type_t<Z>, S>);
+#if defined(WL_USE_LAPACKE)
+    check_sizes<lapack_int>(M, N);
+    const auto iM = lapack_int(M), iN = lapack_int(N);
+    lapack_int info = 0;
+    S* b = (S*)malloc(std::min(M, N) * sizeof(Z));
+    if (!b) throw std::bad_alloc{};
+
+    if constexpr (std::is_same_v<Z, float>)
+        info = LAPACKE_sgesvd(LAPACK_ROW_MAJOR, 'A', 'A', iM, iN,
+            z, iN, s, p, iM, q, iN, b);
+    else if constexpr (std::is_same_v<Z, double>)
+        info = LAPACKE_dgesvd(LAPACK_ROW_MAJOR, 'A', 'A', iM, iN,
+            z, iN, s, p, iM, q, iN, b);
+    else if constexpr (std::is_same_v<Z, complex<float>>)
+        info = LAPACKE_cgesvd(LAPACK_ROW_MAJOR, 'A', 'A', iM, iN,
+            (lapack_complex_float*)z, iN, s,
+            (lapack_complex_float*)p, iM, (lapack_complex_float*)q, iN, b);
+    else if constexpr (std::is_same_v<Z, complex<double>>)
+        info = LAPACKE_zgesvd(LAPACK_ROW_MAJOR, 'A', 'A', iM, iN,
+            (lapack_complex_double*)z, iN, s,
+            (lapack_complex_double*)p, iM, (lapack_complex_double*)q, iN, b);
+    free(b);
+#else
+    Eigen::Map<EigenMatrix<Z, Eigen::RowMajor>> mapz(z, M, N);
+    Eigen::Map<Eigen::Matrix<S, Eigen::Dynamic, 1>> maps(s, std::min(M, N));
+    Eigen::Map<EigenMatrix<P, Eigen::RowMajor>> mapp(p, M, M);
+    Eigen::Map<EigenMatrix<Q, Eigen::RowMajor>> mapq(q, N, N);
+    Eigen::BDCSVD<EigenMatrix<Z, Eigen::RowMajor>> svd(mapz,
+        Eigen::ComputeFullU | Eigen::ComputeFullV);
+    maps = svd.singularValues();
+    mapp = svd.matrixU();
+    mapq = svd.matrixV();
+#endif
+}
+
 template<typename A, typename B>
 auto gesv(A* pa, B* pb, const size_t M, const size_t N)
 {
@@ -1069,5 +1110,41 @@ auto schur_decomposition(X&& x)
     return std::make_tuple(q, t);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
+
+template<typename T>
+auto _svd_get_s(const ndarray<T, 1u>& s)
+{
+    const auto N = s.size();
+    ndarray<T, 2u> ret(std::array<size_t, 2u>{N, N}, T(0));
+    auto s_data = s.data();
+    auto ret_data = ret.data();
+    for (size_t i = 0; i < N; ++i)
+        ret_data[i * N + i] = s_data[i];
+    return ret;
+}
+
+template<typename X>
+auto singular_value_decomposition(X&& x)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"2.");
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    using P = promote_integral_t<value_type_t<XT>>;
+
+    auto valx = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
+    const auto M = valx.dims()[0];
+    const auto N = valx.dims()[0];
+    ndarray<value_type_t<P>, 1u> s(std::array<size_t, 1u>{std::min(M, N)});
+    ndarray<P, 2u> p(std::array<size_t, 2u>{M, M});
+    ndarray<P, 2u> q(std::array<size_t, 2u>{N, N});
+
+    if (M == 0u || N == 0u)
+        return std::make_tuple(p, _svd_get_s(s), q);
+    blas::gesvd(valx.data(), s.data(), p.data(), q.data(), M, N);
+    return std::make_tuple(p, _svd_get_s(s), q);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 
 }

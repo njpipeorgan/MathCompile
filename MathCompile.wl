@@ -641,6 +641,7 @@ $builtinfunctions=
   "LUDecomposition" ->"lu_decomposition",
   "CholeskyDecomposition"->"cholesky_decomposition",
   "SchurDecomposition"->"schur_decomposition",
+  "SingularValueDecomposition"->"singular_value_decomposition",
   "Accumulate"      ->"accumulate",
   "Differences"     ->"differences",
   "Ratios"          ->"ratios",

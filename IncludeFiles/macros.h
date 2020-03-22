@@ -399,6 +399,9 @@ namespace wl
 #define WL_ERROR_SCHUR \
 "The argument should be a square matrix."
 
+#define WL_ERROR_GEOMETRIC_MEAN_REAL \
+"The function only takes an array of real numbers."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

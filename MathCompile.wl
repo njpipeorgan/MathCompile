@@ -631,6 +631,7 @@ $builtinfunctions=
 (*array math operation*)
   "Total"           ->"total",
   "Mean"            ->"mean",
+  "GeometricMean"   ->"geometric_mean",
   "Dot"             ->"dot",
   "Inner"           ->"inner",
   "Outer"           ->"outer",

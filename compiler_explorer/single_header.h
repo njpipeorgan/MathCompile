@@ -304,6 +304,8 @@ namespace wl
 "The argument should be a Hermitian positive-definite matrix."
 #define WL_ERROR_SCHUR \
 "The argument should be a square matrix."
+#define WL_ERROR_GEOMETRIC_MEAN_REAL \
+"The function only takes an array of real numbers."
 #define WL_ERROR_LIBRARYLINK \
 "An error has occurred during a LibraryLink operation."
 #define WL_ERROR_CALLBACK \
@@ -18358,6 +18360,43 @@ auto mean(const X& x)
         const auto row_size_inv = RV(1) / RV(row_size);
         for (size_t j = 0; j < col_size; ++j)
             ret_data[j] *= row_size_inv;
+        return ret;
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto geometric_mean(const X& x)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    using RV = promote_integral_t<value_type_t<X>>;
+    static_assert(is_real_v<RV>, WL_ERROR_GEOMETRIC_MEAN_REAL);
+    if constexpr (XR == 1u)
+    {
+        RV log_total = 0;
+        x.for_each([&](const auto& a)
+            {
+                log_total += std::log(std::abs(RV(a)));
+            });
+        return std::exp(total / RV(x.size()));
+    }
+    else
+    {
+        const auto& valx = allows<view_category::Simple>(x);
+        ndarray<RV, XR - 1u> ret(utils::dims_take<2u, XR>(valx.dims()), 0);
+        const auto row_size = valx.dims()[0];
+        const auto col_size = ret.size();
+        WL_THROW_IF_ABORT();
+        auto x_data = valx.data();
+        auto ret_data = ret.data();
+        for (size_t i = 0; i < row_size; ++i, x_data += col_size)
+            for (size_t j = 0; j < col_size; ++j)
+                ret_data[j] += std::log(std::abs(RV(x_data[j])));
+        const auto row_size_inv = RV(1) / RV(row_size);
+        for (size_t j = 0; j < col_size; ++j)
+            ret_data[j] = std::exp(ret_data[j] * row_size_inv);
         return ret;
     }
     WL_TRY_END(__func__, __FILE__, __LINE__)

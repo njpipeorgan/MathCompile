@@ -396,11 +396,17 @@ namespace wl
 #define WL_ERROR_CHOLESKY \
 "The argument should be a Hermitian positive-definite matrix."
 
-#define WL_ERROR_SCHUR \
+#define WL_ERROR_REQUIRE_SQUARE_MATRIX \
 "The argument should be a square matrix."
 
 #define WL_ERROR_GEOMETRIC_MEAN_REAL \
 "The function only takes an array of real numbers."
+
+#define WL_ERROR_MATRIX_POWER_EXPONENT \
+"Only integral exponents are supported."
+
+#define WL_ERROR_IDENTITY_MATRIX \
+"The size of the identity matrix should be one or a pair of positive integers."
 
 // runtime error messages
 

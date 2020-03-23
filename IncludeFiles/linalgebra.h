@@ -252,7 +252,7 @@ template<int TX = NoTrans, int TY = NoTrans,
     typename Z, typename X, typename Y>
 auto gemm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
     const Y* WL_RESTRICT py, const size_t M, const size_t K, const size_t N,
-    const Z alpha = Z(1))
+    const Z alpha = Z(1), const Z beta = Z(1))
 {
     WL_THROW_IF_ABORT()
     const size_t LDX = TX == NoTrans ? K : M;
@@ -267,26 +267,31 @@ auto gemm(Z* WL_RESTRICT pz, const X* WL_RESTRICT px,
             cblas_sgemm(CblasRowMajor,
                 TX == NoTrans ? CblasNoTrans : CblasTrans,
                 TY == NoTrans ? CblasNoTrans : CblasTrans,
-                iM, iN, iK, alpha, px, iLDX, py, iLDY, 1, pz, iN);
+                iM, iN, iK, alpha, px, iLDX, py, iLDY, beta, pz, iN);
         else if constexpr (std::is_same_v<Z, double>)
             cblas_dgemm(CblasRowMajor,
                 TX == NoTrans ? CblasNoTrans : CblasTrans,
                 TY == NoTrans ? CblasNoTrans : CblasTrans,
-                iM, iN, iK, alpha, px, iLDX, py, iLDY, 1, pz, iN);
+                iM, iN, iK, alpha, px, iLDX, py, iLDY, beta, pz, iN);
         else if constexpr (std::is_same_v<Z, complex<float>>)
             cblas_cgemm(CblasRowMajor,
                 CBLAS_TRANSPOSE(TX), CBLAS_TRANSPOSE(TY),
                 iM, iN, iK, &alpha, px, iLDX, py, iLDY,
-                &const_one<float>, pz, iN);
+                &beta, pz, iN);
         else if constexpr (std::is_same_v<Z, complex<double>>)
             cblas_zgemm(CblasRowMajor,
                 CBLAS_TRANSPOSE(TX), CBLAS_TRANSPOSE(TY),
                 iM, iN, iK, &alpha, px, iLDX, py, iLDY,
-                &const_one<double>, pz, iN);
+                &beta, pz, iN);
     }
     else
     {
 #endif
+    if (beta != Z(1))
+    {
+        for (size_t i = 0; i < K * N; ++i)
+            pz[i] *= beta;
+    }
     using blocking_t = Eigen::internal::gemm_blocking_space<Eigen::RowMajor,
         X, Y, Eigen::Dynamic, Eigen::Dynamic, Eigen::Dynamic>;
     auto blocking = blocking_t(M, N, K, 1, true);
@@ -1095,14 +1100,14 @@ auto schur_decomposition(X&& x)
 {
     WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
-    static_assert(array_rank_v<XT> == 2u, WL_ERROR_SCHUR);
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_REQUIRE_SQUARE_MATRIX);
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
     using P = promote_integral_t<value_type_t<XT>>;
 
     auto t = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
     const auto N = t.dims()[0];
     if (N != t.dims()[1])
-        throw std::logic_error(WL_ERROR_SCHUR);
+        throw std::logic_error(WL_ERROR_REQUIRE_SQUARE_MATRIX);
     ndarray<P, 2u> q(t.dims());
     if (N == 0u)
         return std::make_tuple(q, t);
@@ -1134,7 +1139,7 @@ auto singular_value_decomposition(X&& x)
 
     auto valx = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
     const auto M = valx.dims()[0];
-    const auto N = valx.dims()[0];
+    const auto N = valx.dims()[1];
     ndarray<value_type_t<P>, 1u> s(std::array<size_t, 1u>{std::min(M, N)});
     ndarray<P, 2u> p(std::array<size_t, 2u>{M, M});
     ndarray<P, 2u> q(std::array<size_t, 2u>{N, N});
@@ -1146,5 +1151,95 @@ auto singular_value_decomposition(X&& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename Ret = int64_t, typename N>
+auto identity_matrix(const N& n)
+{
+    static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
+    if constexpr (is_integral_v<N>)
+    {
+        if (n < N(0))
+            throw std::logic_error(WL_ERROR_IDENTITY_MATRIX);
+        const auto size = size_t(n);
+        ndarray<Ret, 2u> ret(std::array<size_t, 2u>{size, size}, Ret(0));
+        auto ret_data = ret.data();
+        for (size_t i = 0u; i < size; ++i)
+            ret_data[i * size + i] = Ret(1);
+        return ret;
+    }
+    else if constexpr (array_rank_v<N> == 1u && is_integral_v<value_type_t<N>>)
+    {
+        using NV = value_type_t<N>;
+        static_assert(is_integral_v<NV>, WL_ERROR_IDENTITY_MATRIX);
+        if (n.size() != 2u)
+            throw std::logic_error(WL_ERROR_IDENTITY_MATRIX);
+        NV sizes[2];
+        n.copy_to(&sizes[0]);
+        if (sizes[0] < NV(0) || sizes[1] < NV(0))
+            throw std::logic_error(WL_ERROR_IDENTITY_MATRIX);
+        const auto sizem = size_t(sizes[0]);
+        const auto sizen = size_t(sizes[1]);
+        const auto sizek = std::min(sizem, sizen);
+        ndarray<Ret, 2u> ret(std::array<size_t, 2u>{sizem, sizen}, Ret(0));
+        auto ret_data = ret.data();
+        for (size_t i = 0u; i < sizek; ++i)
+            ret_data[i * sizen + i] = Ret(1);
+        return ret;
+    }
+    else
+    {
+        static_assert(always_false_v<N>, WL_ERROR_IDENTITY_MATRIX);
+    }
+}
+
+template<typename X, typename E>
+auto matrix_power(X&& x, E e)
+{
+    using XT = remove_cvref_t<X>;
+    static_assert(array_rank_v<XT> == 2u, WL_ERROR_REQUIRE_SQUARE_MATRIX);
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_integral_v<E>, WL_ERROR_MATRIX_POWER_EXPONENT);
+    using P = promote_integral_t<value_type_t<XT>>;
+
+    const auto N = x.dims()[0];
+    if (N != x.dims()[1])
+        throw std::logic_error(WL_ERROR_REQUIRE_SQUARE_MATRIX);
+    auto x0 = cast<ndarray<P, 2u>>(std::forward<decltype(x)>(x));
+    if (e == E(0))
+        return identity_matrix<P>(N);
+    if (e < E(0))
+        x0 = inverse(std::move(x0));
+    auto ue = e >= E(0) ? size_t(e) : size_t(-e);
+    if (ue == 1u)
+        return x0;
+
+    auto x1 = ndarray<P, 2u>(x0.dims());
+    auto x2 = ndarray<P, 2u>(x0.dims());
+    auto* src = x0.data();
+    auto* dst = x1.data();
+    auto* ret = x2.data();
+
+    for (; !bool(ue & size_t(1)); ue /= 2u)
+    {
+        blas::gemm(dst, src, src, N, N, N, P(1), P(0));
+        std::swap(src, dst);
+    }
+    if (ue == 1)
+        return src == x0.data() ? x0 : x1;
+    utils::restrict_copy_n(src, N * N, ret);
+    ue -= 1u;
+    for (; ue > 0u; ue /= 2u)
+    {
+        if (bool(ue & size_t(1)))
+        {
+            blas::gemm(dst, src, ret, N, N, N, P(1), P(0));
+            std::swap(ret, dst);
+            if (ue == 1u)
+                break;
+        }
+        blas::gemm(dst, src, src, N, N, N, P(1), P(0));
+        std::swap(src, dst);
+    }
+    return ret == x0.data() ? x0 : ret == x1.data() ? x1 : x2;
+}
 
 }

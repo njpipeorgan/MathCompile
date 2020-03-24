@@ -18749,7 +18749,7 @@ auto _norm_impl_complex(const XV* begin, const XV* end, const UX abs2_max, P p)
                     const_int<P::value / 2>{});
         }
     }
-    else if (is_integral_v<P> && !(p & P(1)))
+    else if (is_integral_v<P> && mod(p, P(2)) != P(1))
     { // p is even integer
         const auto p2 = p / 2;
         for (auto iter = begin; iter < end; ++iter)

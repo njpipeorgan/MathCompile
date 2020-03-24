@@ -514,3 +514,19 @@ registertest[test["extern:list->scalar",      Function[{Typed[x,{Integer,1}]},Ex
 registertest[test["cxx:basic",                Function[{Typed[x,Integer]},Module[{y},y=CXX["wl::ndarray<double,1>{}"];y={x,x,x}]],{{3}->{3.,3.,3.}}]&];
 registertest[test["cxx:rename",               Function[{Typed[x,Integer]},Module[{y=1},y+=Module[{x=5},CXX["`x` = -123"];CXX["`x`"]];CXX["`x` + `y`"]]],{{2}->-120}]&];
 
+registertest[test["set:multiple1",            Function[{Typed[x,{Integer,1}]},Module[{a=5,b},{a,b}=x;{b,a,b}]],{{{1,2}}}]&];
+registertest[test["set:multiple2",            Function[{},Module[{a=5,b=3},{a,b}={b,a};{b,a,4}]],{{}}]&];
+registertest[test["accumulate:basic",         Function[{Typed[x,{Integer,3}]},Accumulate[x]],{{RandomInteger[10,{5,6,7}]}}]&];
+registertest[test["differences:basic",        Function[{Typed[x,{Integer,3}]},Differences[x]],{{RandomInteger[10,{5,6,7}]}}]&];
+registertest[test["differences:n",            Function[{Typed[x,{Integer,2}]},Differences[x,50]],{{RandomInteger[10,{100,3}]}}]&];
+registertest[test["differences:nn",           Function[{Typed[x,{Integer,3}]},Differences[x,{3,4,5}]],{{RandomInteger[10,{10,10,10}]}}]&];
+registertest[test["norm:real",                Function[{Typed[x,{Real,1}]},{Norm[x],Norm[x,1],Norm[x,0+1],Norm[x,1.5],Norm[x,150.0],Norm[x,300]}],{{{-1.,0.,2.,3.,4.,5.}}}]&];
+registertest[test["norm:integer",             Function[{Typed[x,{Integer,1}]},N@{Norm[x],Norm[x,2],Norm[x,4.0]}],{{{-3,-3,1,2,3}}}]&];
+registertest[test["norm:complex",             Function[{Typed[x,{Complex,1}]},{Norm[x],Norm[x,1],Norm[x,5.5]}],{{RandomComplex[1+I,10]}}]&];
+registertest[test["normalize:basic",          Function[{},N@{Normalize[{1,5,1}],Normalize[{-1.,2.,2.5}],Im@Normalize[{1+I,5+I,1-3I}]}],{{}},Equal]&];
+registertest[test["normalize:scalar",         Function[{},N@{Normalize[-5],Normalize[2.5],Im@Normalize[1+I]}],{{}},Equal]&];
+registertest[test["normalize:custom",         Function[{},{Normalize[{1,2,3,4,5},5&],Normalize[{1,2,3,4,5},Norm[#,1]&]}],{{}},Equal]&];
+registertest[test["variance:list",            Function[{},N@{Variance[{1.21,3.4,2.0,4.66,-1.5}],Variance[{-3,1,3}],Variance[{1+I,1-I}],Variance[{0.,0.,0.}]}],{{}},Equal]&];
+registertest[test["variance:level3",          Function[{Typed[x,{Complex,3}]},Variance[x]],{{RandomComplex[1+I,{5,6,7}]}},Equal]&];
+registertest[test["standard_deviation:list",  Function[{},N@{StandardDeviation[{1.21,3.4,2.0,4.66,-1.5}],StandardDeviation[{0.,0.,0.}]}],{{}},Equal]&];
+

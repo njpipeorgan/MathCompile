@@ -378,6 +378,9 @@ namespace wl
 #define WL_ERROR_NORMALIZE_NORM \
 "The norm function should return a real number."
 
+#define WL_ERROR_STANDARDIZE_F \
+"The mean and standard deviation functions should return scalars."
+
 #define WL_ERROR_THRESHOLD_PARAMS \
 "The parameters of threshold function should be real numbers."
 

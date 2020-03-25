@@ -728,28 +728,109 @@ auto standard_deviation(const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
-template<typename RV, typename Var, typename Avg>
-auto _standardize_impl(RV* ret_data, Var* var_data, const Avg* avg_data,
+template<typename RV, typename SD, typename Avg>
+auto _standardize_impl(RV* ret_data, SD* sd_data, const Avg* avg_data,
     const size_t size, const size_t stride)
 {
     WL_THROW_IF_ABORT();
     for (size_t j = 0; j < stride; ++j)
-        var_data[j] = Var(1) / std::sqrt(var_data[j]);
-
+        sd_data[j] = SD(1) / sd_data[j];
     for (size_t i = 0; i < size; ++i, ret_data += stride)
-    {
         for (size_t j = 0; j < stride; ++j)
-            ret_data[j] = (ret_data[j] - avg_data[j]) * var_data[j];
+            ret_data[j] = (ret_data[j] - avg_data[j]) * sd_data[j];
+}
+
+template<typename RV, typename SD, typename Avg>
+auto _standardize_impl(RV* ret_data, SD sd, const Avg avg, const size_t size)
+{
+    WL_THROW_IF_ABORT();
+    sd = SD(1) / sd;
+    for (size_t i = 0; i < size; ++i)
+        ret_data[i] = (ret_data[i] - avg) * sd;
+}
+
+template<typename X, size_t R, typename F>
+auto _standardize_apply(const ndarray<X, R>& x, F f)
+{
+    using CRef = const ndarray<X, 1u>&;
+    static_assert(
+        std::is_convertible_v<F, std::function<double(CRef)>> ||
+        std::is_convertible_v<F, std::function<complex<float>(CRef)>> ||
+        std::is_convertible_v<F, std::function<complex<double>(CRef)>>,
+        WL_ERROR_STANDARDIZE_F);
+    using RV = promote_integral_t<remove_cvref_t<decltype(
+        f(std::declval<const ndarray<X, 1u>&>()))>>;
+    if constexpr (R == 1u)
+    {
+        return RV(f(x));
+    }
+    else
+    {
+        ndarray<X, 1u> col(std::array<size_t, 1u>{x.dims()[0]});
+        ndarray<RV, R - 1u> ret(utils::dims_take<2u, R>(x.dims()));
+        const auto M = col.size();
+        const auto N = ret.size();
+        auto x_data = x.data();
+        auto col_data = col.data();
+        auto ret_data = ret.data();
+        for (size_t n = 0; n < N; ++n)
+        {
+            for (size_t m = 0; m < M; ++m)
+                col_data[m] = x_data[m * N + n];
+            ret_data[n] = RV(f(col));
+        }
+        return ret;
     }
 }
 
-template<typename RV, typename Var, typename Avg>
-auto _standardize_impl(RV* ret_data, Var var, const Avg avg, const size_t size)
+template<typename X, typename MeanF, typename StddevF>
+auto standardize(const X& x, MeanF mean_f, StddevF stddev_f)
 {
-    WL_THROW_IF_ABORT();
-    var = Var(1) / std::sqrt(var);
-    for (size_t i = 0; i < size; ++i)
-        ret_data[i] = (ret_data[i] - avg) * var;
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    using XV = value_type_t<X>;
+    using XList = const ndarray<XV, 1u>&;
+    using RV = common_type_t<promote_integral_t<XV>,
+        remove_cvref_t<decltype(
+            _standardize_apply(std::declval<XList>(), mean_f))>,
+        remove_cvref_t<decltype(
+            _standardize_apply(std::declval<XList>(), stddev_f))>>;
+    auto ret = cast<ndarray<RV, XR>>(x);
+    auto sd = _standardize_apply(ret, stddev_f);
+    auto avg = _standardize_apply(ret, mean_f);
+    if constexpr (XR == 1u)
+        _standardize_impl(ret.data(), sd, avg, ret.size());
+    else
+        _standardize_impl(ret.data(), sd.data(), avg.data(), ret.dims()[0],
+            sd.size());
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename MeanF>
+auto standardize(const X& x, MeanF mean_f)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    static_assert(XR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
+    using XV = value_type_t<X>;
+    using XList = const ndarray<XV, 1u>&;
+    using RV = common_type_t<promote_integral_t<XV>,
+        remove_cvref_t<decltype(
+            _standardize_apply(std::declval<XList>(), mean_f))>>;
+    auto ret = cast<ndarray<RV, XR>>(x);
+    auto sd = standard_deviation(ret);
+    auto avg = _standardize_apply(ret, mean_f);
+    if constexpr (XR == 1u)
+        _standardize_impl(ret.data(), sd, avg, ret.size());
+    else
+        _standardize_impl(ret.data(), sd.data(), avg.data(), ret.dims()[0],
+            sd.size());
+    return ret;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
 template<typename X>
@@ -761,13 +842,13 @@ auto standardize(const X& x)
     static_assert(is_numerical_type_v<X>, WL_ERROR_NUMERIC_ONLY);
     using RV = promote_integral_t<value_type_t<X>>;
     auto ret = cast<ndarray<RV, XR>>(x);
-    auto var = variance(ret);
+    auto sd = standard_deviation(ret);
     auto avg = mean(ret);
     if constexpr (XR == 1u)
-        _standardize_impl(ret.data(), var, avg, ret.size());
+        _standardize_impl(ret.data(), sd, avg, ret.size());
     else
-        _standardize_impl(ret.data(), var.data(), avg.data(), ret.dims()[0],
-            var.size());
+        _standardize_impl(ret.data(), sd.data(), avg.data(), ret.dims()[0],
+            sd.size());
     return ret;
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }

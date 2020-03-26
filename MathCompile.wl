@@ -1185,7 +1185,9 @@ Options[compilelink]={
   "WorkingDirectory"->Automatic,
   "Debug"->False,
   "MonitorAbort"->True,
+  "Defines"->{},
   "CompileOptions"->"",
+  "LinkerOptions"->"",
   "Includes"->{},
   "IncludeDirectories"->{},
   "Libraries"->{},
@@ -1246,6 +1248,8 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
             If[!TrueQ@OptionValue["Debug"],"NDEBUG",Nothing]}],
           OptionValue["CompileOptions"]
         },
+      "Defines"->OptionValue["Defines"],
+      "LinkerOptions"->OptionValue["LinkerOptions"],
       "CleanIntermediate"->!TrueQ@OptionValue["Debug"],
       "IncludeDirectories"->Join[{mldir,$packagepath<>"/IncludeFiles"},
         Flatten@{OptionValue["IncludeDirectories"]}],

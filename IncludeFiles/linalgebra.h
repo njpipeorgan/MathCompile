@@ -1117,13 +1117,13 @@ auto schur_decomposition(X&& x)
 }
 
 template<typename T>
-auto _svd_get_s(const ndarray<T, 1u>& s)
+auto _svd_get_s(const ndarray<T, 1u>& s, const size_t M, const size_t N)
 {
-    const auto N = s.size();
-    ndarray<T, 2u> ret(std::array<size_t, 2u>{N, N}, T(0));
+    const auto K = s.size();
+    ndarray<T, 2u> ret(std::array<size_t, 2u>{M, N}, T(0));
     auto s_data = s.data();
     auto ret_data = ret.data();
-    for (size_t i = 0; i < N; ++i)
+    for (size_t i = 0; i < K; ++i)
         ret_data[i * N + i] = s_data[i];
     return ret;
 }
@@ -1145,9 +1145,9 @@ auto singular_value_decomposition(X&& x)
     ndarray<P, 2u> q(std::array<size_t, 2u>{N, N});
 
     if (M == 0u || N == 0u)
-        return std::make_tuple(p, _svd_get_s(s), q);
+        return std::make_tuple(p, _svd_get_s(s, M, N), q);
     blas::gesvd(valx.data(), s.data(), p.data(), q.data(), M, N);
-    return std::make_tuple(p, _svd_get_s(s), q);
+    return std::make_tuple(p, _svd_get_s(s, M, N), q);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

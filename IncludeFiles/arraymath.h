@@ -193,7 +193,7 @@ auto geometric_mean(const X& x)
             {
                 log_total += std::log(std::abs(RV(a)));
             });
-        return std::exp(total / RV(x.size()));
+        return std::exp(log_total / RV(x.size()));
     }
     else
     {
@@ -1046,8 +1046,8 @@ auto covariance(const X& x, const Y& y)
         for (size_t i = 0; i < K; ++i, ++x_data, ++y_data)
         {
             auto px = P(*x_data);
-            auto py = P(*y_data);
-            total_xy += px * conjugate(py);
+            auto py = conjugate(P(*y_data));
+            total_xy += px * py;
             total_x += px;
             total_y += py;
         }

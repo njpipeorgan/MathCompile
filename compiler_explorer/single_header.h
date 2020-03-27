@@ -312,6 +312,12 @@ namespace wl
 "Only integral exponents are supported."
 #define WL_ERROR_IDENTITY_MATRIX \
 "The size of the identity matrix should be one or a pair of positive integers."
+#define WL_ERROR_DIAGONAL_MATRIC_DIAG \
+"The diagonal values should be a list of numbers."
+#define WL_ERROR_DIAGONAL_MATRIX_K \
+"The order of the diagonal values should be an integer."
+#define WL_ERROR_DIAGONAL_MATRIX_SIZE \
+"The size of the diagonal matrix should be one or a pair of positive integers."
 #define WL_ERROR_LIBRARYLINK \
 "An error has occurred during a LibraryLink operation."
 #define WL_ERROR_CALLBACK \
@@ -18241,6 +18247,7 @@ auto singular_value_decomposition(X&& x)
 template<typename Ret = int64_t, typename N>
 auto identity_matrix(const N& n)
 {
+    WL_TRY_BEGIN()
     static_assert(is_arithmetic_v<Ret>, WL_ERROR_BAD_RETURN);
     if constexpr (is_integral_v<N>)
     {
@@ -18276,10 +18283,80 @@ auto identity_matrix(const N& n)
     {
         static_assert(always_false_v<N>, WL_ERROR_IDENTITY_MATRIX);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto _diagonal_matrix_impl(const X* x_data, const size_t x_size,
+    const int64_t k, const size_t m, const size_t n)
+{
+    ndarray<X, 2u> ret(std::array<size_t, 2u>{m, n}, X(0));
+    auto ret_data = ret.data() + (k >= 0 ? k : size_t(-k) * n);
+    auto size = size_t(std::min(int64_t(x_size), std::max(std::min(
+        int64_t(n) - (k >= 0 ? k : 0), int64_t(m) + (k < 0 ? k : 0)),
+        int64_t(0))));
+    for (size_t i = 0; i < size; ++i)
+        ret_data[(n + 1) * i] = x_data[i];
+    return ret;
+}
+template<typename X, typename K, typename N>
+auto diagonal_matrix(const X& x, const K& k, const N& n)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_integral_v<K>, WL_ERROR_DIAGONAL_MATRIX_K);
+    static_assert(array_rank_v<X> == 1u && is_numerical_type_v<X>,
+        WL_ERROR_DIAGONAL_MATRIC_DIAG);
+    const auto& valx = allows<view_category::Simple>(x);
+    
+    if constexpr (is_integral_v<N>)
+    {
+        if (n < N(0))
+            throw std::logic_error(WL_ERROR_DIAGONAL_MATRIX_SIZE);
+        return _diagonal_matrix_impl(valx.data(), valx.size(),
+            int64_t(k), size_t(n), size_t(n));
+    }
+    else if constexpr (array_rank_v<N> == 1u && is_integral_v<value_type_t<N>>)
+    {
+        using NV = value_type_t<N>;
+        static_assert(is_integral_v<NV>, WL_ERROR_DIAGONAL_MATRIX_SIZE);
+        if (n.size() != 2u)
+            throw std::logic_error(WL_ERROR_DIAGONAL_MATRIX_SIZE);
+        NV sizes[2];
+        n.copy_to(&sizes[0]);
+        if (sizes[0] < NV(0) || sizes[1] < NV(0))
+            throw std::logic_error(WL_ERROR_DIAGONAL_MATRIX_SIZE);
+        return _diagonal_matrix_impl(valx.data(), valx.size(),
+            int64_t(k), size_t(sizes[0]), size_t(sizes[1]));
+    }
+    else
+    {
+        static_assert(always_false_v<N>, WL_ERROR_DIAGONAL_MATRIX_SIZE);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename K>
+auto diagonal_matrix(const X& x, const K& k)
+{
+    WL_TRY_BEGIN()
+    static_assert(is_integral_v<K>, WL_ERROR_DIAGONAL_MATRIX_K);
+    static_assert(array_rank_v<X> == 1u && is_numerical_type_v<X>,
+        WL_ERROR_DIAGONAL_MATRIC_DIAG);
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto x_size = valx.size();
+    return _diagonal_matrix_impl(valx.data(), x_size, int64_t(k),
+        x_size + size_t(abs(k)), x_size + size_t(abs(k)));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto diagonal_matrix(const X& x)
+{
+    WL_TRY_BEGIN()
+    return diagonal_matrix(x, 0u);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename E>
 auto matrix_power(X&& x, E e)
 {
+    WL_TRY_BEGIN()
     using XT = remove_cvref_t<X>;
     static_assert(array_rank_v<XT> == 2u, WL_ERROR_REQUIRE_SQUARE_MATRIX);
     static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
@@ -18323,6 +18400,7 @@ auto matrix_power(X&& x, E e)
         std::swap(src, dst);
     }
     return ret == x0.data() ? x0 : ret == x1.data() ? x1 : x2;
+    WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }
 namespace wl

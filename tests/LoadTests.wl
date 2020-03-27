@@ -576,6 +576,10 @@ registertest[test["svd:real",                 Function[{Typed[x,{Real,2}]},Modul
 registertest[test["svd:complex",              Function[{Typed[x,{Complex,2}]},Module[{u,v,w},{u,v,w}=SingularValueDecomposition[x];u.v.ConjugateTranspose[w]]],{{RandomComplex[1+I,{5,5}]},{RandomComplex[1+I,{5,7}]},{RandomComplex[1+I,{7,5}]}},Max@Abs[#1-#2]<1.*^-6&]&];
 registertest[test["matrix_power:real",        Function[{Typed[p,Integer]},MatrixPower[{{1.,2.},{3.,4.}},p]],{{-5},{-1},{0},{1},{5}},Max@Abs[#1-#2]<1.*^-6&]&];
 registertest[test["matrix_power:complex",     Function[{Typed[p,Integer]},MatrixPower[{{1.+I,2.I},{3.+2I,4.-I}},p]],{{-5},{-1},{0},{1},{5}},Max@Abs[#1-#2]<1.*^-6&]&];
-registertest[test["identity_matrix:n",        Function[{Typed[n,Integer]},IdentityMatrix[n]],{{1},{5}},Max@Abs[#1-#2]<1.*^-6&]&];
-registertest[test["identity_matrix:mn",       Function[{Typed[m,Integer],Typed[n,Integer]},IdentityMatrix[{m,n}]],{{1,2},{5,5},{8,3}},Max@Abs[#1-#2]<1.*^-6&]&];
+registertest[test["identity_matrix:n",        Function[{Typed[n,Integer]},IdentityMatrix[n]],{{1},{5}}]&];
+registertest[test["identity_matrix:mn",       Function[{Typed[m,Integer],Typed[n,Integer]},IdentityMatrix[{m,n}]],{{1,2},{5,5},{8,3}}]&];
+registertest[test["diagonal_matrix:1arg",     Function[{Typed[d,{Integer,1}]},DiagonalMatrix[d]],{{{1,2,3,4,5}},{{-1}}}]&];
+registertest[test["diagonal_matrix:2args",    Function[{Typed[d,{Integer,1}],Typed[k,Integer]},DiagonalMatrix[d,k]],{{{1,2,3,4,5},3},{{1,2,3,4,5},-3},{{1,2,3,4,5},0},{{1},2}}]&];
+registertest[test["diagonal_matrix:3args",    Function[{Typed[d,{Integer,1}],Typed[k,Integer],Typed[n,Integer]},DiagonalMatrix[d,k,n]],{{{1,2,3,4,5},3,10},{{1,2,3,4,5},-3,4},{{1},2,3}}]&];
+registertest[test["diagonal_matrix:3args2",   Function[{Typed[d,{Integer,1}],Typed[k,Integer],Typed[n,{Integer,1}]},DiagonalMatrix[d,k,n]],{{{1,2,3,4,5},3,{6,9}},{{1,2,3,4,5},-3,{5,4}},{{1},2,{3,3}}}]&];
 

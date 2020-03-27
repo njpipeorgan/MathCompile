@@ -411,6 +411,15 @@ namespace wl
 #define WL_ERROR_IDENTITY_MATRIX \
 "The size of the identity matrix should be one or a pair of positive integers."
 
+#define WL_ERROR_DIAGONAL_MATRIC_DIAG \
+"The diagonal values should be a list of numbers."
+
+#define WL_ERROR_DIAGONAL_MATRIX_K \
+"The order of the diagonal values should be an integer."
+
+#define WL_ERROR_DIAGONAL_MATRIX_SIZE \
+"The size of the diagonal matrix should be one or a pair of positive integers."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

@@ -637,6 +637,7 @@ $builtinfunctions=
   "Outer"           ->"outer",
   "Tr"              ->"tr",
   "IdentityMatrix"  ->"identity_matrix",
+  "DiagonalMatrix"  ->"diagonal_matrix",
   "Inverse"         ->"inverse",
   "PseudoInverse"   ->"pseudo_inverse",
   "MatrixPower"     ->"matrix_power",

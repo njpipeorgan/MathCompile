@@ -78,7 +78,7 @@ MCLink::rettype="Failed to retrieve the return type of the compiled function.";
 MCLink::bigrank="The rank of an argument exceeds the maximum rank.";
 MCLink::badtype="Cannot infer the type id \"`1`\"returned by the library.";
 MCLink::workdir="The working directory does not exist.";
-MCLink::libdir="The library directory does not exist.";
+MCLink::libdir="The library directory cannot be created.";
 MCLink::includes="The additional include files should be specified as a list of strings.";
 MCLink::genfail="Failed to generate the library.";
 MCLink::noheader="The header file \"math_compile.h\" cannot be found.";
@@ -1211,7 +1211,8 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     If[libdir===Automatic,libdir="TargetDirectory"/.Options[CCompilerDriver`CreateLibrary]];
     If[(workdir=!=Automatic)&&!(StringQ[workdir]&&DirectoryQ[workdir]),
       Message[MCLink::workdir];Return[$Failed]];
-    If[!(StringQ[libdir]&&DirectoryQ[libdir]),Message[MCLink::libdir];Return[$Failed]];
+    If[!(StringQ[libdir]&&(DirectoryQ[libdir]||DirectoryQ[Quiet@CreateDirectory[libdir]])),
+      Message[MCLink::libdir];Return[$Failed]];
     opterror=Null;
     MathCompile`$CppSource=
       TemplateApply[$template,<|

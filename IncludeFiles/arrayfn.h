@@ -3135,6 +3135,7 @@ auto quantile(X&& x, const Q& q)
             const auto var_size = utils::size_of_dims(var_dims);
             for (size_t i = 0; i < var_size; ++i, ++x_data)
             {
+                WL_THROW_IF_ABORT()
                 for (size_t j = 0; j < x_size; ++j)
                     col_data[j] = x_data[j * var_size];
                 std::sort(col_data, col_end);
@@ -3157,6 +3158,47 @@ auto quartiles(X&& x)
     WL_TRY_BEGIN()
     static auto q = wl::list(0.25, 0.5, 0.75);
     return quantile(std::forward<decltype(x)>(x), q);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename N, typename Pred>
+auto _take_smallest_impl(X&& x, const N& n, Pred pred)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR == 1u && is_real_v<XV>, WL_ERROR_RANKED_MIN_X);
+    static_assert(is_integral_v<N>, WL_ERROR_TAKE_SMALLEST_N);
+    const size_t x_size = x.dims()[0];
+    if (!(N(0) <= n && size_t(n) <= x_size))
+        throw std::logic_error(WL_ERROR_TAKE_SMALLEST_N);
+    if (n == N(0))
+        return ndarray<XV, XR>{};
+    auto valx = val(std::forward<decltype(x)>(x));
+    auto x_begin = valx.data();
+    auto x_mid = x_begin + size_t(n);
+    auto x_end = x_begin + x_size;
+    WL_THROW_IF_ABORT()
+    std::partial_sort(x_begin, x_mid, x_end, pred);
+    valx.uninitialized_resize(std::array<size_t, 1u>{size_t(n)});
+    return valx;
+}
+
+template<typename X, typename N>
+auto take_smallest(X&& x, const N& n)
+{
+    WL_TRY_BEGIN()
+    return _take_smallest_impl(std::forward<decltype(x)>(x), n,
+        std::less<>{});
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename N>
+auto take_largest(X&& x, const N& n)
+{
+    WL_TRY_BEGIN()
+    return _take_smallest_impl(std::forward<decltype(x)>(x), n,
+        std::greater<>{});
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

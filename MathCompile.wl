@@ -492,6 +492,8 @@ $builtinfunctions=
   "NonNegative"     ->"non_negative",
   "Min"             ->"min",
   "Max"             ->"max",
+  "TakeLargest"     ->"take_largest",
+  "TakeSmallest"    ->"take_smallest",
   "Ramp"            ->"ramp",
   "LogisticSigmoid" ->"logistic_sigmoid",
   "Threshold"       ->"threshold",(*

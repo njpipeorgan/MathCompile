@@ -429,6 +429,9 @@ namespace wl
 #define WL_ERROR_QUANTILE_Q \
 "The quantile should be one or a list of real numbers between 0 and 1."
 
+#define WL_ERROR_TAKE_SMALLEST_N \
+"The number of elements should be between 0 and the size of the list."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \

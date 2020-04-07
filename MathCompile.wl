@@ -660,6 +660,10 @@ $builtinfunctions=
   "MedianDeviation" ->"median_deviation",
   "Covariance"      ->"covariance",
   "Correlation"     ->"correlation",
+  "RankedMin"       ->"ranked_min",
+  "RankedMax"       ->"ranked_max",
+  "Quantile"        ->"quantile",
+  "Quartiles"       ->"quartiles",
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

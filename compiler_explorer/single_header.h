@@ -318,6 +318,12 @@ namespace wl
 "The order of the diagonal values should be an integer."
 #define WL_ERROR_DIAGONAL_MATRIX_SIZE \
 "The size of the diagonal matrix should be one or a pair of positive integers."
+#define WL_ERROR_RANKED_MIN_X \
+"The array should be a list of real numbers."
+#define WL_ERROR_RANKED_MIN_K \
+"The index of element should be an integer."
+#define WL_ERROR_QUANTILE_Q \
+"The quantile should be one or a list of real numbers between 0 and 1."
 #define WL_ERROR_LIBRARYLINK \
 "An error has occurred during a LibraryLink operation."
 #define WL_ERROR_CALLBACK \
@@ -446,6 +452,8 @@ namespace wl
 "The dimensions of the array is too large for the BLAS subroutine."
 #define WL_ERROR_LAPACKE_MATRIX_SINGULAR \
 "The matrix to be factorized is singular."
+#define WL_ERROR_RANKED_MIN_OUT_OF_RANGE \
+"The specified index of element exceeds the size of the array."
 }
 namespace wl
 {
@@ -10234,6 +10242,147 @@ auto outer(Function f, const Args&... args)
             item_size, args_info);
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<bool Weighted = false, typename X>
+auto _ranked_min_impl(X&& x, size_t k)
+{
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u && is_real_v<XV>, WL_ERROR_RANKED_MIN_X);
+    const auto x_size = x.size();
+    if (k >= x_size)
+        throw std::logic_error(WL_ERROR_RANKED_MIN_OUT_OF_RANGE);
+    auto valx = val(std::forward<decltype(x)>(x));
+    auto x_begin = valx.data();
+    auto x_mid = x_begin + k;
+    auto x_end = x_begin + x_size;
+    std::nth_element(x_begin, x_mid, x_end);
+    return *x_mid;
+}
+template<typename X, typename N>
+auto ranked_min(X&& x, const N& n)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<remove_cvref_t<X>> >= 1u,
+        WL_ERROR_RANKED_MIN_X);
+    static_assert(is_integral_v<N>, WL_ERROR_RANKED_MIN_K);
+    return _ranked_min_impl(std::forward<decltype(x)>(x),
+        n >= N(0) ? size_t(n) - 1u : size_t(n) + x.dims()[0]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename N>
+auto ranked_max(X&& x, const N& n)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<remove_cvref_t<X>> >= 1u,
+        WL_ERROR_RANKED_MIN_X);
+    static_assert(is_integral_v<N>, WL_ERROR_RANKED_MIN_K);
+    return _ranked_min_impl(std::forward<decltype(x)>(x),
+        n >= N(0) ? x.dims()[0] - size_t(n) : size_t(-1) - size_t(n));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Q>
+auto quantile(X&& x, const Q& q)
+{
+    WL_TRY_BEGIN()
+    using XT = remove_cvref_t<X>;
+    using XV = value_type_t<XT>;
+    constexpr auto XR = array_rank_v<XT>;
+    static_assert(XR >= 1u && is_real_v<XV>, WL_ERROR_RANKED_MIN_X);
+    const size_t x_size = x.dims()[0];
+    if constexpr (is_real_v<Q>)
+    {
+        if (!(Q(0) <= q && q <= Q(1)))
+            throw std::logic_error(WL_ERROR_QUANTILE_Q);
+        const size_t k = std::min(x_size - 1u, size_t(q * x_size));
+        if constexpr (XR == 1u)
+        {
+            return _ranked_min_impl(std::forward<decltype(x)>(x), k);
+        }
+        else
+        {
+            const auto& valx = allows<view_category::Simple>(x);
+            auto ret = ndarray<XV, XR - 1u>(
+                utils::dims_take<2u, XR>(valx.dims()));
+            auto col = ndarray<XV, 1u>(std::array<size_t, 1u>{x_size});
+            auto x_data = valx.data();
+            auto col_data = col.data();
+            auto col_mid = col_data + k;
+            auto col_end = col_data + x_size;
+            auto ret_data = ret.data();
+            const size_t ret_size = ret.size();
+            for (size_t i = 0; i < ret_size; ++i, ++ret_data, ++x_data)
+            {
+                for (size_t j = 0; j < x_size; ++j)
+                    col_data[j] = x_data[j * ret_size];
+                std::nth_element(col_data, col_mid, col_end);
+                *ret_data = *col_mid;
+            }
+            return ret;
+        }
+    }
+    else if constexpr (array_rank_v<Q> == 1u && is_real_v<value_type_t<Q>>)
+    {
+        using QV = value_type_t<Q>;
+        if constexpr (XR == 1u)
+        {
+            auto sortx = wl::sort(std::forward<decltype(x)>(x));
+            auto sortx_data = sortx.data();
+            auto ret = ndarray<XV, 1u>(q.dims());
+            q.for_each([&](const auto& vq, auto& vr)
+                {
+                    if (!(QV(0) <= vq && vq <= QV(1)))
+                        throw std::logic_error(WL_ERROR_QUANTILE_Q);
+                    auto k = std::min(x_size - 1u, size_t(vq * x_size));
+                    vr = sortx_data[k];
+                }, ret.data());
+            return ret;
+        }
+        else
+        {
+            auto k = ndarray<size_t, 1u>(q.dims());
+            auto k_data = k.data();
+            const auto k_size = k.size();
+            q.for_each([&](const auto& vq, auto& vk)
+                {
+                    if (!(QV(0) <= vq && vq <= QV(1)))
+                        throw std::logic_error(WL_ERROR_QUANTILE_Q);
+                    vk = std::min(x_size - 1u, size_t(vq * x_size));
+                }, k_data);
+            const auto& valx = allows<view_category::Simple>(x);
+            const auto var_dims = utils::dims_take<2u, XR>(valx.dims());
+            auto ret = ndarray<XV, XR>(utils::dims_join(var_dims, q.dims()));
+            auto col = ndarray<XV, 1u>(std::array<size_t, 1u>{x_size});
+            auto x_data = valx.data();
+            auto col_data = col.data();
+            auto col_end = col_data + x_size;
+            auto ret_data = ret.data();
+            const auto var_size = utils::size_of_dims(var_dims);
+            for (size_t i = 0; i < var_size; ++i, ++x_data)
+            {
+                for (size_t j = 0; j < x_size; ++j)
+                    col_data[j] = x_data[j * var_size];
+                std::sort(col_data, col_end);
+                for (size_t m = 0; m < k_size; ++m, ++ret_data)
+                    *ret_data = col_data[k_data[m]];
+            }
+            return ret;
+        }
+    }
+    else
+    {
+        static_assert(always_false_v<Q>, WL_ERROR_QUANTILE_Q);
+    }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto quartiles(X&& x)
+{
+    WL_TRY_BEGIN()
+    static auto q = wl::list(0.25, 0.5, 0.75);
+    return quantile(std::forward<decltype(x)>(x), q);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 }

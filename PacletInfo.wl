@@ -2,7 +2,7 @@
 
 Paclet[
     Name -> "MathCompile",
-    Version -> "0.2.3",
+    Version -> "0.2.4",
     WolframVersion -> "12.0+",
     Updating -> Automatic,
     Extensions -> {

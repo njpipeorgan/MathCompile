@@ -420,6 +420,15 @@ namespace wl
 #define WL_ERROR_DIAGONAL_MATRIX_SIZE \
 "The size of the diagonal matrix should be one or a pair of positive integers."
 
+#define WL_ERROR_RANKED_MIN_X \
+"The array should be a list of real numbers."
+
+#define WL_ERROR_RANKED_MIN_K \
+"The index of element should be an integer."
+
+#define WL_ERROR_QUANTILE_Q \
+"The quantile should be one or a list of real numbers between 0 and 1."
+
 // runtime error messages
 
 #define WL_ERROR_LIBRARYLINK \
@@ -613,5 +622,8 @@ namespace wl
 
 #define WL_ERROR_LAPACKE_MATRIX_SINGULAR \
 "The matrix to be factorized is singular."
+
+#define WL_ERROR_RANKED_MIN_OUT_OF_RANGE \
+"The specified index of element exceeds the size of the array."
 
 }

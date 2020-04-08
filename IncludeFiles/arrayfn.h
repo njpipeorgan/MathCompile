@@ -3202,4 +3202,64 @@ auto take_largest(X&& x, const N& n)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<bool HasLDR = false, typename X, typename R>
+auto _rank2_impl(std::pair<X, size_t>* data, const size_t size,
+    R* rank, const size_t ldr = 1u)
+{
+    WL_THROW_IF_ABORT()
+    auto data_end = data + size;
+    std::sort(data, data_end,
+        [](const auto& a, const auto& b) { return a.first < b.first; });
+    WL_THROW_IF_ABORT()
+    for (size_t i = 0, j = 1;; ++j)
+    {
+        if (j >= size || data[i].first != data[j].first)
+        {
+            rank[data[i].second * (HasLDR ? ldr : 1u)] = R(2u * i);
+            if (j >= size) break;
+            ++i;
+        }
+        else
+        {
+            while (++j < size && data[i].first == data[j].first)
+            {
+            }
+            const auto r = R(i + j - 1);
+            for (; i < j; ++i)
+                rank[data[i].second * (HasLDR ? ldr : 1u)] = r;
+            if (i == size)
+                break;
+        }
+    }
+}
+
+template<typename X, typename R>
+auto _rank2_list(const X* x_data, const size_t M, R* rank)
+{
+    std::vector<std::pair<X, size_t>> idx(M);
+    auto idx_data = idx.data();
+    for (size_t m = 0; m < M; ++m)
+    {
+        idx_data[m].first  = x_data[m];
+        idx_data[m].second = m;
+    }
+    _rank2_impl(idx_data, M, rank);
+}
+
+template<typename X, typename R>
+auto _rank2_list(const X* x_data, const size_t M, const size_t N, R* rank)
+{
+    std::vector<std::pair<X, size_t>> idx(M);
+    auto idx_data = idx.data();
+    for (size_t n = 0; n < N; ++n, ++x_data, ++rank)
+    {
+        for (size_t m = 0; m < M; ++m)
+        {
+            idx_data[m].first  = x_data[m * N];
+            idx_data[m].second = m;
+        }
+        _rank2_impl<true>(idx_data, M, rank, N);
+    }
+}
+
 }

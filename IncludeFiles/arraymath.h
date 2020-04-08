@@ -1139,4 +1139,56 @@ auto correlation(const X& x)
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 
+template<typename X, typename Y>
+auto spearman_rho(const X& x, const Y& y)
+{
+    WL_TRY_BEGIN()
+    constexpr auto XR = array_rank_v<X>;
+    constexpr auto YR = array_rank_v<Y>;
+    static_assert(XR == 1u || XR == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"1 or 2.");
+    static_assert(XR == YR, WL_ERROR_OPERAND_RANK);
+    static_assert(is_real_v<value_type_t<X>> && is_real_v<value_type_t<Y>>,
+        WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<
+        common_type_t<value_type_t<X>, value_type_t<Y>>>;
+
+    const auto& valx = allows<view_category::Simple>(x);
+    const auto& valy = allows<view_category::Simple>(y);
+    const size_t K = XR == 1u ? valx.size() : valx.dims()[0];
+    if (K != (XR == 1u ? valy.size() : valy.dims()[0]) || K < 2u)
+        throw std::logic_error(WL_ERROR_COVARIANCE_DIMS);
+    auto x_rank = ndarray<P, XR>(valx.dims());
+    auto y_rank = ndarray<P, YR>(valy.dims());
+    if constexpr (XR == 1u)
+    {
+        _rank2_list(valx.data(), K, x_rank.data());
+        _rank2_list(valy.data(), K, y_rank.data());
+    }
+    else
+    {
+        _rank2_list(valx.data(), K, valx.dims()[1], x_rank.data());
+        _rank2_list(valy.data(), K, valy.dims()[1], y_rank.data());
+    }
+    return correlation(std::move(x_rank), std::move(y_rank));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto spearman_rho(const X& x)
+{
+    WL_TRY_BEGIN()
+    static_assert(array_rank_v<X> == 2u, WL_ERROR_REQUIRE_ARRAY_RANK"2.");
+    static_assert(is_real_v<value_type_t<X>>, WL_ERROR_REAL_TYPE_ARG);
+    using P = promote_integral_t<value_type_t<X>>;
+
+    const auto& valx = allows<view_category::Simple>(x);
+    const size_t K = valx.dims()[0];
+    if (K < 2u)
+        throw std::logic_error(WL_ERROR_COVARIANCE_DIMS);
+    auto x_rank = ndarray<P, array_rank_v<X>>(valx.dims());
+    _rank2_list(valx.data(), K, valx.dims()[1], x_rank.data());
+    return correlation(std::move(x_rank));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
 }

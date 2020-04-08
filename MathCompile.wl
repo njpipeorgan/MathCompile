@@ -625,6 +625,7 @@ $builtinfunctions=
   "Insert"          ->"insert",
   "Delete"          ->"delete_",
   "Union"           ->"set_union",
+  "Complement"      ->"set_complement",
   "Position"        ->"position",
   "Cases"           ->"cases",
   "DeleteCases"     ->"delete_cases",

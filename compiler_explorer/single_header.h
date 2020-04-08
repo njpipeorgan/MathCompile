@@ -8446,6 +8446,19 @@ WL_INLINE int64_t _order_scalar(const complex<X>& x, const complex<X>& y)
     }
 }
 template<typename X, typename Y>
+int64_t _order_array(const X* x_data, const Y* y_data, const size_t size)
+{
+    for (size_t i = 0; i < size; ++i)
+    {
+        auto res = _order_scalar(x_data[i], y_data[i]);
+        if (res != 0)
+        {
+            return int64_t(res);
+        }
+    }
+    return 0;
+}
+template<typename X, typename Y>
 int64_t _order_array(const X& x, const Y& y, dim_checked)
 {
     int64_t ret = 0;
@@ -9113,6 +9126,83 @@ auto set_union(const First& first, const Rest&... rest)
             (*(copy_base + idx_begin[i])).copy_to(ret_iter.begin());
         return ret;
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename XV, size_t XR, typename YV, size_t YR>
+auto _complement_impl(ndarray<XV, XR>&& x, const ndarray<YV, YR>& y)
+{
+    static_assert(XR >= 1u && YR >= 1u, WL_ERROR_REQUIRE_ARRAY);
+    if constexpr (!(std::is_same_v<XV, YV> && XR == YR))
+    {
+        return std::move(x);
+    }
+    else
+    {
+        auto scalar_less = [](const auto& x, const auto& y)
+        {
+            return _order_scalar(x, y) == int64_t(1);
+        };
+        if constexpr (XR == 1u)
+        {
+            auto x_data = x.data();
+            auto y_data = y.data();
+            auto x_end = std::set_difference(x_data, x_data + x.size(),
+                y_data, y_data + y.size(), x_data, scalar_less);
+            const auto diff_size = size_t(x_end - x_data);
+            x.uninitialized_resize(std::array<size_t, 1u>{diff_size});
+            return std::move(x);
+        }
+        else
+        {
+            const auto item_dims = utils::dims_take<2u, XR>(x.dims());
+            if (!utils::check_dims<XR - 1u>(&x.dims()[1], &y.dims()[1]))
+                return std::move(x);
+            const auto item_size = utils::size_of_dims(item_dims);
+            auto x_iter = x.begin();
+            auto x_end = x.end();
+            auto y_iter = y.begin();
+            auto y_end = y.end();
+            auto out_iter = x_iter;
+            size_t length = 0u;
+            while (x_iter < x_end && y_iter < y_end)
+            {
+                WL_THROW_IF_ABORT()
+                auto order = _order_array(x_iter, y_iter, item_size);
+                if (order == 1)
+                {
+                    if (out_iter != x_iter)
+                        utils::restrict_copy_n(x_iter, item_size, out_iter);
+                    x_iter += item_size;
+                    out_iter += item_size;
+                    ++length;
+                }
+                else if (order == 0)
+                {
+                    x_iter += item_size;
+                }
+                else
+                {
+                    y_iter += item_size;
+                }
+            }
+            if (x_iter < x_end)
+            {
+                if (out_iter != x_iter)
+                    std::copy_n(x_iter, x_end - x_iter, out_iter);
+                length += (x_end - x_iter) / item_size;
+            }
+            x.uninitialized_resize(
+                utils::dims_join(std::array<size_t, 1u>{length}, item_dims));
+            return std::move(x);
+        }
+    }
+}
+template<typename X, typename... Any>
+auto set_complement(X&& x, Any&&... any)
+{
+    WL_TRY_BEGIN()
+    return _complement_impl(wl::set_union(std::forward<decltype(x)>(x)),
+        wl::set_union(std::forward<decltype(any)>(any)...));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>

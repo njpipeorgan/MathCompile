@@ -582,6 +582,10 @@ registertest[test["diagonal_matrix:2args",    Function[{Typed[d,{Integer,1}],Typ
 registertest[test["diagonal_matrix:3args",    Function[{Typed[d,{Integer,1}],Typed[k,Integer],Typed[n,Integer]},DiagonalMatrix[d,k,n]],{{{1,2,3,4,5},3,10},{{1,2,3,4,5},-3,4},{{1},2,3}}]&];
 registertest[test["diagonal_matrix:3args2",   Function[{Typed[d,{Integer,1}],Typed[k,Integer],Typed[n,{Integer,1}]},DiagonalMatrix[d,k,n]],{{{1,2,3,4,5},3,{6,9}},{{1,2,3,4,5},-3,{5,4}},{{1},2,{3,3}}}]&];
 
+registertest[test["quantile:basic",Function[{Typed[l,{Real,1}],Typed[q,Real]},Quantile[l,q]],{{N@{1,2,3,4,5,6,7},0.5},{RandomReal[1,50],0.314}}]&];
+registertest[test["quantile:list",Function[{Typed[l,{Integer,1}],Typed[q,{Real,1}]},Quantile[l,q]],{{RandomInteger[100,200],RandomReal[1,100]}}]&];
+registertest[test["ranked_min",Function[{Typed[l,{Integer,1}],Typed[n,Integer]},RankedMin[l,n]],Table[{RandomInteger[100,100],i},{i,{-100,-99,-67,-2,-1,1,4,98,99,100}}]]&];
+registertest[test["ranked_max",Function[{Typed[l,{Integer,1}],Typed[n,Integer]},RankedMax[l,n]],Table[{RandomInteger[100,100],i},{i,{-100,-99,-67,-2,-1,1,4,98,99,100}}]]&];
 registertest[test["take_smallest",Function[{Typed[l,{Integer,1}],Typed[n,Integer]},TakeSmallest[l,n]],{{{1,5,2,4},2},{{1,5,2,4},4},{{1,3,5,4},0},{RandomInteger[100,100],50}}]&];
 registertest[test["take_largest",Function[{Typed[l,{Real,1}],Typed[n,Integer]},TakeLargest[l,n]],{{{1.,5.,2.,4.},2},{{1.,5.,2.,4.},4},{{1.,3.,5.,4.},0},{N@RandomInteger[100,100],50}}]&];
 registertest[test["spearman_rho:real",Function[{Typed[x,{Real,1}],Typed[y,{Real,1}]},SpearmanRho[x,y]],{{RandomReal[10,30],RandomReal[10,30]}},Abs[#1-#2]<1.*^-6&]&];

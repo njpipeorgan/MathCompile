@@ -669,7 +669,7 @@ $builtinfunctions=
   "RankedMin"       ->"ranked_min",
   "RankedMax"       ->"ranked_max",
   "Quantile"        ->"quantile",
-  "Quartiles"       ->"quartiles",
+  (*"Quartiles"       ->"quartiles",*)
 (*functional*)
   "Apply"           ->"apply",
   "Select"          ->"select",

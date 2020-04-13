@@ -2012,7 +2012,8 @@ auto _to_string_array_impl(const XV*& x_ptr,
     else
     {
         auto size = x_dims[I];
-        _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
+        if (size > 0u)
+            _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
         for (size_t i = 1u; i < size; ++i)
         {
             ret.template join<false>(", ");

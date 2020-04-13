@@ -622,83 +622,6 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-
-template<typename X, typename L>
-auto rescale(X&& x, const L& limit)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
-    std::array<value_type_t<L>, 2u> limit_pair;
-    limit.copy_to(limit_pair.data());
-    return clip(std::forward<decltype(x)>(x), varg_tag{},
-        limit_pair[0], limit_pair[1]);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename X, typename L, typename VL>
-auto rescale(X&& x, const L& limit, const VL& vlimit)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    static_assert(array_rank_v<VL> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
-    if (vlimit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
-    std::array<value_type_t<L>, 2u> limit_pair;
-    std::array<value_type_t<VL>, 2u> vlimit_pair;
-    limit.copy_to(limit_pair.data());
-    vlimit.copy_to(vlimit_pair.data());
-    return clip(std::forward<decltype(x)>(x), varg_tag{},
-        limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename X>
-auto rescale(X&& x)
-{
-    WL_TRY_BEGIN()
-    auto valx = wl::n(x);
-    const auto min = wl::min(valx);
-    const auto max = wl::max(valx);
-    return rescale(std::move(valx), varg_tag{}, min, max, 0, 1);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename X, typename Min, typename Max>
-auto rescale(X&& x, varg_tag, Min min, Max max)
-{
-    WL_TRY_BEGIN()
-    return rescale(std::forward<decltype(x)>(x), varg_tag{}, 0, 1);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
-template<typename X, typename Min, typename Max, typename VMin, typename VMax>
-auto rescale(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
-{
-    WL_TRY_BEGIN()
-        using XT = remove_cvref_t<X>;
-    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
-    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
-    static_assert(is_real_v<VMin> && is_real_v<VMax>, WL_ERROR_REAL_TYPE_ARG);
-    using C = promote_integral_t<common_type_t<
-        value_type_t<XT>, Min, Max, VMin, VMax>>;
-
-    const auto cmin = cast<C>(min);
-    const auto cmax = cast<C>(max);
-    const auto cvmin = cast<C>(vmin);
-    const auto cvmax = cast<C>(vmax);
-    const auto a = (cvmax - cvmin) / (cmax - cmin);
-    const auto b = (cmax * cvmin - cmin * cvmax) / (cmax - cmin);
-    auto pure = [=](const auto& x)
-    {
-        using XV = remove_cvref_t<decltype(x)>;
-        static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
-        return a * cast<C>(x) + b;
-    };
-    return utils::listable_function(pure, std::forward<decltype(x)>(x));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-
 template<typename Ret = int64_t, typename X>
 auto unitize(X&& x)
 {
@@ -882,6 +805,82 @@ auto max(const X1& x1, const X2& x2, const Xs&... xs)
         auto max2 = max(x2);
         return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename L>
+auto rescale(X&& x, const L& limit)
+{
+    WL_TRY_BEGIN()
+        static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    std::array<value_type_t<L>, 2u> limit_pair;
+    limit.copy_to(limit_pair.data());
+    return clip(std::forward<decltype(x)>(x), varg_tag{},
+        limit_pair[0], limit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename L, typename VL>
+auto rescale(X&& x, const L& limit, const VL& vlimit)
+{
+    WL_TRY_BEGIN()
+        static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    static_assert(array_rank_v<VL> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    if (vlimit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    std::array<value_type_t<L>, 2u> limit_pair;
+    std::array<value_type_t<VL>, 2u> vlimit_pair;
+    limit.copy_to(limit_pair.data());
+    vlimit.copy_to(vlimit_pair.data());
+    return clip(std::forward<decltype(x)>(x), varg_tag{},
+        limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X>
+auto rescale(X&& x)
+{
+    WL_TRY_BEGIN()
+        auto valx = wl::n(x);
+    const auto min = wl::min(valx);
+    const auto max = wl::max(valx);
+    return rescale(std::move(valx), varg_tag{}, min, max, 0, 1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Min, typename Max>
+auto rescale(X&& x, varg_tag, Min min, Max max)
+{
+    WL_TRY_BEGIN()
+        return rescale(std::forward<decltype(x)>(x), varg_tag{}, 0, 1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<typename X, typename Min, typename Max, typename VMin, typename VMax>
+auto rescale(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
+{
+    WL_TRY_BEGIN()
+        using XT = remove_cvref_t<X>;
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
+    static_assert(is_real_v<VMin> && is_real_v<VMax>, WL_ERROR_REAL_TYPE_ARG);
+    using C = promote_integral_t<common_type_t<
+        value_type_t<XT>, Min, Max, VMin, VMax>>;
+
+    const auto cmin = cast<C>(min);
+    const auto cmax = cast<C>(max);
+    const auto cvmin = cast<C>(vmin);
+    const auto cvmax = cast<C>(vmax);
+    const auto a = (cvmax - cvmin) / (cmax - cmin);
+    const auto b = (cmax * cvmin - cmin * cvmax) / (cmax - cmin);
+    auto pure = [=](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
+        return a * cast<C>(x) + b;
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

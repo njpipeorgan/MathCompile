@@ -1782,7 +1782,7 @@ auto _complement_impl(ndarray<XV, XR>&& x, const ndarray<YV, YR>& y)
                 if (order == 1)
                 {
                     if (out_iter != x_iter)
-                        utils::restrict_copy_n(x_iter, item_size, out_iter);
+                        std::move(x_iter, x_iter + item_size, out_iter);
                     x_iter += item_size;
                     out_iter += item_size;
                     ++length;
@@ -1799,7 +1799,7 @@ auto _complement_impl(ndarray<XV, XR>&& x, const ndarray<YV, YR>& y)
             if (x_iter < x_end)
             {
                 if (out_iter != x_iter)
-                    std::copy_n(x_iter, x_end - x_iter, out_iter);
+                    std::move(x_iter, x_end, out_iter);
                 length += (x_end - x_iter) / item_size;
             }
             x.uninitialized_resize(
@@ -1815,6 +1815,114 @@ auto set_complement(X&& x, Any&&... any)
     WL_TRY_BEGIN()
     return _complement_impl(wl::set_union(std::forward<decltype(x)>(x)),
         wl::set_union(std::forward<decltype(any)>(any)...));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+
+template<size_t R1, size_t... Rs>
+auto _intersection_check_dims(const std::array<size_t, R1>& dim1,
+    const std::array<size_t, Rs>&... dims)
+{
+    return (utils::check_dims<R1 - 1u>(dim1.data() + 1, dims.data() + 1)
+        && ...);
+}
+
+template<typename XV, size_t XR, size_t N>
+auto _intersection_merge(std::array<ndarray<XV, XR>, N>& xs, 
+    const std::array<size_t, N>& sizes, const size_t item_size)
+{
+    static_assert(N > 0u, WL_ERROR_INTERNAL);
+    std::array<XV*, N> xs_data;
+    for (size_t i = 0; i < N; ++i)
+        xs_data[i] = xs[i].data();
+
+    size_t x0_size = sizes[0];
+    for (size_t i = 1u; i < N; ++i)
+    {
+        auto x0_iter = xs_data[0];
+        auto x0_end = x0_iter + x0_size * item_size;
+        auto x1_iter = xs_data[i];
+        auto x1_end = x1_iter + sizes[i] * item_size;
+        auto out_iter = x0_iter;
+        size_t new_x0_size = 0u;
+        while (x0_iter < x0_end && x1_iter < x1_end)
+        {
+            if constexpr (XR == 1u)
+            {
+                auto res = _order_scalar(*x0_iter, *x1_iter);
+                if (res == 0)
+                {
+                    if (out_iter != x0_iter)
+                        *out_iter = std::move(*x0_iter);
+                    ++x0_iter;
+                    ++x1_iter;
+                    ++out_iter;
+                    ++new_x0_size;
+                }
+                else
+                {
+                    (res > 0 ? x0_iter : x1_iter) += 1;
+                }
+            }
+            else
+            {
+                auto res = _order_array(x0_iter, x1_iter, item_size);
+                if (res == 0)
+                {
+                    if (out_iter != x0_iter)
+                        std::move(x0_iter, x0_iter + item_size, out_iter);
+                    x0_iter += item_size;
+                    x1_iter += item_size;
+                    out_iter += item_size;
+                    ++new_x0_size;
+                }
+                else
+                {
+                    (res > 0 ? x0_iter : x1_iter) += item_size;
+                }
+            }
+        }
+        x0_size = new_x0_size;
+    }
+    return x0_size;
+}
+
+
+template<typename X1, typename... Xs>
+auto set_intersection(X1&& x1, Xs&&... xs)
+{
+    WL_TRY_BEGIN()
+    static_assert(((array_rank_v<remove_cvref_t<X1>> >= 1u) && ... &&
+        (array_rank_v<remove_cvref_t<Xs>> >= 1u)), WL_ERROR_REQUIRE_ARRAY);
+
+    using XT = remove_cvref_t<X1>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
+    auto ret_dims = x1.dims();
+    if constexpr (
+        !(std::is_same_v<XV, value_type_t<remove_cvref_t<Xs>>> && ...) ||
+        ((XR != array_rank_v<remove_cvref_t<Xs>>) || ...))
+    {
+        ret_dims[0] = 0u;
+        return ndarray<value_type_t<XT>, XR>(ret_dims);
+    }
+    else if (!_intersection_check_dims(x1.dims(), xs.dims()...))
+    {
+        ret_dims[0] = 0u;
+        return ndarray<value_type_t<XT>, XR>(ret_dims);
+    }
+    else
+    {
+        constexpr size_t N = sizeof...(Xs) + 1;
+        auto sorted = std::array<ndarray<XV, XR>, N>{
+            wl::set_union(x1), wl::set_union(xs)...};
+        auto sizes = std::array<size_t, N>{x1.dims()[0], (xs.dims()[0])...};
+        auto ret_size = _intersection_merge(sorted, sizes,
+            utils::size_of_dims<XR - 1u>(&x1.dims()[0] + 1));
+        ret_dims[0] = ret_size;
+        auto ret = std::move(sorted[0]);
+        ret.uninitialized_resize(ret_dims);
+        return ret;
+    }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 

@@ -4481,76 +4481,6 @@ auto clip(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
     return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
-template<typename X, typename L>
-auto rescale(X&& x, const L& limit)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
-    std::array<value_type_t<L>, 2u> limit_pair;
-    limit.copy_to(limit_pair.data());
-    return clip(std::forward<decltype(x)>(x), varg_tag{},
-        limit_pair[0], limit_pair[1]);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename L, typename VL>
-auto rescale(X&& x, const L& limit, const VL& vlimit)
-{
-    WL_TRY_BEGIN()
-    static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    static_assert(array_rank_v<VL> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
-    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
-    if (vlimit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
-    std::array<value_type_t<L>, 2u> limit_pair;
-    std::array<value_type_t<VL>, 2u> vlimit_pair;
-    limit.copy_to(limit_pair.data());
-    vlimit.copy_to(vlimit_pair.data());
-    return clip(std::forward<decltype(x)>(x), varg_tag{},
-        limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X>
-auto rescale(X&& x)
-{
-    WL_TRY_BEGIN()
-    auto valx = wl::n(x);
-    const auto min = wl::min(valx);
-    const auto max = wl::max(valx);
-    return rescale(std::move(valx), varg_tag{}, min, max, 0, 1);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Min, typename Max>
-auto rescale(X&& x, varg_tag, Min min, Max max)
-{
-    WL_TRY_BEGIN()
-    return rescale(std::forward<decltype(x)>(x), varg_tag{}, 0, 1);
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
-template<typename X, typename Min, typename Max, typename VMin, typename VMax>
-auto rescale(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
-{
-    WL_TRY_BEGIN()
-        using XT = remove_cvref_t<X>;
-    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
-    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
-    static_assert(is_real_v<VMin> && is_real_v<VMax>, WL_ERROR_REAL_TYPE_ARG);
-    using C = promote_integral_t<common_type_t<
-        value_type_t<XT>, Min, Max, VMin, VMax>>;
-    const auto cmin = cast<C>(min);
-    const auto cmax = cast<C>(max);
-    const auto cvmin = cast<C>(vmin);
-    const auto cvmax = cast<C>(vmax);
-    const auto a = (cvmax - cvmin) / (cmax - cmin);
-    const auto b = (cmax * cvmin - cmin * cvmax) / (cmax - cmin);
-    auto pure = [=](const auto& x)
-    {
-        using XV = remove_cvref_t<decltype(x)>;
-        static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
-        return a * cast<C>(x) + b;
-    };
-    return utils::listable_function(pure, std::forward<decltype(x)>(x));
-    WL_TRY_END(__func__, __FILE__, __LINE__)
-}
 template<typename Ret = int64_t, typename X>
 auto unitize(X&& x)
 {
@@ -4725,6 +4655,76 @@ auto max(const X1& x1, const X2& x2, const Xs&... xs)
         auto max2 = max(x2);
         return max((RT(max1) > RT(max2)) ? RT(max1) : RT(max2), xs...);
     }
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename L>
+auto rescale(X&& x, const L& limit)
+{
+    WL_TRY_BEGIN()
+        static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    std::array<value_type_t<L>, 2u> limit_pair;
+    limit.copy_to(limit_pair.data());
+    return clip(std::forward<decltype(x)>(x), varg_tag{},
+        limit_pair[0], limit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename L, typename VL>
+auto rescale(X&& x, const L& limit, const VL& vlimit)
+{
+    WL_TRY_BEGIN()
+        static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    static_assert(array_rank_v<VL> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    if (vlimit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
+    std::array<value_type_t<L>, 2u> limit_pair;
+    std::array<value_type_t<VL>, 2u> vlimit_pair;
+    limit.copy_to(limit_pair.data());
+    vlimit.copy_to(vlimit_pair.data());
+    return clip(std::forward<decltype(x)>(x), varg_tag{},
+        limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X>
+auto rescale(X&& x)
+{
+    WL_TRY_BEGIN()
+        auto valx = wl::n(x);
+    const auto min = wl::min(valx);
+    const auto max = wl::max(valx);
+    return rescale(std::move(valx), varg_tag{}, min, max, 0, 1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Min, typename Max>
+auto rescale(X&& x, varg_tag, Min min, Max max)
+{
+    WL_TRY_BEGIN()
+        return rescale(std::forward<decltype(x)>(x), varg_tag{}, 0, 1);
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<typename X, typename Min, typename Max, typename VMin, typename VMax>
+auto rescale(X&& x, varg_tag, Min min, Max max, VMin vmin, VMax vmax)
+{
+    WL_TRY_BEGIN()
+        using XT = remove_cvref_t<X>;
+    static_assert(is_numerical_type_v<XT>, WL_ERROR_NUMERIC_ONLY);
+    static_assert(is_real_v<Min> && is_real_v<Max>, WL_ERROR_REAL_TYPE_ARG);
+    static_assert(is_real_v<VMin> && is_real_v<VMax>, WL_ERROR_REAL_TYPE_ARG);
+    using C = promote_integral_t<common_type_t<
+        value_type_t<XT>, Min, Max, VMin, VMax>>;
+    const auto cmin = cast<C>(min);
+    const auto cmax = cast<C>(max);
+    const auto cvmin = cast<C>(vmin);
+    const auto cvmax = cast<C>(vmax);
+    const auto a = (cvmax - cvmin) / (cmax - cmin);
+    const auto b = (cmax * cvmin - cmin * cvmax) / (cmax - cmin);
+    auto pure = [=](const auto& x)
+    {
+        using XV = remove_cvref_t<decltype(x)>;
+        static_assert(is_real_v<XV>, WL_ERROR_REAL_TYPE_ARG);
+        return a * cast<C>(x) + b;
+    };
+    return utils::listable_function(pure, std::forward<decltype(x)>(x));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Y>
@@ -9171,7 +9171,7 @@ auto _complement_impl(ndarray<XV, XR>&& x, const ndarray<YV, YR>& y)
                 if (order == 1)
                 {
                     if (out_iter != x_iter)
-                        utils::restrict_copy_n(x_iter, item_size, out_iter);
+                        std::move(x_iter, x_iter + item_size, out_iter);
                     x_iter += item_size;
                     out_iter += item_size;
                     ++length;
@@ -9188,7 +9188,7 @@ auto _complement_impl(ndarray<XV, XR>&& x, const ndarray<YV, YR>& y)
             if (x_iter < x_end)
             {
                 if (out_iter != x_iter)
-                    std::copy_n(x_iter, x_end - x_iter, out_iter);
+                    std::move(x_iter, x_end, out_iter);
                 length += (x_end - x_iter) / item_size;
             }
             x.uninitialized_resize(
@@ -9203,6 +9203,108 @@ auto set_complement(X&& x, Any&&... any)
     WL_TRY_BEGIN()
     return _complement_impl(wl::set_union(std::forward<decltype(x)>(x)),
         wl::set_union(std::forward<decltype(any)>(any)...));
+    WL_TRY_END(__func__, __FILE__, __LINE__)
+}
+template<size_t R1, size_t... Rs>
+auto _intersection_check_dims(const std::array<size_t, R1>& dim1,
+    const std::array<size_t, Rs>&... dims)
+{
+    return (utils::check_dims<R1 - 1u>(dim1.data() + 1, dims.data() + 1)
+        && ...);
+}
+template<typename XV, size_t XR, size_t N>
+auto _intersection_merge(std::array<ndarray<XV, XR>, N>& xs, 
+    const std::array<size_t, N>& sizes, const size_t item_size)
+{
+    static_assert(N > 0u, WL_ERROR_INTERNAL);
+    std::array<XV*, N> xs_data;
+    for (size_t i = 0; i < N; ++i)
+        xs_data[i] = xs[i].data();
+    size_t x0_size = sizes[0];
+    for (size_t i = 1u; i < N; ++i)
+    {
+        auto x0_iter = xs_data[0];
+        auto x0_end = x0_iter + x0_size * item_size;
+        auto x1_iter = xs_data[i];
+        auto x1_end = x1_iter + sizes[i] * item_size;
+        auto out_iter = x0_iter;
+        size_t new_x0_size = 0u;
+        while (x0_iter < x0_end && x1_iter < x1_end)
+        {
+            if constexpr (XR == 1u)
+            {
+                auto res = _order_scalar(*x0_iter, *x1_iter);
+                if (res == 0)
+                {
+                    if (out_iter != x0_iter)
+                        *out_iter = std::move(*x0_iter);
+                    ++x0_iter;
+                    ++x1_iter;
+                    ++out_iter;
+                    ++new_x0_size;
+                }
+                else
+                {
+                    (res > 0 ? x0_iter : x1_iter) += 1;
+                }
+            }
+            else
+            {
+                auto res = _order_array(x0_iter, x1_iter, item_size);
+                if (res == 0)
+                {
+                    if (out_iter != x0_iter)
+                        std::move(x0_iter, x0_iter + item_size, out_iter);
+                    x0_iter += item_size;
+                    x1_iter += item_size;
+                    out_iter += item_size;
+                    ++new_x0_size;
+                }
+                else
+                {
+                    (res > 0 ? x0_iter : x1_iter) += item_size;
+                }
+            }
+        }
+        x0_size = new_x0_size;
+    }
+    return x0_size;
+}
+template<typename X1, typename... Xs>
+auto set_intersection(X1&& x1, Xs&&... xs)
+{
+    WL_TRY_BEGIN()
+    static_assert(((array_rank_v<remove_cvref_t<X1>> >= 1u) && ... &&
+        (array_rank_v<remove_cvref_t<Xs>> >= 1u)), WL_ERROR_REQUIRE_ARRAY);
+    using XT = remove_cvref_t<X1>;
+    constexpr auto XR = array_rank_v<XT>;
+    using XV = value_type_t<XT>;
+    auto ret_dims = x1.dims();
+    if constexpr (
+        !(std::is_same_v<XV, value_type_t<remove_cvref_t<Xs>>> && ...) ||
+        ((XR != array_rank_v<remove_cvref_t<Xs>>) || ...))
+    {
+        ret_dims[0] = 0u;
+        return ndarray<value_type_t<XT>, XR>(ret_dims);
+    }
+    else if (!_intersection_check_dims(x1.dims(), xs.dims()...))
+    {
+        ret_dims[0] = 0u;
+        return ndarray<value_type_t<XT>, XR>(ret_dims);
+    }
+    else
+    {
+        constexpr size_t N = sizeof...(Xs) + 1;
+        auto sorted = std::array<ndarray<XV, XR>, N>{
+            wl::set_union(x1), wl::set_union(xs)...};
+        auto sizes = std::array<size_t, N>{x1.dims()[0], (xs.dims()[0])...};
+        auto ret_size = _intersection_merge(sorted, sizes,
+            utils::size_of_dims<XR - 1u>(&x1.dims()[0] + 1));
+        ret_dims[0] = ret_size;
+        auto ret = std::move(sorted[0]);
+        ret.uninitialized_resize(ret_dims);
+        return ret;
+    }
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X>
@@ -15320,7 +15422,8 @@ auto _to_string_array_impl(const XV*& x_ptr,
     else
     {
         auto size = x_dims[I];
-        _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
+        if (size > 0u)
+            _to_string_array_impl<I + 1u>(x_ptr, x_dims, ret, buffer);
         for (size_t i = 1u; i < size; ++i)
         {
             ret.template join<false>(", ");

@@ -4673,7 +4673,7 @@ template<typename X, typename L, typename VL>
 auto rescale(X&& x, const L& limit, const VL& vlimit)
 {
     WL_TRY_BEGIN()
-        static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
     static_assert(array_rank_v<VL> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
     if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
     if (vlimit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
@@ -4689,17 +4689,17 @@ template<typename X>
 auto rescale(X&& x)
 {
     WL_TRY_BEGIN()
-        auto valx = wl::n(x);
+    auto valx = wl::n(x);
     const auto min = wl::min(valx);
     const auto max = wl::max(valx);
-    return rescale(std::move(valx), varg_tag{}, min, max, 0, 1);
+    return rescale(std::move(valx), varg_tag{}, min, max);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Min, typename Max>
 auto rescale(X&& x, varg_tag, Min min, Max max)
 {
     WL_TRY_BEGIN()
-        return rescale(std::forward<decltype(x)>(x), varg_tag{}, 0, 1);
+    return rescale(std::forward<decltype(x)>(x), varg_tag{}, min, max, 0, 1);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<typename X, typename Min, typename Max, typename VMin, typename VMax>

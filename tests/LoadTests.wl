@@ -21,11 +21,11 @@ test[name_String,f_,pairs_,cmp_:SameQ]:=(
 
 cleartests[]:=($MathCompileTests={};)
 
-runtests[]:=
+runtests[print_:False]:=
   Block[{$FailedMathCompileTests={},i=0,n=Length@$MathCompileTests},
     Quiet@CreateDirectory[$MathCompileTmp="./mathcompile_tmpfiles/"];
     PrintTemporary[Column[{ProgressIndicator[Dynamic[i/n]],Dynamic@$CurrentMathCompileTest}]];
-    Do[$MathCompileTests[[i]][],{i,1,n}];
+    Do[If[print,Echo[$CurrentMathCompileTest]];$MathCompileTests[[i]][],{i,1,n}];
     (*DeleteDirectory[$MathCompileTmp,DeleteContents\[Rule]True];*)
     <|"FailedTests"->$FailedMathCompileTests|>
   ]
@@ -582,4 +582,20 @@ registertest[test["diagonal_matrix:1arg",     Function[{Typed[d,{Integer,1}]},Di
 registertest[test["diagonal_matrix:2args",    Function[{Typed[d,{Integer,1}],Typed[k,Integer]},DiagonalMatrix[d,k]],{{{1,2,3,4,5},3},{{1,2,3,4,5},-3},{{1,2,3,4,5},0},{{1},2}}]&];
 registertest[test["diagonal_matrix:3args",    Function[{Typed[d,{Integer,1}],Typed[k,Integer],Typed[n,Integer]},DiagonalMatrix[d,k,n]],{{{1,2,3,4,5},3,10},{{1,2,3,4,5},-3,4},{{1},2,3}}]&];
 registertest[test["diagonal_matrix:3args2",   Function[{Typed[d,{Integer,1}],Typed[k,Integer],Typed[n,{Integer,1}]},DiagonalMatrix[d,k,n]],{{{1,2,3,4,5},3,{6,9}},{{1,2,3,4,5},-3,{5,4}},{{1},2,{3,3}}}]&];
+
+registertest[test["take_smallest",Function[{Typed[l,{Integer,1}],Typed[n,Integer]},TakeSmallest[l,n]],{{{1,5,2,4},2},{{1,5,2,4},4},{{1,3,5,4},0},{RandomInteger[100,100],50}}]&];
+registertest[test["take_largest",Function[{Typed[l,{Real,1}],Typed[n,Integer]},TakeLargest[l,n]],{{{1.,5.,2.,4.},2},{{1.,5.,2.,4.},4},{{1.,3.,5.,4.},0},{N@RandomInteger[100,100],50}}]&];
+registertest[test["spearman_rho:real",Function[{Typed[x,{Real,1}],Typed[y,{Real,1}]},SpearmanRho[x,y]],{{RandomReal[10,30],RandomReal[10,30]}},Abs[#1-#2]<1.*^-6&]&];
+registertest[test["spearman_rho:int",Function[{Typed[x,{Integer,1}],Typed[y,{Integer,1}]},N@SpearmanRho[x,y]],{{RandomInteger[10,30],RandomInteger[10,30]}},Abs[#1-#2]<1.*^-6&]&];
+registertest[test["spearman_rho:m",Function[{Typed[x,{Real,2}]},SpearmanRho[x]],{{RandomReal[10,{10,11}]}},Max@Abs[#1-#2]<1.*^-6&]&];
+registertest[test["spearman_rho:mm",Function[{Typed[x,{Integer,2}],Typed[y,{Integer,2}]},N@SpearmanRho[x,y]],{{RandomInteger[10,{10,8}],RandomInteger[10,{10,13}]}},Max@Abs[#1-#2]<1.*^-6&]&];
+registertest[test["rescale:1arg",Function[{Typed[a,Real],Typed[b,Real],Typed[c,Real]},Rescale[a,{b,c}]],{{1.,2.,3.},{2.5,-10.,10.}},Abs[#1-#2]<1.*^-6&]&];
+registertest[test["rescale:2args",Function[{Typed[a,{Integer,1}],Typed[b,{Integer,1}]},Rescale[a,b]],{{{1,3,5,6,7},{2,3}},{{3,6,7,8},{-5,-10}}},Max@Abs[#1-#2]<1.*^-6&]&];
+registertest[test["rescale:3args",Function[{Typed[a,{Integer,1}],Typed[b,{Integer,1}],Typed[c,{Integer,1}]},Rescale[a,b,c]],{{{-2,0,2},{-5,5},{-1,1}},{{-2,0,2},{5,-5},{1,4}}},Max@Abs[#1-#2]<1.*^-6&]&];
+registertest[test["complement:level1",Function[{Typed[a,{Integer,1}],Typed[b,{Integer,1}]},Complement[a,b]],{{RandomInteger[20,20],RandomInteger[20,15]}}]&];
+registertest[test["complement:level2",Function[{Typed[a,{Integer,2}],Typed[b,{Integer,2}]},Complement[a,b]],{{RandomInteger[2,{20,3}],RandomInteger[2,{20,3}]}}]&];
+registertest[test["complement:1arg",Function[{Typed[a,{Integer,2}]},Complement[a]],{{RandomInteger[2,{20,3}]}}]&];
+registertest[test["complement:nargs",Function[{Typed[a,{Integer,2}],Typed[b,{Integer,2}],Typed[c,{Integer,2}],Typed[d,{Integer,2}]},Complement[a,b,c,d]],{{RandomInteger[2,{20,3}],RandomInteger[2,{10,3}],RandomInteger[2,{10,3}],RandomInteger[2,{10,3}]}}]&];
+registertest[test["intersection:level1",Function[{Typed[a,{Integer,1}],Typed[b,{Integer,1}]},Intersection[a,b]],{{RandomInteger[20,20],RandomInteger[20,20]}}]&];
+registertest[test["intersection:level2",Function[{Typed[a,{Integer,2}],Typed[b,{Integer,2}],Typed[c,{Integer,2}],Typed[d,{Integer,2}]},Intersection[a,b,c,d]],{{RandomInteger[2,{30,3}],RandomInteger[2,{30,3}],RandomInteger[2,{30,3}],RandomInteger[2,{30,3}]}}]&];
 

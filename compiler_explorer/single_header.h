@@ -4661,11 +4661,11 @@ template<typename X, typename L>
 auto rescale(X&& x, const L& limit)
 {
     WL_TRY_BEGIN()
-        static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
+    static_assert(array_rank_v<L> == 1u, WL_ERROR_REQUIRE_ARRAY_RANK"one.");
     if (limit.size() != 2u) throw std::logic_error(WL_ERROR_CLIP_LIMIT_SIZE);
     std::array<value_type_t<L>, 2u> limit_pair;
     limit.copy_to(limit_pair.data());
-    return clip(std::forward<decltype(x)>(x), varg_tag{},
+    return rescale(std::forward<decltype(x)>(x), varg_tag{},
         limit_pair[0], limit_pair[1]);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -4681,7 +4681,7 @@ auto rescale(X&& x, const L& limit, const VL& vlimit)
     std::array<value_type_t<VL>, 2u> vlimit_pair;
     limit.copy_to(limit_pair.data());
     vlimit.copy_to(vlimit_pair.data());
-    return clip(std::forward<decltype(x)>(x), varg_tag{},
+    return rescale(std::forward<decltype(x)>(x), varg_tag{},
         limit_pair[0], limit_pair[1], vlimit_pair[0], vlimit_pair[1]);
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
@@ -9201,8 +9201,11 @@ template<typename X, typename... Any>
 auto set_complement(X&& x, Any&&... any)
 {
     WL_TRY_BEGIN()
-    return _complement_impl(wl::set_union(std::forward<decltype(x)>(x)),
-        wl::set_union(std::forward<decltype(any)>(any)...));
+    if constexpr (sizeof...(Any) == 0u)
+        return wl::set_union(std::forward<decltype(x)>(x));
+    else
+        return _complement_impl(wl::set_union(std::forward<decltype(x)>(x)),
+            wl::set_union(std::forward<decltype(any)>(any)...));
     WL_TRY_END(__func__, __FILE__, __LINE__)
 }
 template<size_t R1, size_t... Rs>
@@ -9213,24 +9216,23 @@ auto _intersection_check_dims(const std::array<size_t, R1>& dim1,
         && ...);
 }
 template<typename XV, size_t XR, size_t N>
-auto _intersection_merge(std::array<ndarray<XV, XR>, N>& xs, 
-    const std::array<size_t, N>& sizes, const size_t item_size)
+auto _intersection_merge(std::array<ndarray<XV, XR>, N>& xs,
+    const size_t item_size)
 {
     static_assert(N > 0u, WL_ERROR_INTERNAL);
-    std::array<XV*, N> xs_data;
-    for (size_t i = 0; i < N; ++i)
-        xs_data[i] = xs[i].data();
-    size_t x0_size = sizes[0];
+    const auto x0_data = xs[0].data();
+    size_t x0_size = xs[0].dims()[0];
     for (size_t i = 1u; i < N; ++i)
     {
-        auto x0_iter = xs_data[0];
+        auto x0_iter = x0_data;
         auto x0_end = x0_iter + x0_size * item_size;
-        auto x1_iter = xs_data[i];
-        auto x1_end = x1_iter + sizes[i] * item_size;
+        auto x1_iter = xs[i].data();
+        auto x1_end = x1_iter + xs[i].size();
         auto out_iter = x0_iter;
         size_t new_x0_size = 0u;
         while (x0_iter < x0_end && x1_iter < x1_end)
         {
+            WL_THROW_IF_ABORT()
             if constexpr (XR == 1u)
             {
                 auto res = _order_scalar(*x0_iter, *x1_iter);
@@ -9297,8 +9299,7 @@ auto set_intersection(X1&& x1, Xs&&... xs)
         constexpr size_t N = sizeof...(Xs) + 1;
         auto sorted = std::array<ndarray<XV, XR>, N>{
             wl::set_union(x1), wl::set_union(xs)...};
-        auto sizes = std::array<size_t, N>{x1.dims()[0], (xs.dims()[0])...};
-        auto ret_size = _intersection_merge(sorted, sizes,
+        auto ret_size = _intersection_merge(sorted,
             utils::size_of_dims<XR - 1u>(&x1.dims()[0] + 1));
         ret_dims[0] = ret_size;
         auto ret = std::move(sorted[0]);

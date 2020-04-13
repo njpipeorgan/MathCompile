@@ -21,11 +21,10 @@ test[name_String,f_,pairs_,cmp_:SameQ]:=(
 
 cleartests[]:=($MathCompileTests={};)
 
-runtests[print_:False]:=
+runtests[]:=
   Block[{$FailedMathCompileTests={},i=0,n=Length@$MathCompileTests},
     Quiet@CreateDirectory[$MathCompileTmp="./mathcompile_tmpfiles/"];
-    PrintTemporary[Column[{ProgressIndicator[Dynamic[i/n]],Dynamic@$CurrentMathCompileTest}]];
-    Do[If[print,Echo[$CurrentMathCompileTest]];$MathCompileTests[[i]][],{i,1,n}];
+    Do[Echo[$CurrentMathCompileTest];$MathCompileTests[[i]][],{i,1,n}];
     (*DeleteDirectory[$MathCompileTmp,DeleteContents\[Rule]True];*)
     <|"FailedTests"->$FailedMathCompileTests|>
   ]

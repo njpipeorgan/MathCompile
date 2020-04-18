@@ -23,9 +23,9 @@ test[name_String,f_,pairs_,cmp_:SameQ]:=(
 cleartests[]:=($MathCompileTests={};)
 
 runtests[]:=
-  Block[{$FailedMathCompileTests={},i=0,n=Length@$MathCompileTests},
+  Block[{$FailedMathCompileTests={},itest=0,ntests=Length@$MathCompileTests},
     Quiet@CreateDirectory[$MathCompileTmp="./mathcompile_tmpfiles/"];
-    Do[Echo[$CurrentMathCompileTest];$MathCompileTests[[i]][],{i,1,n}];
+    Do[Echo[$CurrentMathCompileTest];$MathCompileTests[[itest]][],{itest,1,ntests}];
     (*DeleteDirectory[$MathCompileTmp,DeleteContents\[Rule]True];*)
     <|"FailedTests"->$FailedMathCompileTests|>
   ]

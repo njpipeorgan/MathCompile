@@ -114,6 +114,9 @@ namespace wl
 #define WL_ERROR_INTERNAL \
 "An internal error is encountered."
 
+#define WL_ERROR_NO_NUMERIC_ARRAY \
+"Numeric array is not supported by this version of Wolfram Language."
+
 #define WL_ERROR_SIZEOF_CHAR \
 "The size of char should be 1 byte."
 

@@ -32,7 +32,9 @@
 #include "mathlink.h"
 #include "WolframLibrary.h"
 #include "WolframCompileLibrary.h"
+#if !defined(WL_PRE_VERSION_12)
 #include "WolframNumericArrayLibrary.h"
+#endif
 #include "WolframRTL.h"
 
 namespace wl
@@ -40,6 +42,25 @@ namespace wl
 
 namespace librarylink
 {
+
+#if defined(WL_PRE_VERSION_12)
+enum numericarray_data_t
+{
+	MNumericArray_Type_Undef = 0,
+	MNumericArray_Type_Bit8 = 1,
+	MNumericArray_Type_UBit8, 
+	MNumericArray_Type_Bit16,
+	MNumericArray_Type_UBit16,
+	MNumericArray_Type_Bit32,
+	MNumericArray_Type_UBit32,
+	MNumericArray_Type_Bit64,
+	MNumericArray_Type_UBit64,
+	MNumericArray_Type_Real32,
+	MNumericArray_Type_Real64,
+	MNumericArray_Type_Complex_Real32,
+	MNumericArray_Type_Complex_Real64
+};
+#endif
 
 extern WolframLibraryData lib_data;
 extern WolframCompileLibrary_Functions lib_functions;
@@ -374,6 +395,7 @@ auto get_array(MArgument arg)
     }
     else // pass by numeric array
     {
+#if !defined(WL_PRE_VERSION_12)
         auto na_lib_data = lib_data->numericarrayLibraryFunctions;
 
         auto narray = MArgument_getMNumericArray(arg);
@@ -392,6 +414,9 @@ auto get_array(MArgument arg)
         ndarray<T, R> ret(dims);
         std::memcpy(ret.data(), ptr, ret.size() * sizeof(T));
         return ret;
+#else
+        static_assert(always_false_v<T>, WL_ERROR_NO_NUMERIC_ARRAY);
+#endif
     }
 }
 
@@ -465,6 +490,7 @@ void set_array(MArgument& res, const ndarray<T, R>& val)
     }
     else
     {
+#if !defined(WL_PRE_VERSION_12)
         std::array<mint, R> output_dims;
         std::copy_n(val.dims().data(), R, output_dims.data());
         auto na_lib_data = lib_data->numericarrayLibraryFunctions;
@@ -475,6 +501,9 @@ void set_array(MArgument& res, const ndarray<T, R>& val)
         auto* ptr = na_lib_data->MNumericArray_getData(narray);
         std::memcpy(ptr, val.data(), val.size() * sizeof(T));
         MArgument_setMTensor(res, narray);
+#else
+        throw std::logic_error(WL_ERROR_NO_NUMERIC_ARRAY);
+#endif
     }
 }
 

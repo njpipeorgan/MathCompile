@@ -9,10 +9,11 @@ test[name_String,f_,pairs_,cmp_:SameQ]:=(
       Echo[name<>" contains zero groups of arguments."];Abort[]];
     cf=CompileToBinary[f];
     $CurrentCompiledLibrary=If[SymbolName@Head[cf]==="IndirectReturn",cf[[1]],cf];
-    file=DeleteMissing@{Information[$CurrentCompiledLibrary]["File"]};
+    file=If[$VersionNumber<12.0,If[StringQ[#],{#},{}]&@Quiet[f[[1]]],
+      DeleteMissing@{Information[$CurrentCompiledLibrary]["File"]}];
     If[cf===$Failed||Catch[Or@@(!TrueQ[
         If[Head[#]===Rule,($LastReturn=(cf@@#[[1]]))~cmp~#[[2]],
-          ($LastReturn=(cf@@#))~cmp~(f@@#)]]&/@pairs),___,True&],
+          ($LastReturn=(cf@@#))~cmp~((ReplacePart[#,1->(#[[1]]/.Typed[var_,___]:>var)]&[f])@@#)]]&/@pairs),___,True&],
       AppendTo[$FailedMathCompileTests,name];
     ];
     If[cf=!=$Failed,LibraryFunctionUnload[$CurrentCompiledLibrary]];
@@ -34,12 +35,8 @@ $MathCompileTests={};
 
 registertest[test["types:integer,1",          Function[{Typed[x,{Integer,1}]},x],{{Range[10]},{Range[0]},{Range[1000000]}}]&];
 registertest[test["types:double,1",           Function[{Typed[x,{Real,1}]},x],{{N@Range[10]},{N@Range[0]},{N@Range[1000000]}}]&];
-registertest[test["types:float,1",            Function[{Typed[x,{"Real32",1}]},x],{{NumericArray[N@Range[100],"Real32"]}}]&];
 registertest[test["types:complex,1",          Function[{Typed[x,{Complex,1}]},x],{{Range[100](1.+1.I)}}]&];
-registertest[test["types:complexfloat32,1",   Function[{Typed[x,{"ComplexReal32",1}]},x],{{NumericArray[Range[100](1.+1.I),"ComplexReal32"]}}]&];
 registertest[test["types:bool",               Function[{Typed[x,"Boolean"]},x],{{True},{False}}]&];
-registertest[test["types:uint16,1",           Function[{Typed[x,{"UnsignedInteger16",1}]},x],{{NumericArray[Range[100],"UnsignedInteger16"]}}]&];
-registertest[test["types:int8",               Function[{Typed[x,"Integer8"]},x],{{-5}}]&];
 registertest[test["types:double,8",           Function[{Typed[x,{Real,8}]},x],{{ArrayReshape[N@Range[362880],{2,3,4,5,6,7,8,9}]}}]&];
 
 registertest[test["module:basic",             Function[{Typed[x,Real]},Module[{y=0.0,z},z=4;y=x*x;x+y+z]],{{5.0}}]&];

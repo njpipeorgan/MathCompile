@@ -49,6 +49,7 @@ $packagepath=DirectoryName[$InputFileName];
 $slotmaximum=16;
 $rankmaximum=16;
 $documentlinkbase="https://github.com/njpipeorgan/MathCompile/wiki/";
+If[$VersionNumber<12.0,Off[Function::flpar];];
 
 
 getlink[page_]:="\!\(\*TemplateBox[{\"\[RightGuillemet]\",\""<>$documentlinkbase<>page<>"\"},\"HyperlinkURL\"]\)"
@@ -1258,6 +1259,7 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
           opt["Base"],
           opt["Optimize"][If[TrueQ@OptionValue["Debug"],0,3]],
           opt["Define"][{"WL_USE_MATHLINK",
+            If[$VersionNumber<12.0,"WL_PRE_VERSION_12",Nothing],
             If[TrueQ@OptionValue["MonitorAbort"],"WL_CHECK_ABORT",Nothing],
             If[!TrueQ@OptionValue["Debug"],"NDEBUG",Nothing]}],
           OptionValue["CompileOptions"]

@@ -38,6 +38,12 @@ registertest[test["types:double,1",           Function[{Typed[x,{Real,1}]},x],{{
 registertest[test["types:complex,1",          Function[{Typed[x,{Complex,1}]},x],{{Range[100](1.+1.I)}}]&];
 registertest[test["types:bool",               Function[{Typed[x,"Boolean"]},x],{{True},{False}}]&];
 registertest[test["types:double,8",           Function[{Typed[x,{Real,8}]},x],{{ArrayReshape[N@Range[362880],{2,3,4,5,6,7,8,9}]}}]&];
+If[$VersionNumber>=12.0,
+registertest[test["types:float,1",            Function[{Typed[x,{"Real32",1}]},x],{{NumericArray[N@Range[100],"Real32"]}}]&];
+registertest[test["types:complexfloat32,1",   Function[{Typed[x,{"ComplexReal32",1}]},x],{{NumericArray[Range[100](1.+1.I),"ComplexReal32"]}}]&];
+registertest[test["types:uint16,1",           Function[{Typed[x,{"UnsignedInteger16",1}]},x],{{NumericArray[Range[100],"UnsignedInteger16"]}}]&];	
+registertest[test["types:int8",               Function[{Typed[x,"Integer8"]},x],{{-5}}]&];
+];
 
 registertest[test["module:basic",             Function[{Typed[x,Real]},Module[{y=0.0,z},z=4;y=x*x;x+y+z]],{{5.0}}]&];
 registertest[test["module:nested",            Function[{Typed[x,Real]},Module[{y},y=x;Module[{z},z=y+1;z]]],{{3.0}}]&];
@@ -598,4 +604,7 @@ registertest[test["complement:1arg",Function[{Typed[a,{Integer,2}]},Complement[a
 registertest[test["complement:nargs",Function[{Typed[a,{Integer,2}],Typed[b,{Integer,2}],Typed[c,{Integer,2}],Typed[d,{Integer,2}]},Complement[a,b,c,d]],{{RandomInteger[2,{20,3}],RandomInteger[2,{10,3}],RandomInteger[2,{10,3}],RandomInteger[2,{10,3}]}}]&];
 registertest[test["intersection:level1",Function[{Typed[a,{Integer,1}],Typed[b,{Integer,1}]},Intersection[a,b]],{{RandomInteger[20,20],RandomInteger[20,20]}}]&];
 registertest[test["intersection:level2",Function[{Typed[a,{Integer,2}],Typed[b,{Integer,2}],Typed[c,{Integer,2}],Typed[d,{Integer,2}]},Intersection[a,b,c,d]],{{RandomInteger[2,{30,3}],RandomInteger[2,{30,3}],RandomInteger[2,{30,3}],RandomInteger[2,{30,3}]}}]&];
+
+registertest[test["ignoretypes:withtype",Function[{Typed[x,{Integer,2}]},Module[{add1=Function[{Typed[x,{Integer,1}]},x+1]},Table[add1@x[[i]],{i,Length@x}]]],{{IdentityMatrix[4]}->(IdentityMatrix[4]+1)}]&];
+registertest[test["ignoretypes:notype",Function[{Typed[x,{Integer,2}]},Module[{add1=Function[{x},x+1]},Table[add1@x[[i]],{i,Length@x}]]],{{IdentityMatrix[4]}->(IdentityMatrix[4]+1)}]&];
 

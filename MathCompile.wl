@@ -75,6 +75,7 @@ MCOptim::elemtype="The types of the elements in the list `1` are not consistent.
 MCOptim::elemdims="The dimensions of the elements in the list `1` are not consistent.";
 MCCodegen::bad="Cannot generate code for `1`.";
 MCCodegen::notype="One or more arguments of the main function is declared without types.";
+MCCodegen::ignoredtype="The argument type specifications of non-main functions will be ignored.";
 MCLink::rettype="Failed to retrieve the return type of the compiled function.";
 MCLink::bigrank="The rank of an argument exceeds the maximum rank.";
 MCLink::badtype="Cannot infer the type id \"`1`\"returned by the library.";
@@ -1043,9 +1044,13 @@ codegen[mainargs[vars_,types_,False],___]:=
       "Template"->If[Length@templatetypes==0,
         "",StringRiffle[templatetypes,{"template<typename ",", typename ",">\n"}]]
     |>]
-codegen[mainargs[vars_,types_,True],___]:=<|"Code"->codegen[args[vars,types]],"Template"->""|>;
+codegen[mainargs[vars_,types_,True],___]:=<|
+  "Code"->MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,
+    {types/.nil->"auto&&",vars}],
+  "Template"->""|>;
 codegen[args[vars_,types_],___]:=
-  MapThread[If[#=="auto&&",#,"const "<>#<>"&"]&@codegen[type[#1]]<>expandpack[#2]<>" "<>#2&,{types/.nil->"auto&&",vars}]
+  MapThread[(If[codegen[type[#1]]=!="auto&&",Message[MCCodegen::ignoredtype]];"auto&&"<>expandpack[#2]<>" "<>#2)&,
+    {types/.nil->"auto&&",vars}];
 codegen[argv[var_,i_Integer]]:=var<>".get("<>ToString@CForm[i-1]<>")"
 codegen[argv[var_,pack[i_Integer]]]:=var<>".get_pack("<>ToString@CForm[i-1]<>")"
 codegen[argmatch[var_,const[i_]]]:=var<>"["<>codegen[const[i]]<>"]"

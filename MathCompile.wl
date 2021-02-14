@@ -1228,9 +1228,9 @@ compilelink[f_,uncompiled_,OptionsPattern[]]:=
     libdir=OptionValue["TargetDirectory"];
     If[libdir===Automatic,libdir=FileNameJoin[{$UserBaseDirectory,"SystemFiles","LibraryResources","MathCompile"}]];
     If[(workdir=!=Automatic)&&!(StringQ[workdir]&&DirectoryQ[workdir]),
-      Message[MCLink::workdir];Return[$Failed]];
+      Message[MCLink::workdir,workdir];Return[$Failed]];
     If[!(StringQ[libdir]&&(DirectoryQ[libdir]||DirectoryQ[Quiet@CreateDirectory[libdir]])),
-      Message[MCLink::libdir];Return[$Failed]];
+      Message[MCLink::libdir,libdir];Return[$Failed]];
     opterror=Null;
     MathCompile`$CppSource=
       TemplateApply[$template,<|

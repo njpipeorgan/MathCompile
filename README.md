@@ -8,7 +8,7 @@ To compile *Wolfram Language* functions to C++ code, *Wolfram Mathematica* 12 is
 
 To compile functions to binary, a C++ compiler supporting C++17 standard is required. See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Prerequisites-for-C-Compiler) for the list of all supported C++ compilers, their availabilities, and how to use them. 
 
-MathCompile supports linking with external BLAS and LAPACK libraries as an alternative to [Eigen](http://eigen.tuxfamily.org). See this [wiki page] (https://github.com/njpipeorgan/MathCompile/wiki/Guide#external-blas-and-lapack) for how to do this.
+MathCompile supports linking with external BLAS and LAPACK libraries as an alternative to [Eigen](http://eigen.tuxfamily.org). See this [wiki page](https://github.com/njpipeorgan/MathCompile/wiki/Guide#external-blas-and-lapack) for how to do this.
 
 # Documentation
 
